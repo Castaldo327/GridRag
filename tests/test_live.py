@@ -18,6 +18,8 @@ class LiveTests(unittest.TestCase):
         self.assertTrue(res["gate"]["allowed"])
         self.assertIn("core.fact_balance_hourly", res["route"]["tables"])
         self.assertNotIn("core.queue_project", res["route"]["tables"])
+        self.assertNotIn("core.fact_generation_hourly", res["route"]["tables"])  # demand only: no fuel rows
+        self.assertNotIn("core.dim_fuel", res["route"]["tables"])
         self.assertEqual(res["state"], "answered")
         self.assertTrue(any(c["error"] is None for c in res["tool_calls"]))
         stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
@@ -34,7 +36,8 @@ class LiveTests(unittest.TestCase):
                 AND interval_start_local >= DATE '2026-09-01' AND interval_start_local < DATE '2026-10-01')""", 1
         )["csv"].splitlines()[1])
         print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected}%")
-        self.assertIn("core.fact_generation_hourly", res["route"]["tables"])
+        for table in ("core.fact_generation_hourly", "core.fact_balance_hourly", "core.dim_fuel"):  # share = fuel / net
+            self.assertIn(table, res["route"]["tables"])
         self.assertEqual(res["state"], "answered")
         stated = [float(n) for n in re.findall(r"\d+\.?\d*", res["answer"])]
         self.assertTrue(any(abs(n - expected) <= 0.05 for n in stated), stated)

@@ -8,7 +8,7 @@ CREATE TABLE core.dim_iso (
     timezone VARCHAR NOT NULL  -- clock of interval_start_local
 );
 
--- Fuels and technologies; queue projects reference these.
+-- Fuels and technologies shared by generation facts and queue projects.
 CREATE TABLE core.dim_fuel (
     fuel_id        SMALLINT PRIMARY KEY,
     fuel_code      VARCHAR NOT NULL UNIQUE,  -- natural_gas, coal, oil, nuclear, hydro, wind, solar, geothermal, biomass, battery, hydrogen, transmission, other
@@ -24,6 +24,7 @@ CREATE TABLE core.dim_queue_status (
     description VARCHAR NOT NULL
 );
 
+-- Hourly balance: total demand (load) and net generation across all fuels, the denominator of fuel shares.
 -- One row per ISO and hour. Local timestamps repeat in the fall-back hour, so the key is UTC.
 CREATE TABLE core.fact_balance_hourly (
     iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
@@ -34,7 +35,7 @@ CREATE TABLE core.fact_balance_hourly (
     PRIMARY KEY (iso_id, interval_start_utc)
 );
 
--- One row per ISO, hour and generated fuel; MW averaged over the hour.
+-- Hourly generation by fuel: one row per ISO, hour and fuel; MW averaged over the hour.
 -- Battery is net output: negative while charging.
 CREATE TABLE core.fact_generation_hourly (
     iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
