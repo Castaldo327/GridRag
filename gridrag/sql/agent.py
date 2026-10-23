@@ -38,9 +38,10 @@ TOOLS = [
 ]
 
 
-def run(llm, instructions: str, question: str, allowed_tables: set[str] | None = None) -> dict:
+def run(llm, instructions: str, question: str, allowed_tables: set[str] | None = None, on_progress=None) -> dict:
     """{answer, state, tool_calls}. state is answered, abstained (no query was run) or write_failed
     (every query failed): only an answer backed by at least one successful query counts as answered."""
+    report = on_progress or (lambda update: None)
     calls, evidence, resp, items = [], [], None, question
     for n in range(1, SQL_MAX_ROUNDS + 1):
         kwargs = {
@@ -50,12 +51,14 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
         }
         if resp:
             kwargs["previous_response_id"] = resp["id"]
+        report({"stage": "answer" if evidence else "sql"})
         resp = llm.respond("sql", instructions, items, **kwargs)
         pending = [o for o in resp.get("output", []) if o.get("type") == "function_call"]
         if not pending:
             break
         items = []
         for c in pending:
+            report({"stage": "sql"})
             try:
                 args = json.loads(c["arguments"])
                 if c["name"] != "run_sql" or not isinstance(args.get("query"), str):
@@ -65,7 +68,9 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
                 args, out = {"query": c.get("arguments")}, {"error": f"bad arguments: {exc}"}
             if "csv" in out:
                 evidence.append(out["csv"])
-            calls.append({"query": args["query"], "rows": out.get("rows"), "error": out.get("error")})
+            calls.append({"query": args["query"], "rows": out.get("rows"), "error": out.get("error"),
+                          "csv": out.get("csv"), "truncated": out.get("truncated")})
+            report({"stage": "sql", "tool_calls": list(calls)})
             items.append({"type": "function_call_output", "call_id": c["call_id"], "output": json.dumps(out)})
     text = output_text(resp)
     if not text.strip() or resp.get("status") in {"incomplete", "failed"}:

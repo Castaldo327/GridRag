@@ -1,7 +1,6 @@
 """Select whole tables from the schema, then include their referenced tables.
 
-The schema is the routing catalog: adding a table needs no family rules, ISO
-matrix or column classifier. Uncertain decisions retain context rather than
+The schema is the routing catalog. Uncertain decisions retain context rather than
 silently removing it. The table budget still bounds the SQL model's context.
 """
 

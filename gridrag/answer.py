@@ -18,10 +18,11 @@ Inspect values or coverage with SQL when needed; repair failed queries using the
 
 {rules}"""
 
-def answer(question: str, llm=None) -> dict:
+def answer(question: str, llm=None, on_progress=None) -> dict:
     """The answer record: question, state, answer, gate, route, tool_calls, timings (seconds per stage and
     total) and usage (model calls, tokens, cost); a failed record adds error and stage. state is answered,
     abstained, write_failed, declined (gate), clarification (routing too broad) or failed."""
+    report = on_progress or (lambda update: None)
     llm = llm or LLM()
     check, selection, timings, started = None, None, {}, time.perf_counter()
     stage, stage_started = "gate", started
@@ -36,18 +37,22 @@ def answer(question: str, llm=None) -> dict:
                 "timings": {**timings, "total": round(time.perf_counter() - started, 3)}, "usage": llm.totals()}
 
     try:
+        report({"stage": "gate"})
         check = gate(question, llm)
-        lap("route")
         if not check["allowed"]:
+            lap()
             return finish(state="declined", answer=check["reason"])
+        lap("route")
+        report({"stage": "route", "gate": check})
         selection = route(question, llm)
         lap("sql")
+        report({"stage": "sql", "route": selection})
         blocks = schema_blocks()
         prompt = INSTRUCTIONS.format(
             rules=agent.ANSWER_RULES,
             schema="\n\n".join(blocks[table] for table in selection["tables"]),
         )
-        output = agent.run(llm, prompt, question, set(selection["tables"]))
+        output = agent.run(llm, prompt, question, set(selection["tables"]), on_progress=report)
         lap()
         return finish(**output)
     except RoutingTooBroad as exc:  # ask to narrow instead of handing SQL an oversized schema
