@@ -25,8 +25,7 @@ def _database() -> duckdb.DuckDBPyConnection:
     return _db
 
 
-SAFE_TABLE_FUNCTIONS = {"range", "generate_series", "unnest"}  # others (query, read_*) could bypass the guard
-
+SAFE_TABLE_FUNCTIONS = {"range", "generate_series", "unnest"} 
 
 def _references(node, tables: set, functions: set, ctes: set) -> None:
     """Collects (schema, table) references, table functions and CTE names from a parsed query tree."""
@@ -48,13 +47,12 @@ def _references(node, tables: set, functions: set, ctes: set) -> None:
 
 
 def _check(cur: duckdb.DuckDBPyConnection, sql: str) -> str | None:
-    """Why a model-written query may not run, or None. The query is parsed, not bound, so this never
-    touches data: one SELECT, tables only from core (or the query's own CTEs), and no table functions
+    """one SELECT, tables only from core (or the query's own CTEs), and no table functions
     beyond SAFE_TABLE_FUNCTIONS."""
     (text,) = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchone()
     parsed = json.loads(text)
     if parsed.get("error"):
-        if parsed.get("error_type") == "not implemented":  # json_serialize_sql only accepts SELECT
+        if parsed.get("error_type") == "not implemented":  # json_serialize_sql only accepts SELECT rn
             return "only a single SELECT (or WITH ... SELECT) query is allowed"
         return f"{parsed.get('error_type', 'parser')} error: {parsed.get('error_message', '')}"[:600]
     if len(parsed["statements"]) != 1:
