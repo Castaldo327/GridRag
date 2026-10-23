@@ -9,8 +9,8 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
-DB = ROOT / "data" / "warehouse.duckdb"
+from gridrag.config import DB
+
 SCHEMA = Path(__file__).with_name("schema.sql")
 SEED = 20261023
 START, END = pd.Timestamp("2025-01-01"), pd.Timestamp("2026-10-21")  

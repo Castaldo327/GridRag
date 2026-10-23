@@ -3,4 +3,5 @@ data/
 
 # python
 .venv/
+.env
 __pycache__/
