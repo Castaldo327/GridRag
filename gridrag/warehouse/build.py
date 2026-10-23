@@ -12,11 +12,13 @@ import numpy as np
 import pandas as pd
 
 from gridrag.config import DB
+from gridrag.warehouse import products
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 SEED = 20261023
 START, END = pd.Timestamp("2025-01-01"), pd.Timestamp("2026-10-21")
 FIVE_START, FIVE_MINUTE_ISOS = pd.Timestamp("2026-10-15"), ("CAISO", "ERCOT")  # last week only, two ISOs
+# per-ISO products (prices) cover the same last week, for all seven ISOs
 
 ISOS = {
     "CAISO": {"tz": "America/Los_Angeles", "demand_base_mw": 33500, "solar_peak_mw": 14500, "wind_base_mw": 4100,
@@ -157,6 +159,11 @@ def queue(as_of: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def schema_text() -> str:
+    """Every CREATE TABLE: the hand-written schema.sql, then the generated per-ISO products."""
+    return SCHEMA.read_text().rstrip() + "\n\n" + products.schema(list(ISOS), FIVE_START, END) + "\n"
+
+
 def _insert(con, table, frame):
     con.register("incoming", frame)
     con.execute(f"INSERT INTO {table} BY NAME SELECT * FROM incoming")
@@ -166,8 +173,10 @@ def _insert(con, table, frame):
 def build() -> dict[str, int]:
     """Rebuild the warehouse from scratch; returns rows per table."""
     facts: dict[str, list[pd.DataFrame]] = {}
-    for iso in ISOS:
+    for iso_id, iso in enumerate(ISOS, 1):
         parts = {**hourly(iso, START, END), **(five_minute(iso, FIVE_START, END) if iso in FIVE_MINUTE_ISOS else {})}
+        week_hourly, week_five = _series(iso, FIVE_START, END, "h")[0], _series(iso, FIVE_START, END, "5min")[0]
+        parts |= products.frames(iso, iso_id, week_hourly, week_five)
         for table, frame in parts.items():
             facts.setdefault(table, []).append(frame)
     frames = {
@@ -182,13 +191,14 @@ def build() -> dict[str, int]:
         "core.dim_queue_status": pd.DataFrame([
             {"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()
         ]),
+        "core.dim_location": products.locations(list(ISOS)),
         **{table: pd.concat(parts, ignore_index=True) for table, parts in facts.items()},
         "core.queue_project": queue(END),
     }
     DB.parent.mkdir(parents=True, exist_ok=True)
     DB.unlink(missing_ok=True)
     with duckdb.connect(str(DB)) as con:
-        con.execute(SCHEMA.read_text())
+        con.execute(schema_text())
         for table, frame in frames.items():  # dimensions first, so foreign keys resolve
             _insert(con, table, frame)
     return {table: len(frame) for table, frame in frames.items()}

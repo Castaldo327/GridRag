@@ -44,6 +44,13 @@ class BuildTests(unittest.TestCase):
             FROM core.fact_load_5min JOIN core.dim_iso USING (iso_id) GROUP BY iso_code ORDER BY iso_code""").fetchall()
         self.assertEqual(rows, [("CAISO", 7, 7 * 288), ("ERCOT", 7, 7 * 288)])  # 288 five-minute intervals a day
 
+    def test_bus_and_hub_prices_are_distinct_grains_whose_components_add_up(self):
+        for grain, locations in (("bus", 3), ("hub", 1)):
+            rows, worst = self.con.execute(f"""SELECT count(*), max(abs(lmp - energy - congestion - loss))
+                FROM core.ercot_lmp_rt_{grain}_5min WHERE interval_start_local::DATE = DATE '2026-10-21'""").fetchone()
+            self.assertEqual(rows, locations * 288, grain)
+            self.assertLess(worst, 0.015, grain)  # each part is rounded to cents
+
     def test_net_generation_is_the_sum_of_fuel_rows(self):
         # Fuel shares divide by net_generation_mw, so it must equal the fuel rows it summarizes.
         worst, hours = self.con.execute("""SELECT max(abs(b.net_generation_mw - g.mw)), count(*)

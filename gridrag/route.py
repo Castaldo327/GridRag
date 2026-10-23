@@ -1,7 +1,8 @@
 """Routing, so the SQL model sees only the tables and columns a question needs.
 
     1. one Decisions call picks the data families (hourly, five_minute, queue)
-    2. per selected family, one Decisions call scores each fact table from its schema.sql comment
+    2. per selected family, one Decisions call scores each fact table from its schema.sql comment; per-ISO
+       families (prices) instead score each ISO and each product, and keep every matching pair
     3. then one call scores the non-key columns of the tables it kept, from their column comments
     4. the dimensions those facts REFERENCE are added deterministically (dim_iso always), whole
 
@@ -13,15 +14,20 @@ rejected table stays out even in a chosen family.
 
 import re
 
-from gridrag.warehouse.build import SCHEMA
+from gridrag.config import MAX_ROUTED_TABLES
+from gridrag.warehouse.build import ISOS, schema_text
+from gridrag.warehouse.products import PRODUCTS, table_name
 
 DOMAINS = {
     "hourly": ("core.fact_balance_hourly", "core.fact_generation_hourly"),
     "five_minute": ("core.fact_load_5min", "core.fact_generation_5min"),
     "queue": ("core.queue_project",),
 }
-# Each family is asked about separately, so the wording says a family counts if ANY part of the answer
-# needs it; otherwise the model scores only the request's main subject and drops one side of a comparison.
+PER_ISO: dict[str, list] = {}  # family -> its products, for families with one table per ISO and product
+for _product in PRODUCTS:
+    DOMAINS[_product.family] = DOMAINS.get(_product.family, ()) + tuple(table_name(iso, _product) for iso in ISOS)
+    PER_ISO.setdefault(_product.family, []).append(_product)
+
 DOMAIN_QUESTIONS = {
     "hourly": (
         "Does answering the request require, even as one part or one side of a comparison, observed hourly "
@@ -35,14 +41,27 @@ DOMAIN_QUESTIONS = {
         "Does answering the request require, even as one part or one side of a comparison, interconnection "
         "queue projects, proposed project capacity or historical queue status?"
     ),
+    "prices": (
+        "Does answering the request require, even as one part or one side of a comparison, energy prices (LMPs) "
+        "at electrical buses or trading hubs, real-time or day-ahead, or their energy, congestion or loss components?"
+    ),
 }
 
 
+class RoutingTooBroad(RuntimeError):
+    """The selection exceeds MAX_ROUTED_TABLES; carries it so the caller can show what was chosen."""
+
+    def __init__(self, selection: dict):
+        super().__init__("Which ISO and data product should I focus on? That question needs more tables than "
+                         f"I can query at once ({len(selection['tables'])} of at most {MAX_ROUTED_TABLES}).")
+        self.selection = selection
+
+
 def schema_blocks() -> dict[str, str]:
-    """Each CREATE TABLE in schema.sql with the comments above it, keyed by table name."""
+    """Each CREATE TABLE (schema.sql and the generated products) with the comments above it, by table name."""
     return {
         m[1]: block.strip()
-        for block in SCHEMA.read_text().split("\n\n")
+        for block in schema_text().split("\n\n")
         if (m := re.search(r"CREATE TABLE (core\.\w+)", block))
     }
 
@@ -89,7 +108,44 @@ def _families(question: str, llm) -> tuple[list[str], dict, bool]:
     return domains, probabilities, fallback
 
 
+def _iso_product_tables(domain: str, question: str, llm) -> dict[str, float | None]:
+    """Per-ISO families: one call asks which ISOs and which products the question covers, and each table
+    scores the lower of its ISO's and product's probabilities (unknown if either is). Scoring 21+ near-identical
+    tables one by one makes the model pick a single "best" table, so all-ISO questions never reach the cap."""
+    products = PER_ISO[domain]
+    answers = llm.decide(
+        f"tables-{domain}",
+        question,
+        [
+            {
+                "type": "predicate",
+                "name": f"iso_{iso}",
+                "instructions": f"Does answering the question require data for {iso}, either named directly, "
+                f"through one of its locations such as {iso}_HUB, or as part of all ISOs?",
+            }
+            for iso in ISOS
+        ] + [
+            {
+                "type": "predicate",
+                "name": f"p{i}",
+                "instructions": f"Must the SQL that answers the question read this product: {product.description} "
+                "A question can need several products.",
+            }
+            for i, product in enumerate(products)
+        ],
+    )
+    isos = {iso: (answers.get(f"iso_{iso}") or {}).get("probability") for iso in ISOS}
+    kinds = [(answers.get(f"p{i}") or {}).get("probability") for i in range(len(products))]
+    return {
+        table_name(iso, product): None if isos[iso] is None or kinds[i] is None else min(isos[iso], kinds[i])
+        for i, product in enumerate(products)
+        for iso in ISOS
+    }
+
+
 def _tables(domain: str, question: str, llm, blocks: dict[str, str]) -> dict[str, float | None]:
+    if domain in PER_ISO:
+        return _iso_product_tables(domain, question, llm)
     facts = DOMAINS[domain]
     answers = llm.decide(
         f"tables-{domain}",
@@ -139,19 +195,26 @@ def _columns(domain: str, question: str, llm, blocks: dict[str, str], facts: lis
 def route(question: str, llm) -> dict:
     """{domains, tables, columns, probabilities, table_probabilities, fallback}. tables start with
     core.dim_iso, then the referenced dimensions, then the selected facts; columns lists the kept columns
-    of each selected fact table (dimensions are kept whole)."""
+    of each selected fact table (dimensions are kept whole). Raises RoutingTooBroad, before any column
+    calls, when the tables exceed MAX_ROUTED_TABLES."""
     domains, probabilities, fallback = _families(question, llm)
     blocks = schema_blocks()
-    scores, columns = {}, {}
+    kept, scores = {}, {}
     for domain in domains:
         domain_scores = _tables(domain, question, llm, blocks)
-        kept = [table for table, p in domain_scores.items() if p is None or p >= 0.2]
-        domain_columns, uncertain = _columns(domain, question, llm, blocks, kept)
         scores.update(domain_scores)
-        columns.update(domain_columns)
-        fallback = fallback or uncertain
-    facts = list(columns)
+        kept[domain] = [table for table, p in domain_scores.items() if p is None or p >= 0.2]
+    facts = [table for tables in kept.values() for table in tables]
     dimensions = re.findall(r"REFERENCES (core\.\w+)", "\n".join(blocks[table] for table in facts))
-    tables = list(dict.fromkeys(["core.dim_iso", *dimensions, *facts]))
-    return {"domains": domains, "tables": tables, "columns": columns, "probabilities": probabilities,
-            "table_probabilities": scores, "fallback": fallback or any(p is None for p in scores.values())}
+    selection = {
+        "domains": domains, "tables": list(dict.fromkeys(["core.dim_iso", *dimensions, *facts])), "columns": {},
+        "probabilities": probabilities, "table_probabilities": scores,
+        "fallback": fallback or any(p is None for p in scores.values()),
+    }
+    if len(selection["tables"]) > MAX_ROUTED_TABLES:
+        raise RoutingTooBroad(selection)
+    for domain, tables in kept.items():
+        columns, uncertain = _columns(domain, question, llm, blocks, tables)
+        selection["columns"].update(columns)
+        selection["fallback"] = selection["fallback"] or uncertain
+    return selection

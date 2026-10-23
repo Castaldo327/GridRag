@@ -18,6 +18,15 @@ CREATE TABLE core.dim_fuel (
     is_carbon_free BOOLEAN NOT NULL          -- renewable or nuclear
 );
 
+-- Fictional price locations: three electrical buses and one trading hub per ISO.
+-- Bus and hub IDs are not interchangeable.
+CREATE TABLE core.dim_location (
+    location_id   INTEGER  PRIMARY KEY,
+    iso_id        SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id),
+    location_code VARCHAR  NOT NULL UNIQUE,  -- ISO_BUS_A, ISO_BUS_B, ISO_BUS_C or ISO_HUB, with ISO replaced by the ISO code
+    location_type VARCHAR  NOT NULL CHECK (location_type IN ('bus', 'hub'))  -- no implied bus-to-hub averaging weights
+);
+
 -- Common status classes of interconnection-queue projects.
 CREATE TABLE core.dim_queue_status (
     status_code VARCHAR PRIMARY KEY,  -- active, withdrawn, completed, suspended or unknown

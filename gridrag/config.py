@@ -18,9 +18,9 @@ PRICES = {
     "responses": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
 }
 
+MAX_ROUTED_TABLES = 12  # largest schema slice SQL may receive, dimensions included; broader asks to narrow
 SQL_MAX_ROUNDS = 5
 SQL_MAX_ROWS = 500 
-
 
 def load_env() -> dict[str, str]:
     """Keys from .env, overridden by the process environment. OPENAI_API_KEY is accepted as an
@@ -40,7 +40,6 @@ def load_env() -> dict[str, str]:
     if key:
         env["OPEN_AI_KEY"] = key
     return env
-
 
 def require_key(name: str) -> str:
     if value := load_env().get(name):
