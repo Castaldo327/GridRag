@@ -12,6 +12,9 @@ def main() -> None:
     res = answer.answer(args.question)
     g = res["gate"]
     print(f"gate: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f} -> {g['reason']}")
+    if r := res.get("route"):
+        scores = ", ".join(f"{name} {p:.2f}" for name, p in r["probabilities"].items() if p is not None)
+        print(f"route: {scores}{' (uncertain: all)' if r['fallback'] else ''} -> {', '.join(r['tables'])}")
     print(f"state: {res['state']}")
     print(res["answer"])
     for c in res["tool_calls"]:

@@ -1,4 +1,4 @@
-"""Real provider calls (about five per run). Skipped without OPEN_AI_KEY."""
+"""Real provider calls (about a dozen per run). Skipped without OPEN_AI_KEY."""
 
 import re
 import unittest
@@ -14,8 +14,10 @@ class LiveTests(unittest.TestCase):
             "SELECT max(demand_mw) FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id) "
             "WHERE iso_code = 'ERCOT' AND interval_start_local::DATE = DATE '2026-10-19'", 1
         )["csv"].splitlines()[1]
-        print(f"\n{res['answer']}\n{res['tool_calls']}\nexpected {expected} MW")
+        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected} MW")
         self.assertTrue(res["gate"]["allowed"])
+        self.assertIn("core.fact_balance_hourly", res["route"]["tables"])
+        self.assertNotIn("core.queue_project", res["route"]["tables"])
         self.assertEqual(res["state"], "answered")
         self.assertTrue(any(c["error"] is None for c in res["tool_calls"]))
         stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
@@ -27,9 +29,20 @@ class LiveTests(unittest.TestCase):
             "SELECT count(*) FROM core.queue_project JOIN core.dim_iso USING (iso_id) JOIN core.dim_fuel USING (fuel_id) "
             "WHERE iso_code = 'ERCOT' AND fuel_code = 'solar' AND status_code = 'active'", 1
         )["csv"].splitlines()[1])
-        print(f"\n{res['answer']}\n{res['tool_calls']}\nexpected {expected}")
+        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected}")
+        self.assertIn("core.queue_project", res["route"]["tables"])
+        self.assertNotIn("core.fact_balance_hourly", res["route"]["tables"])
         self.assertEqual(res["state"], "answered")
         self.assertIn(str(expected), re.findall(r"\d+", res["answer"]))
+
+    def test_cross_family_question_routes_to_both(self):
+        res = answer.answer(
+            "As a percentage of ERCOT's peak hourly demand in 2025, how large is the total active battery "
+            "capacity in its current interconnection queue?"
+        )
+        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}")
+        self.assertEqual(res["route"]["domains"], ["hourly", "queue"])
+        self.assertEqual(res["state"], "answered")
 
     def test_gate_declines_before_any_sql(self):
         for question in ["What's a good recipe for brisket?",
