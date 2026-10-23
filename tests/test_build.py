@@ -51,6 +51,16 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(rows, locations * 288, grain)
             self.assertLess(worst, 0.015, grain)  # each part is rounded to cents
 
+    def test_forecast_vintages_include_a_hindsight_trap(self):
+        # Four publications per delivery hour; the latest is published after delivery, so ignoring the cutoff
+        # gives a different answer than the forecast actually known at 2026-10-20 18:00 UTC.
+        vintages, known, hindsight = self.con.execute("""SELECT count(*),
+                arg_max(forecast_mw, publish_time_utc) FILTER (WHERE publish_time_utc <= TIMESTAMP '2026-10-20 18:00'),
+                arg_max(forecast_mw, publish_time_utc)
+            FROM core.ercot_load_forecast_hourly WHERE interval_start_local = TIMESTAMP '2026-10-21 17:00'""").fetchone()
+        self.assertEqual(vintages, 4)
+        self.assertNotEqual(known, hindsight)
+
     def test_net_generation_is_the_sum_of_fuel_rows(self):
         # Fuel shares divide by net_generation_mw, so it must equal the fuel rows it summarizes.
         worst, hours = self.con.execute("""SELECT max(abs(b.net_generation_mw - g.mw)), count(*)

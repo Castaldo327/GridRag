@@ -1,6 +1,7 @@
 """Routing decisions with scripted probabilities: no provider calls."""
 
 import re
+import threading
 import unittest
 from types import SimpleNamespace
 
@@ -81,6 +82,22 @@ class RouteTests(unittest.TestCase):
             route("Compare every energy price", llm)
         self.assertEqual(len(raised.exception.selection["tables"]), 2 + 21)  # dim_iso, dim_location, 21 prices
         self.assertNotIn("columns-prices", stages)
+
+    def test_selected_families_route_in_parallel(self):
+        barrier = threading.Barrier(2)  # each family's table call blocks until the other one has started
+        llm = scripted({"storage": 0.99, "prices": 0.99},
+                       {"storage": {"iso_ERCOT": 0.99, "p0": 0.99}, "prices": {"iso_ERCOT": 0.99, "p1": 0.99}})
+        decide = llm.decide
+
+        def meet(stage, *args):
+            if stage.startswith("tables-"):
+                barrier.wait(timeout=2)  # raises BrokenBarrierError if the calls ran one after another
+            return decide(stage, *args)
+
+        llm.decide = meet
+        chosen = route("ERCOT hub price while batteries discharge", llm)
+        self.assertIn("core.ercot_storage_dispatch_5min", chosen["tables"])
+        self.assertIn("core.ercot_lmp_rt_hub_5min", chosen["tables"])
 
     def test_missing_column_probability_keeps_the_column(self):
         llm = scripted({"hourly": 0.99}, {"hourly": [0.99, 0.01]}, {"net_generation_mw": None, "demand_mw": 0.99})

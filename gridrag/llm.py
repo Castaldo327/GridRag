@@ -4,6 +4,7 @@ One OpenAI client per process, so every question reuses pooled HTTPS connections
 one question's calls, each tagged with the stage (gate, route, sql) that made it.
 """
 
+import threading
 import time
 
 from openai import OpenAI
@@ -11,13 +12,15 @@ from openai import OpenAI
 from gridrag import config
 
 _client: OpenAI | None = None
+_client_lock = threading.Lock()
 
 
 def client() -> OpenAI:
     global _client
-    if _client is None:
-        _client = OpenAI(api_key=config.require_key("OPEN_AI_KEY"), timeout=config.CALL_TIMEOUT_S)
-    return _client
+    with _client_lock:  # parallel routing calls must not each build their own client
+        if _client is None:
+            _client = OpenAI(api_key=config.require_key("OPEN_AI_KEY"), timeout=config.CALL_TIMEOUT_S)
+        return _client
 
 
 def output_text(resp: dict) -> str:
@@ -49,18 +52,23 @@ class LLM:
 
     def __init__(self):
         self.calls: list[dict] = []
+        self._lock = threading.Lock()  # routing records calls from parallel threads
+
+    def _record(self, call: dict) -> None:
+        with self._lock:
+            self.calls.append(call)
 
     def _request(self, kind: str, stage: str, method, **kwargs) -> dict:
         t = time.perf_counter()
         try:
             resp = method(**kwargs).model_dump(mode="json")
         except Exception as exc:
-            self.calls.append({"kind": kind, "stage": stage, "seconds": round(time.perf_counter() - t, 3),
-                               "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
-                               "error": type(exc).__name__})
+            self._record({"kind": kind, "stage": stage, "seconds": round(time.perf_counter() - t, 3),
+                          "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
+                          "error": type(exc).__name__})
             raise
         usage = resp.get("usage") or {}
-        self.calls.append({
+        self._record({
             "kind": kind,
             "stage": stage,
             "seconds": round(time.perf_counter() - t, 3),
@@ -93,12 +101,14 @@ class LLM:
         )
 
     def totals(self) -> dict:
+        with self._lock:
+            calls = list(self.calls)
         return {
-            "calls": len(self.calls),
-            "failed_calls": sum(c["error"] is not None for c in self.calls),
-            "input_tokens": sum(c["input_tokens"] for c in self.calls),
-            "cached_tokens": sum(c["cached_tokens"] for c in self.calls),
-            "output_tokens": sum(c["output_tokens"] for c in self.calls),
-            "cost_usd": sum(c["cost_usd"] for c in self.calls),
-            "per_call": list(self.calls),
+            "calls": len(calls),
+            "failed_calls": sum(c["error"] is not None for c in calls),
+            "input_tokens": sum(c["input_tokens"] for c in calls),
+            "cached_tokens": sum(c["cached_tokens"] for c in calls),
+            "output_tokens": sum(c["output_tokens"] for c in calls),
+            "cost_usd": sum(c["cost_usd"] for c in calls),
+            "per_call": calls,
         }

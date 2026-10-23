@@ -16,7 +16,9 @@ Write schema-qualified DuckDB SQL and call run_sql before stating any measured r
 repair it. Hourly data covers local dates {start:%b %d %Y} through {end:%b %d %Y}.
 Five-minute data covers local dates {five_start:%b %d %Y} through {end:%b %d %Y} for {five_isos} only.
 Interconnection-queue data is one current snapshot as of {end:%b %d %Y}; it is not a historical queue.
-Prices cover local dates {five_start:%b %d %Y} through {end:%b %d %Y} for every ISO, one table per ISO and product.
+Prices, load-forecast vintages, ancillary prices, storage dispatch, outages and curtailment cover local dates
+{five_start:%b %d %Y} through {end:%b %d %Y} for every ISO, one table per ISO and product.
+Forecasts: filter publish_time_utc to the requested knowledge cutoff BEFORE choosing the latest vintage.
 Calendar dates use interval_start_local unless UTC is explicitly requested.
 Bus and hub locations are different grains; never substitute one for the other.
 

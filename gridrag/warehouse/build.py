@@ -106,7 +106,8 @@ def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.Dat
     """Balance and generation-by-fuel rows for every UTC hour covering local dates start..end."""
     keys, demand, fuels = _series(iso, start, end, "h")
     total = sum(np.round(mw, 2) for mw in fuels.values())
-    balance = keys.assign(demand_mw=np.round(demand, 2), net_generation_mw=np.round(total, 2))
+    balance = keys.assign(demand_mw=np.round(demand, 2), demand_forecast_mw=np.round(demand * 1.015, 2),
+                          net_generation_mw=np.round(total, 2))
     return {"core.fact_balance_hourly": balance, "core.fact_generation_hourly": _generation(keys, fuels)}
 
 
@@ -175,8 +176,10 @@ def build() -> dict[str, int]:
     facts: dict[str, list[pd.DataFrame]] = {}
     for iso_id, iso in enumerate(ISOS, 1):
         parts = {**hourly(iso, START, END), **(five_minute(iso, FIVE_START, END) if iso in FIVE_MINUTE_ISOS else {})}
-        week_hourly, week_five = _series(iso, FIVE_START, END, "h")[0], _series(iso, FIVE_START, END, "5min")[0]
-        parts |= products.frames(iso, iso_id, week_hourly, week_five)
+        parts |= products.frames(
+            iso, iso_id, ISOS[iso]["solar_peak_mw"], {fuel: i for i, fuel in enumerate(FUELS, 1)}, FIVE_START, END,
+            _series(iso, FIVE_START, END, "h"), _series(iso, FIVE_START, END, "5min"),
+        )
         for table, frame in parts.items():
             facts.setdefault(table, []).append(frame)
     frames = {

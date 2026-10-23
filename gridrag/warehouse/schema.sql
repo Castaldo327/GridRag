@@ -40,6 +40,7 @@ CREATE TABLE core.fact_balance_hourly (
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
     demand_mw            DOUBLE,  -- demand (load), MW
+    demand_forecast_mw   DOUBLE,  -- one simple day-ahead demand estimate per hour, MW; no publication time, so not usable for a forecast known at a cutoff
     net_generation_mw    DOUBLE,  -- net generation from all fuels, MW (the denominator of fuel shares)
     PRIMARY KEY (iso_id, interval_start_utc)
 );

@@ -13,8 +13,9 @@ rejected table stays out even in a chosen family.
 """
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 
-from gridrag.config import MAX_ROUTED_TABLES
+from gridrag.config import MAX_PARALLEL_FAMILIES, MAX_ROUTED_TABLES
 from gridrag.warehouse.build import ISOS, schema_text
 from gridrag.warehouse.products import PRODUCTS, table_name
 
@@ -44,6 +45,26 @@ DOMAIN_QUESTIONS = {
     "prices": (
         "Does answering the request require, even as one part or one side of a comparison, energy prices (LMPs) "
         "at electrical buses or trading hubs, real-time or day-ahead, or their energy, congestion or loss components?"
+    ),
+    "forecasts": (
+        "Does answering the request require, even as one part or one side of a comparison, a load forecast, "
+        "a forecast known before a publication cutoff, or forecast error?"
+    ),
+    "ancillary": (
+        "Does answering the request require, even as one part or one side of a comparison, ancillary service "
+        "clearing prices for regulation or spinning reserves?"
+    ),
+    "storage": (
+        "Does answering the request require, even as one part or one side of a comparison, observed battery "
+        "charging, discharging, net dispatch or state of charge?"
+    ),
+    "outages": (
+        "Does answering the request require, even as one part or one side of a comparison, planned or forced "
+        "outages, or unavailable resource capacity by fuel?"
+    ),
+    "curtailment": (
+        "Does answering the request require, even as one part or one side of a comparison, curtailed solar or "
+        "wind output, or renewable energy lost to curtailment?"
     ),
 }
 
@@ -200,10 +221,11 @@ def route(question: str, llm) -> dict:
     domains, probabilities, fallback = _families(question, llm)
     blocks = schema_blocks()
     kept, scores = {}, {}
-    for domain in domains:
-        domain_scores = _tables(domain, question, llm, blocks)
-        scores.update(domain_scores)
-        kept[domain] = [table for table, p in domain_scores.items() if p is None or p >= 0.2]
+    # families are independent, so their table calls (and later their column calls) run side by side
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_FAMILIES, len(domains))) as pool:
+        for domain, domain_scores in zip(domains, pool.map(lambda d: _tables(d, question, llm, blocks), domains)):
+            scores.update(domain_scores)
+            kept[domain] = [table for table, p in domain_scores.items() if p is None or p >= 0.2]
     facts = [table for tables in kept.values() for table in tables]
     dimensions = re.findall(r"REFERENCES (core\.\w+)", "\n".join(blocks[table] for table in facts))
     selection = {
@@ -213,8 +235,8 @@ def route(question: str, llm) -> dict:
     }
     if len(selection["tables"]) > MAX_ROUTED_TABLES:
         raise RoutingTooBroad(selection)
-    for domain, tables in kept.items():
-        columns, uncertain = _columns(domain, question, llm, blocks, tables)
-        selection["columns"].update(columns)
-        selection["fallback"] = selection["fallback"] or uncertain
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_FAMILIES, len(kept))) as pool:
+        for columns, uncertain in pool.map(lambda item: _columns(item[0], question, llm, blocks, item[1]), kept.items()):
+            selection["columns"].update(columns)
+            selection["fallback"] = selection["fallback"] or uncertain
     return selection
