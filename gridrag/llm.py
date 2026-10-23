@@ -34,6 +34,13 @@ def output_text(resp: dict) -> str:
 
 
 class LLM:
+    def decide(self, input_text: str, questions: list[dict]) -> dict[str, dict]:
+        """One Decisions request; answers keyed by question name (a refused question is absent)."""
+        resp = client().decisions.create(
+            model=config.DECISIONS_MODEL, input=input_text, questions=questions
+        ).model_dump(mode="json")
+        return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
+
     def respond(self, instructions: str, input_items, **kwargs) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
         return client().responses.create(

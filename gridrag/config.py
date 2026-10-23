@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
 DB = ROOT / "data" / "warehouse.duckdb"
 
+DECISIONS_MODEL = "gpt-6-luna"
 ANSWER_MODEL = "gpt-6-luna"
 ANSWER_REASONING = "none"
 ANSWER_MAX_OUTPUT_TOKENS = 1600

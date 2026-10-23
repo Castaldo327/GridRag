@@ -10,6 +10,8 @@ def main() -> None:
     parser.add_argument("question")
     args = parser.parse_args()
     res = answer.answer(args.question)
+    g = res["gate"]
+    print(f"gate: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f} -> {g['reason']}")
     print(f"state: {res['state']}")
     print(res["answer"])
     for c in res["tool_calls"]:
