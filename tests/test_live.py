@@ -42,6 +42,19 @@ class LiveTests(unittest.TestCase):
         stated = [float(n) for n in re.findall(r"\d+\.?\d*", res["answer"])]
         self.assertTrue(any(abs(n - expected) <= 0.05 for n in stated), stated)
 
+    def test_real_model_reads_a_five_minute_value(self):
+        res = answer.answer("What was ERCOT's solar output at 5:05 pm on October 21, 2026?")
+        expected = float(db.run_model_sql(
+            "SELECT generation_mw FROM core.fact_generation_5min JOIN core.dim_iso USING (iso_id) "
+            "JOIN core.dim_fuel USING (fuel_id) WHERE iso_code = 'ERCOT' AND fuel_code = 'solar' "
+            "AND interval_start_local = TIMESTAMP '2026-10-21 17:05'", 1
+        )["csv"].splitlines()[1])
+        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected} MW")
+        self.assertIn("core.fact_generation_5min", res["route"]["tables"])
+        self.assertEqual(res["state"], "answered")
+        stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
+        self.assertTrue(any(abs(n - expected) <= 1 for n in stated), stated)
+
     def test_real_model_answers_a_queue_question(self):
         res = answer.answer("How many active solar projects are in ERCOT's interconnection queue?")
         expected = int(db.run_model_sql(

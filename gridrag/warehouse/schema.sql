@@ -46,6 +46,27 @@ CREATE TABLE core.fact_generation_hourly (
     PRIMARY KEY (iso_id, interval_start_utc, fuel_id)
 );
 
+-- Five-minute load: one row per CAISO or ERCOT interval, local dates 2026-10-15 through 2026-10-21.
+-- Can differ slightly from hourly demand.
+CREATE TABLE core.fact_load_5min (
+    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
+    interval_start_utc   TIMESTAMP NOT NULL,
+    interval_start_local TIMESTAMP NOT NULL,
+    load_mw              DOUBLE,
+    PRIMARY KEY (iso_id, interval_start_utc)
+);
+
+-- Five-minute generation by fuel for CAISO and ERCOT, local dates 2026-10-15 through 2026-10-21.
+-- Battery is net output: negative while charging.
+CREATE TABLE core.fact_generation_5min (
+    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
+    interval_start_utc   TIMESTAMP NOT NULL,
+    interval_start_local TIMESTAMP NOT NULL,
+    fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),
+    generation_mw        DOUBLE    NOT NULL,
+    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)
+);
+
 -- Interconnection queue: one fictional current project per row, as of 2026-10-21.
 -- No historical status snapshots: entry dates cannot reconstruct what the queue looked like earlier.
 CREATE TABLE core.queue_project (

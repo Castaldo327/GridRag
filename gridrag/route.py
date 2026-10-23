@@ -1,6 +1,6 @@
 """Two-level routing, so the SQL model sees only the tables a question needs.
 
-    1. one Decisions call picks the data families (hourly, queue)
+    1. one Decisions call picks the data families (hourly, five_minute, queue)
     2. per selected family, one Decisions call scores each fact table from its schema.sql comment
     3. the dimensions those facts REFERENCE are added deterministically (dim_iso always)
 
@@ -14,6 +14,7 @@ from gridrag.warehouse.build import SCHEMA
 
 DOMAINS = {
     "hourly": ("core.fact_balance_hourly", "core.fact_generation_hourly"),
+    "five_minute": ("core.fact_load_5min", "core.fact_generation_5min"),
     "queue": ("core.queue_project",),
 }
 # Each family is asked about separately, so the wording says a family counts if ANY part of the answer
@@ -22,6 +23,10 @@ DOMAIN_QUESTIONS = {
     "hourly": (
         "Does answering the request require, even as one part or one side of a comparison, observed hourly "
         "demand (load) or generation by fuel, a demand peak, a fuel share of generation, or hourly interval counts?"
+    ),
+    "five_minute": (
+        "Does answering the request require, even as one part or one side of a comparison, observed five-minute "
+        "load or generation by fuel, such as a value at a five-minute timestamp like 5:05 pm?"
     ),
     "queue": (
         "Does answering the request require, even as one part or one side of a comparison, interconnection "

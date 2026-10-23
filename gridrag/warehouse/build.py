@@ -1,5 +1,5 @@
-"""Build a small fictional warehouse: seven ISOs, their hourly demand and generation by fuel, and their
-interconnection queues.
+"""Build a small fictional warehouse: seven ISOs, their hourly demand and generation by fuel, five-minute
+load and generation for CAISO and ERCOT, and the interconnection queues.
 
     uv run python -m gridrag.warehouse.build
 """
@@ -15,7 +15,8 @@ from gridrag.config import DB
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 SEED = 20261023
-START, END = pd.Timestamp("2025-01-01"), pd.Timestamp("2026-10-21")  
+START, END = pd.Timestamp("2025-01-01"), pd.Timestamp("2026-10-21")
+FIVE_START, FIVE_MINUTE_ISOS = pd.Timestamp("2026-10-15"), ("CAISO", "ERCOT")  # last week only, two ISOs
 
 ISOS = {
     "CAISO": {"tz": "America/Los_Angeles", "demand_base_mw": 33500, "solar_peak_mw": 14500, "wind_base_mw": 4100,
@@ -58,14 +59,16 @@ QUEUE_STATUSES = {
     "unknown": "Status not reported",
 }
 
-def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
-    """Balance and generation-by-fuel rows for every UTC hour covering local dates start..end on the ISO's clock."""
+def _series(iso: str, start: pd.Timestamp, end: pd.Timestamp, freq: str) -> tuple[pd.DataFrame, np.ndarray, dict]:
+    """Interval keys at freq ("h" or "5min") covering local dates start..end on the ISO's clock, with the
+    demand and per-fuel MW shapes over them. Both cadences evaluate the same formulas on local time."""
     info, zone = ISOS[iso], ISOS[iso]["tz"]
     first = start.tz_localize(zone).tz_convert("UTC")
     stop = (end + pd.DateOffset(days=1)).tz_localize(zone).tz_convert("UTC")
-    utc = pd.date_range(first, stop, freq="h", inclusive="left")
+    utc = pd.date_range(first, stop, freq=freq, inclusive="left")
     local = utc.tz_convert(zone).tz_localize(None)
-    hour, day, phase = local.hour.to_numpy(), local.dayofyear.to_numpy(), (SEED % 1009) / 1009
+    hour = local.hour.to_numpy() + local.minute.to_numpy() / 60  # fractional within the hour at 5-minute cadence
+    day, phase = local.dayofyear.to_numpy(), (SEED % 1009) / 1009
     keys = pd.DataFrame({
         "iso_id": list(ISOS).index(iso) + 1, "interval_start_utc": utc.tz_localize(None), "interval_start_local": local,
     })
@@ -86,13 +89,31 @@ def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.Dat
         # oscillates on the row position, so values depend on where the window starts (kept to match the submission)
         "battery": 0.018 * demand * np.sin(np.arange(len(keys)) * 0.24 + phase),
     }
-    generation = pd.concat(
+    return keys, demand, fuels
+
+
+def _generation(keys: pd.DataFrame, fuels: dict) -> pd.DataFrame:
+    """One row per interval and fuel."""
+    return pd.concat(
         [keys.assign(fuel_id=list(FUELS).index(fuel) + 1, generation_mw=np.round(mw, 2)) for fuel, mw in fuels.items()],
         ignore_index=True,
     )
+
+
+def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Balance and generation-by-fuel rows for every UTC hour covering local dates start..end."""
+    keys, demand, fuels = _series(iso, start, end, "h")
     total = sum(np.round(mw, 2) for mw in fuels.values())
     balance = keys.assign(demand_mw=np.round(demand, 2), net_generation_mw=np.round(total, 2))
-    return {"core.fact_balance_hourly": balance, "core.fact_generation_hourly": generation}
+    return {"core.fact_balance_hourly": balance, "core.fact_generation_hourly": _generation(keys, fuels)}
+
+
+def five_minute(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Load and generation-by-fuel rows for every five-minute interval covering local dates start..end.
+    Load wobbles slightly around the demand shape, so it can differ a little from hourly demand."""
+    keys, demand, fuels = _series(iso, start, end, "5min")
+    load = keys.assign(load_mw=np.round(demand * (1 + 0.006 * np.sin(np.arange(len(keys)) * 0.7)), 2))
+    return {"core.fact_load_5min": load, "core.fact_generation_5min": _generation(keys, fuels)}
 
 
 def queue(as_of: pd.Timestamp) -> pd.DataFrame:
@@ -144,7 +165,11 @@ def _insert(con, table, frame):
 
 def build() -> dict[str, int]:
     """Rebuild the warehouse from scratch; returns rows per table."""
-    per_iso = [hourly(iso, START, END) for iso in ISOS]
+    facts: dict[str, list[pd.DataFrame]] = {}
+    for iso in ISOS:
+        parts = {**hourly(iso, START, END), **(five_minute(iso, FIVE_START, END) if iso in FIVE_MINUTE_ISOS else {})}
+        for table, frame in parts.items():
+            facts.setdefault(table, []).append(frame)
     frames = {
         "core.dim_iso": pd.DataFrame([
             {"iso_id": i, "iso_code": code, "timezone": info["tz"]} for i, (code, info) in enumerate(ISOS.items(), 1)
@@ -157,8 +182,7 @@ def build() -> dict[str, int]:
         "core.dim_queue_status": pd.DataFrame([
             {"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()
         ]),
-        **{table: pd.concat([parts[table] for parts in per_iso], ignore_index=True)
-           for table in ("core.fact_balance_hourly", "core.fact_generation_hourly")},
+        **{table: pd.concat(parts, ignore_index=True) for table, parts in facts.items()},
         "core.queue_project": queue(END),
     }
     DB.parent.mkdir(parents=True, exist_ok=True)

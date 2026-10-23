@@ -39,6 +39,11 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(self.con.execute(sql, ["CAISO"]).fetchone()[0], 25)
         self.assertEqual(self.con.execute(sql, ["MISO"]).fetchone()[0], 24)
 
+    def test_five_minute_data_covers_only_the_last_week_of_two_isos(self):
+        rows = self.con.execute("""SELECT iso_code, count(DISTINCT interval_start_local::DATE), count(*)
+            FROM core.fact_load_5min JOIN core.dim_iso USING (iso_id) GROUP BY iso_code ORDER BY iso_code""").fetchall()
+        self.assertEqual(rows, [("CAISO", 7, 7 * 288), ("ERCOT", 7, 7 * 288)])  # 288 five-minute intervals a day
+
     def test_net_generation_is_the_sum_of_fuel_rows(self):
         # Fuel shares divide by net_generation_mw, so it must equal the fuel rows it summarizes.
         worst, hours = self.con.execute("""SELECT max(abs(b.net_generation_mw - g.mw)), count(*)

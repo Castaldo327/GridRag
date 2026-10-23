@@ -3,14 +3,15 @@
 import unittest
 from types import SimpleNamespace
 
-from gridrag.route import route
+from gridrag.route import DOMAINS, route
 
 
 def scripted(families: dict, tables: dict):
-    """A fake llm.decide: family scores for "route", table scores (by position) for "tables-<family>"."""
+    """A fake llm.decide: family scores for "route" (unlisted families confidently rejected at 0.01), and
+    table scores by position for "tables-<family>"."""
     def decide(stage, question, questions):
         if stage == "route":
-            return {name: {"probability": p} for name, p in families.items()}
+            return {name: {"probability": families.get(name, 0.01)} for name in DOMAINS}
         scores = tables[stage.removeprefix("tables-")]
         return {q["name"]: {"probability": p} for q, p in zip(questions, scores) if p is not None}
     return SimpleNamespace(decide=decide)
