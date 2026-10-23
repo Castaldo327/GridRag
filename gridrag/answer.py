@@ -29,4 +29,4 @@ def answer(question: str, llm=None) -> dict:
         isos=", ".join(ISOS), start=START, end=END, rules=agent.ANSWER_RULES,
         schema="\n\n".join(blocks[table] for table in selection["tables"]),
     )
-    return {"question": question, "gate": check, "route": selection, **agent.run(llm, prompt, question)}
+    return {"question": question, "gate": check, "route": selection, **agent.run(llm, prompt, question, set(selection["tables"]))}

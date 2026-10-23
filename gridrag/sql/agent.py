@@ -39,7 +39,7 @@ TOOLS = [
 ]
 
 
-def run(llm, instructions: str, question: str) -> dict:
+def run(llm, instructions: str, question: str, allowed_tables: set[str] | None = None) -> dict:
     """{answer, state, tool_calls}. state is answered, abstained (no query was run) or write_failed
     (every query failed): only an answer backed by at least one successful query counts as answered."""
     calls, evidence, resp, items = [], [], None, question
@@ -61,7 +61,7 @@ def run(llm, instructions: str, question: str) -> dict:
                 args = json.loads(c["arguments"])
                 if c["name"] != "run_sql" or not isinstance(args.get("query"), str):
                     raise ValueError("expected run_sql with a string query")
-                out = db.run_model_sql(args["query"], SQL_MAX_ROWS)
+                out = db.run_model_sql(args["query"], SQL_MAX_ROWS, allowed_tables)
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 args, out = {"query": c.get("arguments")}, {"error": f"bad arguments: {exc}"}
             if "csv" in out:

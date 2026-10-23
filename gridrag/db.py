@@ -46,9 +46,9 @@ def _references(node, tables: set, functions: set, ctes: set) -> None:
             _references(value, tables, functions, ctes)
 
 
-def _check(cur: duckdb.DuckDBPyConnection, sql: str) -> str | None:
-    """one SELECT, tables only from core (or the query's own CTEs), and no table functions
-    beyond SAFE_TABLE_FUNCTIONS."""
+def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed_tables: set[str] | None = None) -> str | None:
+    """one SELECT, tables only from core (or the query's own CTEs) and, when given, only from
+    allowed_tables, and no table functions beyond SAFE_TABLE_FUNCTIONS."""
     (text,) = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchone()
     parsed = json.loads(text)
     if parsed.get("error"):
@@ -61,18 +61,23 @@ def _check(cur: duckdb.DuckDBPyConnection, sql: str) -> str | None:
     _references(parsed["statements"], tables, functions, set())
     if bad := sorted(f"{schema}.{name}" if schema else name for schema, name in tables if schema != "core"):
         return f"not available: {', '.join(bad)}. Use schema-qualified tables from core."
+    if allowed_tables is not None and (
+        bad := sorted(f"{schema}.{name}" for schema, name in tables if f"{schema}.{name}" not in allowed_tables)
+    ):
+        return f"outside the selected tables: {', '.join(bad)}. Use only the supplied tables."
     if bad := sorted(functions - SAFE_TABLE_FUNCTIONS):
         return f"table functions are not allowed: {', '.join(bad)}"
     return None
 
 
-def run_model_sql(sql: str, max_rows: int) -> dict:
-    """Runs one model-written query: {"rows", "csv"[, "truncated"]}, or {"error"} for the model to fix."""
+def run_model_sql(sql: str, max_rows: int, allowed_tables: set[str] | None = None) -> dict:
+    """Runs one model-written query: {"rows", "csv"[, "truncated"]}, or {"error"} for the model to fix.
+    allowed_tables (schema-qualified) restricts the query to a routed slice; None allows any core table."""
     sql = sql.strip().rstrip(";").strip()
     cur = _database().cursor()  
     try:
         try:
-            error = _check(cur, sql)
+            error = _check(cur, sql, allowed_tables)
         except (duckdb.Error, RecursionError) as exc:
             error = f"invalid query: {type(exc).__name__}"
         if error:

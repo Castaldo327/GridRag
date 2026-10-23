@@ -26,6 +26,18 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(out["csv"], "iso_code\nCAISO\nERCOT\n")
         self.assertIn("truncated", out)
 
+    def test_routed_out_tables_cannot_be_queried(self):
+        routed = {"core.dim_iso", "core.fact_balance_hourly"}
+        for sql in [
+            "SELECT count(*) FROM core.queue_project",
+            "WITH q AS (SELECT * FROM core.queue_project) SELECT count(*) FROM q",
+            "SELECT * FROM core.fact_balance_hourly WHERE iso_id IN (SELECT iso_id FROM core.queue_project)",
+        ]:
+            with self.subTest(sql=sql):
+                self.assertIn("outside the selected tables: core.queue_project", db.run_model_sql(sql, 10, routed)["error"])
+        allowed = "SELECT count(*) AS n FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id)"
+        self.assertEqual(db.run_model_sql(allowed, 10, routed)["rows"], 1)
+
     def test_sql_errors_come_back_as_data(self):
         out = db.run_model_sql("SELECT no_such_column FROM core.dim_iso", 10)
         self.assertIn("Binder", out["error"])
