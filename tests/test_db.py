@@ -38,6 +38,11 @@ class GuardTests(unittest.TestCase):
         allowed = "SELECT count(*) AS n FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id)"
         self.assertEqual(db.run_model_sql(allowed, 10, routed)["rows"], 1)
 
+    def test_fractions_keep_their_digits_and_large_values_keep_cents(self):
+        out = db.run_model_sql("SELECT 0.42072033::DOUBLE AS share, 70979.2216::DOUBLE AS mw, "
+                               "-0.000123456::DOUBLE AS tiny, NULL::DOUBLE AS missing", 1)
+        self.assertEqual(out["csv"], "share,mw,tiny,missing\n0.42072,70979.22,-0.000123456,\n")
+
     def test_sql_errors_come_back_as_data(self):
         out = db.run_model_sql("SELECT no_such_column FROM core.dim_iso", 10)
         self.assertIn("Binder", out["error"])

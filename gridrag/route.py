@@ -9,11 +9,14 @@ import re
 from gridrag.warehouse.build import SCHEMA
 
 DOMAINS = {
-    "hourly": ("core.fact_balance_hourly",),
+    "hourly": ("core.fact_balance_hourly", "core.fact_generation_hourly", "core.dim_fuel"),
     "queue": ("core.queue_project", "core.dim_fuel", "core.dim_queue_status"),
 }
 DOMAIN_QUESTIONS = {
-    "hourly": "The request needs observed hourly demand (load), a demand peak hour, or hourly interval counts.",
+    "hourly": (
+        "The request needs observed hourly demand (load) or generation by fuel, a demand peak hour, "
+        "a fuel share of generation, or hourly interval counts."
+    ),
     "queue": "The request needs interconnection queue projects, proposed project capacity or historical queue status.",
 }
 
@@ -40,5 +43,5 @@ def route(question: str, llm) -> dict:
     probabilities = {name: (answers.get(name) or {}).get("probability") for name in DOMAINS}
     fallback = any(p is None for p in probabilities.values()) or max(probabilities.values()) < 0.65
     domains = list(DOMAINS) if fallback else [name for name, p in probabilities.items() if p >= 0.2]
-    tables = ["core.dim_iso"] + [table for name in domains for table in DOMAINS[name]]
+    tables = list(dict.fromkeys(["core.dim_iso"] + [table for name in domains for table in DOMAINS[name]]))
     return {"domains": domains, "tables": tables, "probabilities": probabilities, "fallback": fallback}

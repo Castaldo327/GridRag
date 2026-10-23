@@ -39,6 +39,15 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(self.con.execute(sql, ["CAISO"]).fetchone()[0], 25)
         self.assertEqual(self.con.execute(sql, ["MISO"]).fetchone()[0], 24)
 
+    def test_net_generation_is_the_sum_of_fuel_rows(self):
+        # Fuel shares divide by net_generation_mw, so it must equal the fuel rows it summarizes.
+        worst, hours = self.con.execute("""SELECT max(abs(b.net_generation_mw - g.mw)), count(*)
+            FROM core.fact_balance_hourly b
+            JOIN (SELECT iso_id, interval_start_utc, sum(generation_mw) AS mw FROM core.fact_generation_hourly
+                  GROUP BY ALL) g USING (iso_id, interval_start_utc)""").fetchone()
+        self.assertEqual(hours, self.counts["core.fact_balance_hourly"])
+        self.assertLess(worst, 0.006)  # rounding to cents only
+
 
 if __name__ == "__main__":
     unittest.main()

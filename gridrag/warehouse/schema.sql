@@ -30,7 +30,19 @@ CREATE TABLE core.fact_balance_hourly (
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
     demand_mw            DOUBLE,
+    net_generation_mw    DOUBLE,  -- net generation from all fuels, MW (the denominator of fuel shares)
     PRIMARY KEY (iso_id, interval_start_utc)
+);
+
+-- One row per ISO, hour and generated fuel; MW averaged over the hour.
+-- Battery is net output: negative while charging.
+CREATE TABLE core.fact_generation_hourly (
+    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
+    interval_start_utc   TIMESTAMP NOT NULL,
+    interval_start_local TIMESTAMP NOT NULL,
+    fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),
+    generation_mw        DOUBLE    NOT NULL,
+    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)
 );
 
 -- Interconnection queue: one fictional current project per row, as of 2026-10-21.

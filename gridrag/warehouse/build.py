@@ -1,4 +1,5 @@
-"""Build a small fictional warehouse: seven ISOs, their hourly demand and their interconnection queues.
+"""Build a small fictional warehouse: seven ISOs, their hourly demand and generation by fuel, and their
+interconnection queues.
 
     uv run python -m gridrag.warehouse.build
 """
@@ -17,13 +18,20 @@ SEED = 20261023
 START, END = pd.Timestamp("2025-01-01"), pd.Timestamp("2026-10-21")  
 
 ISOS = {
-    "CAISO": {"tz": "America/Los_Angeles", "demand_base_mw": 33500, "queue_projects": 168},
-    "ERCOT": {"tz": "America/Chicago", "demand_base_mw": 61500, "queue_projects": 194},
-    "ISONE": {"tz": "America/New_York", "demand_base_mw": 14700, "queue_projects": 106},
-    "MISO": {"tz": "EST", "demand_base_mw": 64800, "queue_projects": 178},
-    "NYISO": {"tz": "America/New_York", "demand_base_mw": 18300, "queue_projects": 120},
-    "PJM": {"tz": "America/New_York", "demand_base_mw": 81000, "queue_projects": 220},
-    "SPP": {"tz": "America/Chicago", "demand_base_mw": 39400, "queue_projects": 148},
+    "CAISO": {"tz": "America/Los_Angeles", "demand_base_mw": 33500, "solar_peak_mw": 14500, "wind_base_mw": 4100,
+              "queue_projects": 168},
+    "ERCOT": {"tz": "America/Chicago", "demand_base_mw": 61500, "solar_peak_mw": 12500, "wind_base_mw": 10500,
+              "queue_projects": 194},
+    "ISONE": {"tz": "America/New_York", "demand_base_mw": 14700, "solar_peak_mw": 2300, "wind_base_mw": 2700,
+              "queue_projects": 106},
+    "MISO": {"tz": "EST", "demand_base_mw": 64800, "solar_peak_mw": 8700, "wind_base_mw": 15600,
+             "queue_projects": 178},
+    "NYISO": {"tz": "America/New_York", "demand_base_mw": 18300, "solar_peak_mw": 3200, "wind_base_mw": 2900,
+              "queue_projects": 120},
+    "PJM": {"tz": "America/New_York", "demand_base_mw": 81000, "solar_peak_mw": 9800, "wind_base_mw": 10100,
+            "queue_projects": 220},
+    "SPP": {"tz": "America/Chicago", "demand_base_mw": 39400, "solar_peak_mw": 5400, "wind_base_mw": 13800,
+            "queue_projects": 148},
 }
 
 # Order sets fuel_id. code -> (name, category).
@@ -50,27 +58,41 @@ QUEUE_STATUSES = {
     "unknown": "Status not reported",
 }
 
-def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """One row per UTC hour covering local dates start..end on the ISO's clock."""
-    zone = ISOS[iso]["tz"]
+def hourly(iso: str, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Balance and generation-by-fuel rows for every UTC hour covering local dates start..end on the ISO's clock."""
+    info, zone = ISOS[iso], ISOS[iso]["tz"]
     first = start.tz_localize(zone).tz_convert("UTC")
     stop = (end + pd.DateOffset(days=1)).tz_localize(zone).tz_convert("UTC")
     utc = pd.date_range(first, stop, freq="h", inclusive="left")
     local = utc.tz_convert(zone).tz_localize(None)
-    hour, day = local.hour.to_numpy(), local.dayofyear.to_numpy()
-   
+    hour, day, phase = local.hour.to_numpy(), local.dayofyear.to_numpy(), (SEED % 1009) / 1009
+    keys = pd.DataFrame({
+        "iso_id": list(ISOS).index(iso) + 1, "interval_start_utc": utc.tz_localize(None), "interval_start_local": local,
+    })
+
     # growth per year, weekend dip, late-July seasonal peak, afternoon daily peak, day-to-day wobble
-    demand = ISOS[iso]["demand_base_mw"] * (1 + 0.02 * (local.year.to_numpy() - 2025)) * (
+    demand = info["demand_base_mw"] * (1 + 0.02 * (local.year.to_numpy() - 2025)) * (
         1 - 0.045 * (local.dayofweek.to_numpy() >= 5)) * (
         1 + 0.08 * np.cos(2 * np.pi * (day - 205) / 365)) * (
-        1 + 0.11 * np.sin(2 * np.pi * (hour - 8) / 24) + 0.025 * np.sin(day * 0.41 + (SEED % 1009) / 1009)
+        1 + 0.11 * np.sin(2 * np.pi * (hour - 8) / 24) + 0.025 * np.sin(day * 0.41 + phase)
     )
-    return pd.DataFrame({
-        "iso_id": list(ISOS).index(iso) + 1,
-        "interval_start_utc": utc.tz_localize(None),
-        "interval_start_local": local,
-        "demand_mw": np.round(demand, 2),
-    })
+    # daylight-only arc peaking at noon, growing yearly, strongest near the June solstice
+    solar = info["solar_peak_mw"] * (1 + 0.07 * (local.year.to_numpy() - 2025)) * (
+        np.maximum(0, np.sin(np.pi * (hour - 6) / 12))) * (1 + 0.12 * np.cos(2 * np.pi * (day - 172) / 365))
+    wind = info["wind_base_mw"] * (0.85 + 0.28 * np.sin(day * 0.19 + hour * 0.17 + phase))
+    fuels = {
+        "natural_gas": demand * 0.32, "coal": demand * 0.08, "nuclear": demand * 0.13, "hydro": demand * 0.09,
+        "wind": wind, "solar": solar,
+        # oscillates on the row position, so values depend on where the window starts (kept to match the submission)
+        "battery": 0.018 * demand * np.sin(np.arange(len(keys)) * 0.24 + phase),
+    }
+    generation = pd.concat(
+        [keys.assign(fuel_id=list(FUELS).index(fuel) + 1, generation_mw=np.round(mw, 2)) for fuel, mw in fuels.items()],
+        ignore_index=True,
+    )
+    total = sum(np.round(mw, 2) for mw in fuels.values())
+    balance = keys.assign(demand_mw=np.round(demand, 2), net_generation_mw=np.round(total, 2))
+    return {"core.fact_balance_hourly": balance, "core.fact_generation_hourly": generation}
 
 
 def queue(as_of: pd.Timestamp) -> pd.DataFrame:
@@ -122,6 +144,7 @@ def _insert(con, table, frame):
 
 def build() -> dict[str, int]:
     """Rebuild the warehouse from scratch; returns rows per table."""
+    per_iso = [hourly(iso, START, END) for iso in ISOS]
     frames = {
         "core.dim_iso": pd.DataFrame([
             {"iso_id": i, "iso_code": code, "timezone": info["tz"]} for i, (code, info) in enumerate(ISOS.items(), 1)
@@ -134,7 +157,8 @@ def build() -> dict[str, int]:
         "core.dim_queue_status": pd.DataFrame([
             {"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()
         ]),
-        "core.fact_balance_hourly": pd.concat([hourly(iso, START, END) for iso in ISOS], ignore_index=True),
+        **{table: pd.concat([parts[table] for parts in per_iso], ignore_index=True)
+           for table in ("core.fact_balance_hourly", "core.fact_generation_hourly")},
         "core.queue_project": queue(END),
     }
     DB.parent.mkdir(parents=True, exist_ok=True)

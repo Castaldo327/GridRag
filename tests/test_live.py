@@ -23,6 +23,22 @@ class LiveTests(unittest.TestCase):
         stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
         self.assertTrue(any(abs(n - float(expected)) <= 1 for n in stated), stated)
 
+    def test_real_model_computes_a_fuel_share(self):
+        res = answer.answer("What share of PJM's generation came from natural gas in September 2026?")
+        expected = float(db.run_model_sql("""SELECT 100 * (SELECT sum(generation_mw) FROM core.fact_generation_hourly
+              JOIN core.dim_iso USING (iso_id) JOIN core.dim_fuel USING (fuel_id)
+              WHERE iso_code = 'PJM' AND fuel_code = 'natural_gas'
+                AND interval_start_local >= DATE '2026-09-01' AND interval_start_local < DATE '2026-10-01')
+           / (SELECT sum(net_generation_mw) FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id)
+              WHERE iso_code = 'PJM'
+                AND interval_start_local >= DATE '2026-09-01' AND interval_start_local < DATE '2026-10-01')""", 1
+        )["csv"].splitlines()[1])
+        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected}%")
+        self.assertIn("core.fact_generation_hourly", res["route"]["tables"])
+        self.assertEqual(res["state"], "answered")
+        stated = [float(n) for n in re.findall(r"\d+\.?\d*", res["answer"])]
+        self.assertTrue(any(abs(n - expected) <= 0.05 for n in stated), stated)
+
     def test_real_model_answers_a_queue_question(self):
         res = answer.answer("How many active solar projects are in ERCOT's interconnection queue?")
         expected = int(db.run_model_sql(

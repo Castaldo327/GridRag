@@ -70,6 +70,12 @@ def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed_tables: set[str] | 
     return None
 
 
+def _number(value: float) -> str:
+    """How a float reaches the model: cents for magnitudes of 1 and above (MW, USD), six significant
+    digits below that, so a fraction such as a fuel share is not rounded to two places."""
+    return f"{value:.2f}" if abs(value) >= 1 else f"{value:.6g}"
+
+
 def run_model_sql(sql: str, max_rows: int, allowed_tables: set[str] | None = None) -> dict:
     """Runs one model-written query: {"rows", "csv"[, "truncated"]}, or {"error"} for the model to fix.
     allowed_tables (schema-qualified) restricts the query to a routed slice; None allows any core table."""
@@ -88,7 +94,7 @@ def run_model_sql(sql: str, max_rows: int, allowed_tables: set[str] | None = Non
             return {"error": f"{type(exc).__name__}: {exc}"[:600]}
     finally:
         cur.close()
-    out = {"rows": min(len(df), max_rows), "csv": df.head(max_rows).to_csv(index=False, float_format="%.2f")}
+    out = {"rows": min(len(df), max_rows), "csv": df.head(max_rows).to_csv(index=False, float_format=_number)}
     if len(df) > max_rows:
         out["truncated"] = f"more than {max_rows} rows; aggregate or filter in SQL"
     return out
