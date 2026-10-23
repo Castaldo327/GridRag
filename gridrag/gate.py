@@ -32,7 +32,7 @@ QUESTIONS = [
 def gate(question: str, llm) -> dict:
     """{allowed, reason, relevance, malicious}. Lenient on relevance (an off-topic grid question still
     reaches SQL, which can explain coverage), strict on abuse."""
-    answers = llm.decide(question, QUESTIONS)
+    answers = llm.decide("gate", question, QUESTIONS)
     relevance = (answers.get("relevant") or {}).get("probability")
     malicious = (answers.get("malicious") or {}).get("probability")
     if relevance is None or malicious is None:

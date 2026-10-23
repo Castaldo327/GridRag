@@ -51,7 +51,7 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
         }
         if resp:
             kwargs["previous_response_id"] = resp["id"]
-        resp = llm.respond(instructions, items, **kwargs)
+        resp = llm.respond("sql", instructions, items, **kwargs)
         pending = [o for o in resp.get("output", []) if o.get("type") == "function_call"]
         if not pending:
             break

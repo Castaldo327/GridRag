@@ -10,15 +10,24 @@ def main() -> None:
     parser.add_argument("question")
     args = parser.parse_args()
     res = answer.answer(args.question)
-    g = res["gate"]
-    print(f"gate: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f} -> {g['reason']}")
+    if g := res.get("gate"):
+        print(f"gate: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f} -> {g['reason']}")
     if r := res.get("route"):
         scores = ", ".join(f"{name} {p:.2f}" for name, p in r["probabilities"].items() if p is not None)
         print(f"route: {scores}{' (uncertain: all)' if r['fallback'] else ''} -> {', '.join(r['tables'])}")
-    print(f"state: {res['state']}")
+    print(f"state: {res['state']}" + (f" during {res['stage']}: {res['error']}" if res["state"] == "failed" else ""))
     print(res["answer"])
     for c in res["tool_calls"]:
         print(f"  run_sql: {c['query']}\n    -> {c['error'] or str(c['rows']) + ' rows'}")
+    u = res["usage"]
+    print("timings:", ", ".join(f"{name} {s:.2f}s" for name, s in res["timings"].items()))
+    print(f"usage: {u['calls']} calls · {u['input_tokens']:,} in ({u['cached_tokens']:,} cached) · "
+          f"{u['output_tokens']:,} out · ${u['cost_usd']:.5f}")
+    for c in u["per_call"]:
+        print(f"  {c['stage']:<6} {c['kind']:<9} {c['seconds']:.2f}s {c['input_tokens']:>6,} in "
+              f"{c['output_tokens']:>5,} out" + (f"  {c['error']}" if c["error"] else ""))
+    if res["state"] == "failed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

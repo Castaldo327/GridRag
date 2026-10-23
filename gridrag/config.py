@@ -13,7 +13,12 @@ ANSWER_REASONING = "none"
 ANSWER_MAX_OUTPUT_TOKENS = 1600
 CALL_TIMEOUT_S = 30
 
-SQL_MAX_ROUNDS = 5 
+PRICES = {
+    "decisions": {"input": 0.10, "cached_input": 0.01, "output": 0.0},
+    "responses": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
+}
+
+SQL_MAX_ROUNDS = 5
 SQL_MAX_ROWS = 500 
 
 

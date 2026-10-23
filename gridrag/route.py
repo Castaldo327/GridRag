@@ -30,6 +30,7 @@ def schema_blocks() -> dict[str, str]:
 def route(question: str, llm) -> dict:
     """{domains, tables, probabilities, fallback}; tables always start with core.dim_iso."""
     answers = llm.decide(
+        "route",
         question,
         [
             {"type": "predicate", "name": name, "instructions": f"Is this statement true about the user request? {text}"}
