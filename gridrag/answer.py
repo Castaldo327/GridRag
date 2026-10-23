@@ -6,7 +6,7 @@ import time
 
 from gridrag.gate import gate
 from gridrag.llm import LLM
-from gridrag.route import route, schema_blocks
+from gridrag.route import render, route, schema_blocks
 from gridrag.sql import agent
 from gridrag.warehouse.build import END, FIVE_MINUTE_ISOS, FIVE_START, ISOS, START
 
@@ -50,7 +50,7 @@ def answer(question: str, llm=None) -> dict:
         prompt = INSTRUCTIONS.format(
             isos=", ".join(ISOS), start=START, end=END, five_start=FIVE_START, five_isos=" and ".join(FIVE_MINUTE_ISOS),
             rules=agent.ANSWER_RULES,
-            schema="\n\n".join(blocks[table] for table in selection["tables"]),
+            schema="\n\n".join(render(blocks[table], selection["columns"].get(table)) for table in selection["tables"]),
         )
         output = agent.run(llm, prompt, question, set(selection["tables"]))
         lap()

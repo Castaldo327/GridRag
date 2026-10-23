@@ -51,6 +51,7 @@ class LiveTests(unittest.TestCase):
         )["csv"].splitlines()[1])
         print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected} MW")
         self.assertIn("core.fact_generation_5min", res["route"]["tables"])
+        self.assertIn("generation_mw", res["route"]["columns"]["core.fact_generation_5min"])  # the value itself
         self.assertEqual(res["state"], "answered")
         stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
         self.assertTrue(any(abs(n - expected) <= 1 for n in stated), stated)
@@ -64,6 +65,7 @@ class LiveTests(unittest.TestCase):
         print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected}")
         self.assertIn("core.queue_project", res["route"]["tables"])
         self.assertNotIn("core.fact_balance_hourly", res["route"]["tables"])
+        self.assertLess(len(res["route"]["columns"]["core.queue_project"]), 17)  # a count needs few of its columns
         self.assertEqual(res["state"], "answered")
         self.assertIn(str(expected), re.findall(r"\d+", res["answer"]))
 

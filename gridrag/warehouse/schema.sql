@@ -30,7 +30,7 @@ CREATE TABLE core.fact_balance_hourly (
     iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
-    demand_mw            DOUBLE,
+    demand_mw            DOUBLE,  -- demand (load), MW
     net_generation_mw    DOUBLE,  -- net generation from all fuels, MW (the denominator of fuel shares)
     PRIMARY KEY (iso_id, interval_start_utc)
 );
@@ -42,7 +42,7 @@ CREATE TABLE core.fact_generation_hourly (
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
     fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),
-    generation_mw        DOUBLE    NOT NULL,
+    generation_mw        DOUBLE    NOT NULL,  -- generation (output) from this fuel, MW averaged over the hour
     PRIMARY KEY (iso_id, interval_start_utc, fuel_id)
 );
 
@@ -52,7 +52,7 @@ CREATE TABLE core.fact_load_5min (
     iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
-    load_mw              DOUBLE,
+    load_mw              DOUBLE,  -- load (demand), MW
     PRIMARY KEY (iso_id, interval_start_utc)
 );
 
@@ -63,7 +63,7 @@ CREATE TABLE core.fact_generation_5min (
     interval_start_utc   TIMESTAMP NOT NULL,
     interval_start_local TIMESTAMP NOT NULL,
     fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),
-    generation_mw        DOUBLE    NOT NULL,
+    generation_mw        DOUBLE    NOT NULL,  -- generation (output) from this fuel, MW over the five minutes
     PRIMARY KEY (iso_id, interval_start_utc, fuel_id)
 );
 
@@ -73,9 +73,9 @@ CREATE TABLE core.queue_project (
     project_id     INTEGER  PRIMARY KEY,
     iso_id         SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id),
     queue_id       VARCHAR,                -- fictional ISO-prefixed queue identifier
-    project_name   VARCHAR,
+    project_name   VARCHAR,                -- fictional project name
     developer      VARCHAR,                -- interconnecting entity
-    county         VARCHAR,
+    county         VARCHAR,                -- project county
     state          VARCHAR,                -- two-letter US state
     fuel_id        SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),
     technology     VARCHAR,                -- fictional technology label
@@ -85,6 +85,6 @@ CREATE TABLE core.queue_project (
     is_hybrid      BOOLEAN  NOT NULL,      -- a non-storage project paired with storage
     queue_date     DATE,                   -- date the project entered the queue
     proposed_cod   DATE,                   -- proposed commercial operation date
-    withdrawn_date DATE,
-    completed_date DATE
+    withdrawn_date DATE,                   -- date a withdrawn project left the queue
+    completed_date DATE                    -- date a completed project entered service
 );

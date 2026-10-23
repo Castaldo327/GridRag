@@ -19,6 +19,8 @@ def main() -> None:
         print(f"route: {scores(r['probabilities'])}{' (widened: uncertain)' if r['fallback'] else ''}")
         print(f"  tables: {scores(r['table_probabilities'])}")
         print(f"  -> {', '.join(r['tables'])}")
+        for table, names in r["columns"].items():
+            print(f"     {table}: {', '.join(names)}")
     print(f"state: {res['state']}" + (f" during {res['stage']}: {res['error']}" if res["state"] == "failed" else ""))
     print(res["answer"])
     for c in res["tool_calls"]:
