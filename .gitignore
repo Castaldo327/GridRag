@@ -1,0 +1,6 @@
+# reproducible warehouse
+data/
+
+# python
+.venv/
+__pycache__/
