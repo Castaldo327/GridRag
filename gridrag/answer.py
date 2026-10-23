@@ -9,6 +9,7 @@ from gridrag.warehouse.build import END, ISOS, SCHEMA, START
 INSTRUCTIONS = """Answer questions about the US electricity data for {isos} by querying the warehouse.
 Write schema-qualified DuckDB SQL and call run_sql before stating any measured result. If a query fails,
 repair it. Hourly data covers local dates {start:%b %d %Y} through {end:%b %d %Y}.
+Interconnection-queue data is one current snapshot as of {end:%b %d %Y}; it is not a historical queue.
 Calendar dates use interval_start_local unless UTC is explicitly requested.
 
 {schema}
