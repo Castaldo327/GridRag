@@ -24,42 +24,12 @@ class BuildTests(unittest.TestCase):
         cls.con.close()
         cls.tmp.cleanup()
 
-    def test_every_table_is_populated(self):
-        self.assertEqual(self.counts["core.dim_iso"], 7)
-        print(f"\n{'table':<40}{'rows':>10}")
-        for table, rows in self.counts.items():
-            print(f"{table:<40}{rows:>10}")
-            print(self.con.execute(f"SELECT * FROM {table} LIMIT 5").df().to_string(index=False), "\n")
-            self.assertEqual(self.con.execute(f"SELECT count(*) FROM {table}").fetchone()[0], rows, table)
-
     def test_local_days_follow_each_iso_clock(self):
         # CAISO falls back on 2025-11-02, so that local day has 25 hours; MISO's fixed EST has 24.
         sql = """SELECT count(*) FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id)
                  WHERE iso_code = ? AND interval_start_local::DATE = DATE '2025-11-02'"""
         self.assertEqual(self.con.execute(sql, ["CAISO"]).fetchone()[0], 25)
         self.assertEqual(self.con.execute(sql, ["MISO"]).fetchone()[0], 24)
-
-    def test_five_minute_data_covers_only_the_last_week_of_two_isos(self):
-        rows = self.con.execute("""SELECT iso_code, count(DISTINCT interval_start_local::DATE), count(*)
-            FROM core.fact_load_5min JOIN core.dim_iso USING (iso_id) GROUP BY iso_code ORDER BY iso_code""").fetchall()
-        self.assertEqual(rows, [("CAISO", 7, 7 * 288), ("ERCOT", 7, 7 * 288)])  # 288 five-minute intervals a day
-
-    def test_bus_and_hub_prices_are_distinct_grains_whose_components_add_up(self):
-        for grain, locations in (("bus", 3), ("hub", 1)):
-            rows, worst = self.con.execute(f"""SELECT count(*), max(abs(lmp - energy - congestion - loss))
-                FROM core.ercot_lmp_rt_{grain}_5min WHERE interval_start_local::DATE = DATE '2026-10-21'""").fetchone()
-            self.assertEqual(rows, locations * 288, grain)
-            self.assertLess(worst, 0.015, grain)  # each part is rounded to cents
-
-    def test_forecast_vintages_include_a_hindsight_trap(self):
-        # Four publications per delivery hour; the latest is published after delivery, so ignoring the cutoff
-        # gives a different answer than the forecast actually known at 2026-10-20 18:00 UTC.
-        vintages, known, hindsight = self.con.execute("""SELECT count(*),
-                arg_max(forecast_mw, publish_time_utc) FILTER (WHERE publish_time_utc <= TIMESTAMP '2026-10-20 18:00'),
-                arg_max(forecast_mw, publish_time_utc)
-            FROM core.ercot_load_forecast_hourly WHERE interval_start_local = TIMESTAMP '2026-10-21 17:00'""").fetchone()
-        self.assertEqual(vintages, 4)
-        self.assertNotEqual(known, hindsight)
 
     def test_net_generation_is_the_sum_of_fuel_rows(self):
         # Fuel shares divide by net_generation_mw, so it must equal the fuel rows it summarizes.

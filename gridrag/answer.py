@@ -1,4 +1,4 @@
-"""Answer one question: request gate → domain routing → the model reads the routed schema, writes SQL,
+"""Answer one question: request gate → schema routing → the model reads the routed schema, writes SQL,
 and answers from the rows. Any exception becomes a failed record; details go to the log, not the answer."""
 
 import logging
@@ -6,21 +6,13 @@ import time
 
 from gridrag.gate import gate
 from gridrag.llm import LLM
-from gridrag.route import RoutingTooBroad, render, route, schema_blocks
+from gridrag.route import RoutingTooBroad, route, schema_blocks
 from gridrag.sql import agent
-from gridrag.warehouse.build import END, FIVE_MINUTE_ISOS, FIVE_START, ISOS, START
 
 logger = logging.getLogger(__name__)
-INSTRUCTIONS = """Answer questions about the US electricity data for {isos} by querying the warehouse.
-Write schema-qualified DuckDB SQL and call run_sql before stating any measured result. If a query fails,
-repair it. Hourly data covers local dates {start:%b %d %Y} through {end:%b %d %Y}.
-Five-minute data covers local dates {five_start:%b %d %Y} through {end:%b %d %Y} for {five_isos} only.
-Interconnection-queue data is one current snapshot as of {end:%b %d %Y}; it is not a historical queue.
-Prices, load-forecast vintages, ancillary prices, storage dispatch, outages and curtailment cover local dates
-{five_start:%b %d %Y} through {end:%b %d %Y} for every ISO, one table per ISO and product.
-Forecasts: filter publish_time_utc to the requested knowledge cutoff BEFORE choosing the latest vintage.
-Calendar dates use interval_start_local unless UTC is explicitly requested.
-Bus and hub locations are different grains; never substitute one for the other.
+INSTRUCTIONS = """Answer the request by querying the available warehouse tables below.
+Write schema-qualified DuckDB SQL and call run_sql before stating measured results.
+Inspect values or coverage with SQL when needed; repair failed queries using the returned error.
 
 {schema}
 
@@ -52,9 +44,8 @@ def answer(question: str, llm=None) -> dict:
         lap("sql")
         blocks = schema_blocks()
         prompt = INSTRUCTIONS.format(
-            isos=", ".join(ISOS), start=START, end=END, five_start=FIVE_START, five_isos=" and ".join(FIVE_MINUTE_ISOS),
             rules=agent.ANSWER_RULES,
-            schema="\n\n".join(render(blocks[table], selection["columns"].get(table)) for table in selection["tables"]),
+            schema="\n\n".join(blocks[table] for table in selection["tables"]),
         )
         output = agent.run(llm, prompt, question, set(selection["tables"]))
         lap()

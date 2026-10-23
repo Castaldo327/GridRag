@@ -19,16 +19,6 @@ class FailureTests(unittest.TestCase):
         self.assertNotIn("secret diagnostic", str(res))
         self.assertIn("secret diagnostic", "\n".join(logs.output))  # the detail is logged instead
 
-    def test_routing_failure_never_reaches_sql(self):
-        with (patch.object(answer, "gate", return_value=ALLOWED),
-              patch.object(answer, "route", side_effect=RuntimeError("routing unavailable")),
-              patch.object(answer.agent, "run") as sql,
-              self.assertLogs("gridrag.answer", level="ERROR")):
-            res = answer.answer("What was ERCOT demand?")
-        sql.assert_not_called()
-        self.assertEqual((res["state"], res["stage"]), ("failed", "route"))
-        self.assertEqual(res["gate"], ALLOWED)
-
     def test_too_broad_a_route_asks_to_narrow_and_keeps_the_selection(self):
         selection = {"tables": [f"core.t{i}" for i in range(23)]}
         with (patch.object(answer, "gate", return_value=ALLOWED),
@@ -37,7 +27,7 @@ class FailureTests(unittest.TestCase):
             res = answer.answer("Compare every energy price")
         sql.assert_not_called()
         self.assertEqual(res["state"], "clarification")
-        self.assertIn("Which ISO", res["answer"])
+        self.assertIn("Which region", res["answer"])
         self.assertEqual(res["route"], selection)  # what was chosen stays visible
 
 

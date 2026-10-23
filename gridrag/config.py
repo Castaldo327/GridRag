@@ -18,7 +18,6 @@ PRICES = {
     "responses": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
 }
 
-MAX_PARALLEL_FAMILIES = 3  # routing calls in flight at once for one question
 MAX_ROUTED_TABLES = 12  # largest schema slice SQL may receive, dimensions included; broader asks to narrow
 SQL_MAX_ROUNDS = 5
 SQL_MAX_ROWS = 500 

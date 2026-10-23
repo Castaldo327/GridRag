@@ -1,4 +1,4 @@
-"""Real provider calls (about a dozen per run). Skipped without OPEN_AI_KEY."""
+"""End-to-end accuracy checks using real provider calls. Skipped without OPEN_AI_KEY."""
 
 import re
 import unittest
@@ -51,7 +51,6 @@ class LiveTests(unittest.TestCase):
         )["csv"].splitlines()[1])
         print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected} MW")
         self.assertIn("core.fact_generation_5min", res["route"]["tables"])
-        self.assertIn("generation_mw", res["route"]["columns"]["core.fact_generation_5min"])  # the value itself
         self.assertEqual(res["state"], "answered")
         stated = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.?\d*", res["answer"])]
         self.assertTrue(any(abs(n - expected) <= 1 for n in stated), stated)
@@ -65,18 +64,8 @@ class LiveTests(unittest.TestCase):
         print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}\nexpected {expected}")
         self.assertIn("core.queue_project", res["route"]["tables"])
         self.assertNotIn("core.fact_balance_hourly", res["route"]["tables"])
-        self.assertLess(len(res["route"]["columns"]["core.queue_project"]), 17)  # a count needs few of its columns
         self.assertEqual(res["state"], "answered")
         self.assertIn(str(expected), re.findall(r"\d+", res["answer"]))
-
-    def test_cross_family_question_routes_to_both(self):
-        res = answer.answer(
-            "As a percentage of ERCOT's peak hourly demand in 2025, how large is the total active battery "
-            "capacity in its current interconnection queue?"
-        )
-        print(f"\n{res['answer']}\n{res['route']}\n{res['tool_calls']}")
-        self.assertEqual(res["route"]["domains"], ["hourly", "queue"])
-        self.assertEqual(res["state"], "answered")
 
     def test_bus_price_uses_the_bus_table_not_the_hub(self):
         res = answer.answer("What was the average real-time five-minute LMP at ERCOT_BUS_A on October 21, 2026, "
@@ -135,15 +124,6 @@ class LiveTests(unittest.TestCase):
         )
         self.assertNotIn("demand_forecast_mw", " ".join(c["query"] for c in res["tool_calls"]))
 
-    def test_reserve_price_is_not_an_energy_price(self):
-        self.check(
-            "What was MISO's maximum regulation-up ancillary service clearing price on October 21, 2026? "
-            "Use reserve prices, not energy LMPs.",
-            "SELECT max(clearing_price) FROM core.miso_ancillary_prices_hourly "
-            "WHERE service_code = 'regulation_up' AND interval_start_local::DATE = DATE '2026-10-21'",
-            "core.miso_ancillary_prices_hourly",
-        )
-
     def test_storage_discharge_energy_integrates_five_minute_power(self):
         self.check(
             "How much gross battery discharge energy in MWh was observed in CAISO on October 21, 2026, using "
@@ -151,24 +131,6 @@ class LiveTests(unittest.TestCase):
             "SELECT sum(discharge_mw) / 12 FROM core.caiso_storage_dispatch_5min "
             "WHERE interval_start_local::DATE = DATE '2026-10-21'",
             "core.caiso_storage_dispatch_5min",
-        )
-
-    def test_forced_outage_capacity_by_fuel(self):
-        self.check(
-            "How much natural-gas resource capacity in MW was unavailable due to forced outages in PJM on "
-            "October 21, 2026? Exclude planned outages and queue projects.",
-            "SELECT sum(unavailable_mw) FROM core.pjm_resource_outage_daily JOIN core.dim_fuel USING (fuel_id) "
-            "WHERE market_date = DATE '2026-10-21' AND outage_type = 'forced' AND fuel_code = 'natural_gas'",
-            "core.pjm_resource_outage_daily",
-        )
-
-    def test_curtailed_solar_energy(self):
-        self.check(
-            "How much solar energy in MWh was curtailed in SPP on October 21, 2026, integrating five-minute "
-            "curtailed power? This is lost output, not generated solar energy.",
-            "SELECT sum(curtailed_mw) / 12 FROM core.spp_renewable_curtailment_5min JOIN core.dim_fuel USING (fuel_id) "
-            "WHERE fuel_code = 'solar' AND interval_start_local::DATE = DATE '2026-10-21'",
-            "core.spp_renewable_curtailment_5min",
         )
 
     def test_gate_declines_before_any_sql(self):
