@@ -14,11 +14,13 @@ A small SQL-RAG system build for time series data over fictional US electricity 
 
 ## What it does
 
-GridRag is my attempt at a Retrieval Augmented Generation (RAG) system that works on time series data. Standard RAG retrieves text chunks, which doesn't suit hourly and five-minute grid measurements, where the right answer usually comes from an aggregation or a join. So the system retrieves schema instead of documents, and the evidence comes from SQL.
+GridRag is a Retrieval-Augmented Generation (RAG) system tailored specifically for time-series energy data.
 
-Rather than writing routing rules by hand for each kind of question, I use a decision model to score the documented schema in one call: each core table, each product family (the same table for every ISO, scored once), and which ISOs the question needs. The system keeps the relevant tables, expands each selected family to the requested ISOs' tables, and adds any tables they reference. The model that generates the SQL only sees that selected schema.
+Standard RAG retrieves textual chunks—an approach that falls short for hourly and five-minute grid measurements, where accurate answers depend on relational joins and aggregations. Instead of retrieving text documents, GridRag retrieves database schemas and generates evidence using SQL.
 
-You can ask about demand, generation, prices, forecasts, storage, or interconnection projects. GridRag picks the relevant tables, runs read-only SQL against them, and writes its answer from the rows that come back. The UI shows each stage as it runs, along with the selected tables, the SQL, the evidence, latency, and estimated model cost. All of the data is synthetic.
+Rather than relying on hand-crafted routing rules, GridRag uses a single decision-model call to score the documented schema across three dimensions: core tables, ISO-agnostic product families, and targeted ISO regions. The pipeline keeps top-scoring tables, expands selected product families to the target ISOs, and includes any dependent reference tables. The downstream SQL-generation model then operates strictly within this focused context.
+
+Users can query grid demand, generation, pricing, forecasts, energy storage, or interconnection queues. GridRag isolates the necessary schema, executes read-only SQL queries, and synthesizes answers directly from the returned dataset. The UI provides real-time execution visibility—displaying selected schemas, generated SQL, raw evidence, latency metrics, and estimated API costs at each step.
 
 ## Architecture
 
