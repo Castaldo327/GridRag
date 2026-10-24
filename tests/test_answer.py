@@ -90,5 +90,36 @@ class FailureTests(unittest.TestCase):
                 answer.answer(question)
 
 
+class DependencyTests(unittest.TestCase):
+    def test_progress_failure_keeps_stage_timing_and_disconnects_propagate(self):
+        for error in (ValueError("consumer failed"), BrokenPipeError(), ConnectionResetError()):
+            def callback(update):
+                raise error
+
+            with self.subTest(error=error), patch.object(answer, "gate") as gate:
+                if isinstance(error, (BrokenPipeError, ConnectionResetError)):
+                    with self.assertRaises(type(error)):
+                        answer.answer("question", model(), callback)
+                else:
+                    with self.assertLogs("gridrag.answer", level="ERROR"):
+                        result = answer.answer("question", model(), callback)
+                    self.assertEqual(result["state"], State.FAILED)
+                    self.assertIn("gate", result["timings"])
+                gate.assert_not_called()
+
+    def test_falsey_injected_model_is_used(self):
+        class FalseyModel:
+            def __bool__(self):
+                return False
+
+            def totals(self):
+                return USAGE
+
+        injected = FalseyModel()
+        with patch.object(answer, "gate", return_value={**ALLOWED, "allowed": False}) as gate:
+            answer.answer("question", injected)
+        self.assertIs(gate.call_args.args[1], injected)
+
+
 if __name__ == "__main__":
     unittest.main()

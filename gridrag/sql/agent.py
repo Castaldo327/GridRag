@@ -9,9 +9,10 @@ the last call cannot execute tools. Exhaustion or malformed provider output fail
 import json
 import time
 from collections.abc import Callable, Collection
+from typing import Any
 
 from gridrag import config, db
-from gridrag.llm import output_text
+from gridrag.llm import Model, output_text
 from gridrag.records import AgentResult, Progress, QueryResult, Stage, State, ToolCall
 
 INSTRUCTIONS = """Answer the request using the documented warehouse below.
@@ -49,7 +50,7 @@ def _tools() -> list[dict]:
 
 def _next_tool_call(response: dict, *, tools_allowed: bool) -> dict | None:
     """Accept a complete answer or one valid tool call, within the execution budget."""
-    if response.get("status") in {"incomplete", "failed"}:
+    if response.get("status") != "completed":
         raise RuntimeError("SQL model did not return a complete response")
 
     tool_calls = [item for item in response.get("output", []) if item.get("type") == "function_call"]
@@ -59,8 +60,11 @@ def _next_tool_call(response: dict, *, tools_allowed: bool) -> dict | None:
         raise RuntimeError("SQL model exceeded the tool-call budget")
 
     tool_call = tool_calls[0]
+    response_id = response.get("id")
+    if not isinstance(response_id, str) or not response_id.strip():
+        raise RuntimeError("SQL model returned an invalid response ID")
     call_id = tool_call.get("call_id")
-    if not isinstance(call_id, str) or not call_id:
+    if not isinstance(call_id, str) or not call_id.strip():
         raise RuntimeError("SQL model returned an invalid tool call")
     return tool_call
 
@@ -71,14 +75,17 @@ def _execute_sql(tool_call: dict, allowed_tables: Collection[str] | None) -> tup
     result: QueryResult
     execution_seconds = None
     try:
+        if not isinstance(query, str):
+            raise ValueError("expected JSON-encoded arguments")
         arguments = json.loads(query)
         if tool_call.get("name") != "run_sql" or not isinstance(arguments, dict):
             raise ValueError("expected run_sql with a string query")
         query = arguments.get("query")
-        if not isinstance(query, str):
+        if not isinstance(query, str) or set(arguments) != {"query"}:
             raise ValueError("expected run_sql with a string query")
     except (TypeError, ValueError) as error:
-        query = tool_call.get("arguments")
+        raw_arguments = tool_call.get("arguments")
+        query = raw_arguments if isinstance(raw_arguments, str) else None
         result = {"error": f"bad arguments: {error}"}
     else:
         started = time.perf_counter()
@@ -120,7 +127,7 @@ def _finish_answer(response: dict, tool_calls: list[ToolCall]) -> AgentResult:
 
 
 def run(
-    llm,
+    llm: Model,
     question: str,
     *,
     schema: str,
@@ -144,7 +151,7 @@ def run(
 
     for round_number in range(1, settings.sql_max_rounds + 1):
         tools_allowed = round_number < settings.sql_max_rounds
-        request_options = {
+        request_options: dict[str, Any] = {
             "tools": _tools(),
             "tool_choice": "auto" if tools_allowed else "none",
             "parallel_tool_calls": False,

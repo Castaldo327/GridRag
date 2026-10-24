@@ -7,7 +7,8 @@ one question's calls, each tagged with the stage (gate, route, sql) that made it
 import math
 import threading
 import time
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal, Protocol
 
 from openai import OpenAI
 
@@ -18,9 +19,20 @@ _client: OpenAI | None = None
 _client_lock = threading.Lock()
 
 
+class Model(Protocol):
+    """Provider-independent contract used by the pipeline and scripted test doubles."""
+
+    def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]: ...
+
+    def respond(self, stage: Stage, instructions: str, input_items: str | list[dict], *,
+                on_text: Callable[[str], None] | None = None, **kwargs: Any) -> dict: ...
+
+    def totals(self) -> Usage: ...
+
+
 def client() -> OpenAI:
     global _client
-    with _client_lock: 
+    with _client_lock:
         if _client is None:
             settings = config.settings
             if not settings.openai_api_key:
@@ -66,7 +78,7 @@ def call_cost(kind: str, usage: dict) -> float:
 class LLM:
     """One question's model calls, each recorded with the stage that made it."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls: list[ModelCall] = []
         self._lock = threading.Lock()  # protect per-request usage if callers share an LLM
 
@@ -74,7 +86,8 @@ class LLM:
         with self._lock:
             self.calls.append(call)
 
-    def _request(self, kind: Literal["decisions", "responses"], stage: Stage, method, **kwargs) -> dict:
+    def _request(self, kind: Literal["decisions", "responses"], stage: Stage,
+                 method: Callable[..., Any], **kwargs: Any) -> dict:
         t = time.perf_counter()
         try:
             resp = method(**kwargs).model_dump(mode="json")
@@ -104,7 +117,8 @@ class LLM:
         )
         return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
 
-    def respond(self, stage: Stage, instructions: str, input_items, *, on_text=None, **kwargs) -> dict:
+    def respond(self, stage: Stage, instructions: str, input_items: str | list[dict], *,
+                on_text: Callable[[str], None] | None = None, **kwargs: Any) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
         settings = config.settings
         responses = client().responses
@@ -113,7 +127,7 @@ class LLM:
             # The SDK assembles tool calls and final usage while text deltas reach the UI.
             with responses.stream(**options) as stream:
                 for event in stream:
-                    if event.type == "response.output_text.delta":
+                    if event.type == "response.output_text.delta" and on_text is not None:
                         on_text(event.delta)
                 return stream.get_final_response()
 

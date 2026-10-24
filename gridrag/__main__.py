@@ -12,7 +12,11 @@ def main() -> None:
     parser.add_argument("question")
     parser.add_argument("--verbose", action="store_true", help="show routing scores and per-call diagnostics")
     args = parser.parse_args()
-    res = answer.answer(args.question)
+    try:
+        question = answer.clean_question(args.question)
+    except ValueError as exc:
+        parser.error(str(exc))
+    res = answer.answer(question)
 
     print(res["answer"])
     print(f"\nState: {res['state']}")
@@ -43,7 +47,7 @@ def main() -> None:
                   f"{call['output_tokens']:>5,} out" + (f"  {call['error']}" if call["error"] else ""))
         if res["state"] == State.FAILED:
             print(f"Failed during {res.get('stage')}: {res.get('error')}")
-    if res["state"] == State.FAILED:
+    if res["state"] in {State.FAILED, State.WRITE_FAILED}:
         raise SystemExit(1)
 
 

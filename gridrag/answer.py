@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.gate import gate
-from gridrag.llm import LLM
+from gridrag.llm import LLM, Model
 from gridrag.records import Answer, Gate, Progress, Selection, Stage, State, ToolCall
 from gridrag.route import RoutingTooBroad, route
 from gridrag.sql import agent
@@ -27,19 +27,19 @@ def clean_question(question: object) -> str:
 
 class _Trace:
     """What one question has produced so far: stage results, query evidence, and seconds per stage."""
-    def __init__(self, question: str, llm, on_progress: Callable[[Progress], None] | None):
+    def __init__(self, question: str, llm: Model, on_progress: Callable[[Progress], None] | None):
         self.question, self.llm, self.on_progress = question, llm, on_progress
         self.gate: Gate | None = None
         self.route: Selection | None = None
         self.tool_calls: list[ToolCall] = []
-        self.stage: Stage | None = None  
+        self.stage: Stage | None = None
         self.timings: dict[str, float] = {}
         self.started = time.perf_counter()
 
     def report(self, update: Progress) -> None:
         if update.get("answer_delta") and "first_token" not in self.timings:
             self.timings["first_token"] = round(time.perf_counter() - self.started, 3)
-        if "tool_calls" in update:  
+        if "tool_calls" in update:
             self.tool_calls = list(update["tool_calls"])
         if self.on_progress is not None:
             self.on_progress(update)
@@ -48,8 +48,8 @@ class _Trace:
     def timed(self, stage: Stage, update: Progress | None = None) -> Iterator[None]:
         """Report the stage as started, with any results so far, and record its duration even if it fails."""
         self.stage, started = stage, time.perf_counter()
-        self.report({**(update or {}), "stage": stage})
         try:
+            self.report({**(update or {}), "stage": stage})
             yield
         finally:
             self.timings[stage] = round(time.perf_counter() - started, 3)
@@ -61,20 +61,20 @@ class _Trace:
                 "usage": self.llm.totals()}
 
 
-def answer(question: str, llm=None, on_progress: Callable[[Progress], None] | None = None, *,
+def answer(question: str, llm: Model | None = None, on_progress: Callable[[Progress], None] | None = None, *,
            catalog: Catalog | None = None) -> Answer:
     """The answer record (gridrag.records.Answer). state is answered, abstained, write_failed, declined (gate),
     clarification (routing too broad) or failed, which adds error and stage. catalog is trusted schema
     documentation, the demo warehouse's by default; on_progress receives synchronous JSON-compatible updates.
     Invalid questions raise ValueError. A disconnected progress consumer stops execution."""
-    trace = _Trace(clean_question(question), llm or LLM(), on_progress)
+    trace = _Trace(clean_question(question), LLM() if llm is None else llm, on_progress)
     try:
         return _run(trace, demo_catalog() if catalog is None else catalog)
-    except RoutingTooBroad as exc: 
+    except RoutingTooBroad as exc:
         trace.route = exc.selection
         return trace.record(State.CLARIFICATION, str(exc))
     except (BrokenPipeError, ConnectionResetError):
-        raise  
+        raise
     except Exception as exc:
         logger.exception("Question failed during %s", trace.stage)
         record = trace.record(State.FAILED, "The question could not be completed. Please try again.")

@@ -5,7 +5,7 @@ not authorization. The read-only database guard in gridrag.db is enforced regard
 """
 
 from gridrag import config
-from gridrag.llm import probability
+from gridrag.llm import Model, probability
 from gridrag.records import Gate, Stage
 
 QUESTIONS = [
@@ -31,7 +31,7 @@ QUESTIONS = [
 ]
 
 
-def gate(question: str, llm) -> Gate:
+def gate(question: str, llm: Model) -> Gate:
     """{allowed, reason, relevance, malicious}. Lenient on relevance (an underspecified grid question still
     reaches SQL, which can explain coverage), strict on abuse."""
     answers = llm.decide(Stage.GATE, question, QUESTIONS)

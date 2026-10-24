@@ -11,11 +11,11 @@ from gridrag.sql import agent
 
 
 def tool(arguments='{"query": "SELECT 1"}'):
-    return {"id": "query", "output": [{"type": "function_call", "name": "run_sql",
+    return {"id": "query", "status": "completed", "output": [{"type": "function_call", "name": "run_sql",
             "call_id": "call", "arguments": arguments}]}
 
 
-TEXT = {"id": "answer", "output": [{"type": "message", "content": [
+TEXT = {"id": "answer", "status": "completed", "output": [{"type": "message", "content": [
     {"type": "output_text", "text": "A claimed answer."},
 ]}]}
 
@@ -74,3 +74,23 @@ class AgentTests(unittest.TestCase):
                   self.assertRaises(RuntimeError)):
                 agent.run(SimpleNamespace(respond=Mock(return_value=response)), "question", schema="")
             execute.assert_not_called()
+
+    def test_invalid_continuation_metadata_never_executes_sql(self):
+        responses = [{**tool(), "id": value} for value in (None, "", " ", 1)]
+        responses += [{**tool(), "status": value} for value in (None, "queued", "in_progress", "cancelled")]
+        for response in responses:
+            with (self.subTest(response=response),
+                  patch.object(agent.db, "run_model_sql") as execute,
+                  self.assertRaises(RuntimeError)):
+                agent.run(SimpleNamespace(respond=Mock(return_value=response)), "question", schema="")
+            execute.assert_not_called()
+
+    def test_invalid_argument_shapes_are_repairable_and_records_remain_serializable(self):
+        for arguments in (None, {"query": "SELECT 1"}, '{"query": "SELECT 1", "extra": true}'):
+            with self.subTest(arguments=arguments), patch.object(agent.db, "run_model_sql") as execute:
+                model = SimpleNamespace(respond=Mock(side_effect=[tool(arguments), TEXT]))
+                result = agent.run(model, "question", schema="")
+            execute.assert_not_called()
+            self.assertEqual(result["state"], State.WRITE_FAILED)
+            self.assertIn("bad arguments", result["tool_calls"][0]["error"])
+            self.assertIsInstance(result["tool_calls"][0]["query"], (str, type(None)))

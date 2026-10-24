@@ -24,6 +24,9 @@ class Table:
     ddl: str
     references: frozenset[str] = frozenset()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "references", frozenset(self.references))
+
     @classmethod
     def parse(cls, ddl: str) -> "Table":
         """A table from one documented CREATE TABLE statement. References come from its code, not its comments;
@@ -42,6 +45,11 @@ class Family:
     ddl: str
     tables: Mapping[str, str]  # ISO code -> table name
 
+    def __post_init__(self) -> None:
+        if not self.tables:
+            raise ValueError(f"Family {self.name!r} has no tables")
+        object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
+
 
 @dataclass(frozen=True)
 class Catalog:
@@ -51,14 +59,25 @@ class Catalog:
     families: Mapping[str, Family] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
+        object.__setattr__(self, "families", MappingProxyType(dict(self.families)))
         if not self.tables:
             raise ValueError("The schema catalog is empty")
-        for table in self.tables.values():
+        for name, table in self.tables.items():
+            if name != table.name:
+                raise ValueError(f"Catalog key {name!r} does not match table {table.name!r}")
             if missing := sorted(table.references - self.tables.keys()):
                 raise ValueError(f"Catalog is missing referenced table {', '.join(missing)}")
-        for family in self.families.values():
+        members: set[str] = set()
+        for name, family in self.families.items():
+            if name != family.name or name in self.tables:
+                raise ValueError(f"Invalid or conflicting family name: {name!r}")
             if missing := sorted(set(family.tables.values()) - self.tables.keys()):
                 raise ValueError(f"Catalog is missing family table {', '.join(missing)}")
+            for table in family.tables.values():
+                if table in members:
+                    raise ValueError(f"Table belongs to multiple family members: {table}")
+                members.add(table)
 
     @classmethod
     def of(cls, tables: Iterable[Table], families: Iterable[Family] = ()) -> "Catalog":
@@ -68,7 +87,12 @@ class Catalog:
             if table.name in by_name:
                 raise ValueError(f"Duplicate catalog entry: {table.name}")
             by_name[table.name] = table
-        return cls(MappingProxyType(by_name), MappingProxyType({family.name: family for family in families}))
+        by_family: dict[str, Family] = {}
+        for family in families:
+            if family.name in by_family:
+                raise ValueError(f"Duplicate family entry: {family.name}")
+            by_family[family.name] = family
+        return cls(by_name, by_family)
 
     @property
     def isos(self) -> tuple[str, ...]:
@@ -91,7 +115,7 @@ def parse(script: str) -> list[Table]:
 @cache
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
-    from gridrag.warehouse import build, products  
+    from gridrag.warehouse import build, products
     isos = list(build.ISO_IDS)
     return Catalog.of(parse(build.schema_text()), [
         Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),

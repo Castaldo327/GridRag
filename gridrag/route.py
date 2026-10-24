@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
-from gridrag.llm import probability
+from gridrag.llm import Model, probability
 from gridrag.records import Selection, Stage
 
 TABLE_QUESTION = (
@@ -42,8 +42,11 @@ def _needed(p: float | None) -> bool:
     return p is None or p >= config.settings.route_min_probability
 
 
-def _score(llm, question: str, units: Mapping[str, str], isos: Iterable[str]):
+def _score(
+    llm: Model, question: str, units: Mapping[str, str], isos: Iterable[str],
+) -> tuple[dict[str, float | None], dict[str, float | None]]:
     """One Decisions call: the probability that each unit, and each ISO, is needed (None when unusable)."""
+    isos = tuple(isos)
     answers = llm.decide(Stage.ROUTE, question, [
         *({"type": "predicate", "name": f"t{i}", "instructions": TABLE_QUESTION + ddl}
           for i, ddl in enumerate(units.values())),
@@ -79,7 +82,7 @@ def _with_references(catalog: Catalog, selected: set[str]) -> set[str]:
     return closed
 
 
-def route(question: str, llm, catalog: Catalog | None = None) -> Selection:
+def route(question: str, llm: Model, catalog: Catalog | None = None) -> Selection:
     catalog = demo_catalog() if catalog is None else catalog
     settings = config.settings
     scores, iso_scores = _score(llm, question, catalog.units(), catalog.isos)

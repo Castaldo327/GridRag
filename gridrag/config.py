@@ -30,7 +30,7 @@ class Settings:
     answer_reasoning: str = "none"
     answer_max_output_tokens: int = 1600
     call_timeout_s: float = 30
-    api_max_retries: int = 1  
+    api_max_retries: int = 1
 
     prices: Mapping[str, Rates] = field(default_factory=lambda: MappingProxyType({
         "decisions": Rates(input=0.10, cached_input=0.01, output=0.0),
@@ -41,8 +41,8 @@ class Settings:
     gate_min_relevance: float = 0.3
     gate_max_malicious: float = 0.7
     route_min_probability: float = 0.2
-    route_max_unscored: float = 0.5  
-    max_routed_tables: int = 12  
+    route_max_unscored: float = 0.5
+    max_routed_tables: int = 12
     sql_max_rounds: int = 5
     sql_max_rows: int = 500
     sql_max_chars: int = 20000

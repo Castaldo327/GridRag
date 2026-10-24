@@ -55,3 +55,41 @@ class CatalogTests(unittest.TestCase):
         ):
             with self.subTest(tables=[t.name for t in tables], families=len(families)), self.assertRaises(ValueError):
                 Catalog.of(tables, families)
+
+    def test_family_collisions_cannot_silently_drop_routing_units(self):
+        table = Table.parse("CREATE TABLE core.region (id INTEGER);")
+        family = Family("regions", "-- regions", {"ISO": table.name})
+        for families in (
+            [family, family],
+            [Family(table.name, "-- collision", {"ISO": table.name})],
+            [family, Family("other", "-- overlap", {"ISO": table.name})],
+            [Family("regions", "-- duplicate member", {"A": table.name, "B": table.name})],
+        ):
+            with self.subTest(families=families), self.assertRaises(ValueError):
+                Catalog.of([table], families)
+        with self.assertRaises(ValueError):
+            Family("empty", "-- empty", {})
+
+    def test_catalog_owns_immutable_snapshots_of_constructor_inputs(self):
+        table = Table.parse("CREATE TABLE core.region (id INTEGER);")
+        members = {"ISO": table.name}
+        family = Family("regions", "-- regions", members)
+        tables, families = {table.name: table}, {family.name: family}
+        catalog = Catalog(tables, families)
+        members.clear()
+        tables.clear()
+        families.clear()
+        self.assertEqual(catalog.isos, ("ISO",))
+        self.assertEqual(list(catalog.tables), [table.name])
+        with self.assertRaises(TypeError):
+            catalog.tables["other"] = table
+        with self.assertRaises(TypeError):
+            family.tables["other"] = table.name
+
+    def test_direct_constructor_rejects_mismatched_keys(self):
+        table = Table.parse("CREATE TABLE core.region (id INTEGER);")
+        with self.assertRaises(ValueError):
+            Catalog({"wrong": table})
+        family = Family("regions", "-- regions", {"ISO": table.name})
+        with self.assertRaises(ValueError):
+            Catalog({table.name: table}, {"wrong": family})

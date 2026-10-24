@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">GridRag</h1>
 <p align="center"><strong>Ask the grid.</strong><br>
-A small SQL-RAG system build for time series data over fictional US electricity gird data.</p>
+A small SQL-RAG system built for time-series analysis of fictional US electricity grid data.</p>
 <p align="center">
   <a href="#run-locally">Run locally</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -18,7 +18,7 @@ GridRag is a Retrieval-Augmented Generation (RAG) system tailored specifically f
 
 Standard RAG retrieves textual chunks—an approach that falls short for hourly and five-minute grid measurements, where accurate answers depend on relational joins and aggregations. Instead of retrieving text documents, GridRag retrieves database schemas and generates evidence using SQL.
 
-Rather than relying on hand-crafted routing rules, GridRag uses a single decision-model call to score the documented schema across three dimensions: core tables, ISO-agnostic product families, and targeted ISO regions. The pipeline keeps top-scoring tables, expands selected product families to the target ISOs, and includes any dependent reference tables. The downstream SQL-generation model then operates strictly within this focused context.
+Rather than relying on hand-crafted routing rules, GridRag uses a single decision-model call to score the documented schema across three dimensions: core tables, ISO-agnostic product families, and targeted ISO regions. The pipeline keeps tables above a relevance threshold, expands selected product families to the target ISOs, and includes any dependent reference tables. The downstream SQL-generation model then operates strictly within this focused context.
 
 Users can query grid demand, generation, pricing, forecasts, energy storage, or interconnection queues. GridRag isolates the necessary schema, executes read-only SQL queries, and synthesizes answers directly from the returned dataset. The UI provides real-time execution visibility—displaying selected schemas, generated SQL, raw evidence, latency metrics, and estimated API costs at each step.
 
@@ -115,7 +115,8 @@ evaluations are required before deployment.
 
 `answer.py` orchestrates; `gate.py` and `route.py` classify; `sql/agent.py`
 prompts for SQL and handles repair; `db.py` enforces database restrictions;
-`llm.py` owns provider calls and usage accounting. `records.py` defines the
+`llm.py` owns provider calls and usage accounting. Its `Model` protocol defines
+the injected model interface used by the pipeline and test doubles. `records.py` defines the
 records each stage returns or streams, as TypedDicts, and the `State` and `Stage`
 names. `catalog.py` describes queryable tables (name, DDL, references) and the
 per-ISO product families routing scores once; `demo_catalog()` adapts the demo
