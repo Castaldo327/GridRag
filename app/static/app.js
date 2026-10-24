@@ -3,6 +3,7 @@ const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 }[c]));
+const md = (value) => esc(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 const number = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const seconds = value => value == null ? "—" : `${Number(value).toFixed(2)} s`;
 const preset = () => state.meta.presets.find(p => p.question === $("#question").value.trim());
@@ -114,8 +115,8 @@ function paint() {
   }).join("");
   $("#answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";
   $("#answer").innerHTML = state.error ? `<p class="error">${esc(state.error)}</p>` : r ?
-    `<div class="answer-text">${esc(r.answer)}</div>` : state.running && state.progress.answer_text ?
-    `<div class="answer-text">${esc(state.progress.answer_text)}</div>` : state.running ?
+    `<div class="answer-text">${md(r.answer)}</div>` : state.running && state.progress.answer_text ?
+    `<div class="answer-text">${md(state.progress.answer_text)}</div>` : state.running ?
     `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
     '<p class="empty">Choose a preset or write a question, then ask the grid.</p>';
   $("#details-panel").hidden = !calls.length;
@@ -168,7 +169,7 @@ async function ask() {
           if (event.type === "progress") {
             if (event.answer_delta !== undefined) {
               state.progress.answer_text = (state.progress.answer_text || "") + event.answer_delta;
-              $("#answer").textContent = state.progress.answer_text;
+              $("#answer").innerHTML = `<div class="answer-text">${md(state.progress.answer_text)}</div>`;
             } else {
               Object.assign(state.progress, event);
               paint();
