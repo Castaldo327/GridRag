@@ -51,6 +51,7 @@ class QueryResult(TypedDict, total=False):
 
 
 class ToolCall(TypedDict):
+    execution_seconds: NotRequired[float]  # database guard, execution and result serialization
     query: str | None  # the SQL, or the raw arguments when they were invalid
     rows: int | None
     error: str | None

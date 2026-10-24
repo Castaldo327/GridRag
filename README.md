@@ -106,9 +106,10 @@ route must or must not include. The UI offers the labelled cases as preset
 questions. Live evaluations ask every case (fuel shares, interval values, queue
 counts, bus and hub prices, price spreads, forecast cutoffs, battery energy, a
 too-broad request, and declined requests) and require the answer to state the
-reference value at the precision it shows. Live accuracy remains unverified in
-this review. Broader paraphrase, unseen-schema,
-and adversarial evaluations are required before deployment.
+reference value in query evidence and in the answer at its displayed precision.
+The [live verification report](docs/live-verification.md) records the prompt comparison,
+measured latency/cost, and 15 reviewed runs. Broader unseen-schema and adversarial
+evaluations are required before deployment.
 
 ## Code and configuration
 

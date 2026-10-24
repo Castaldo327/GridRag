@@ -113,7 +113,12 @@ function paint() {
     <div><small>Estimated token cost</small><strong>$${r.usage.cost_usd.toFixed(5)}</strong></div>
     <div><small>SQL queries</small><strong>${calls.length}</strong></div></div>
     <div class="stage-metrics">${["gate", "route", "sql"].map(s => `<span>${{gate:"Gate", route:"Routing", sql:"SQL + answer"}[s]} <b>${seconds(r.timings[s])}</b></span>`).join("")}
-    <span>Tokens <b>${number(r.usage.input_tokens)} in / ${number(r.usage.output_tokens)} out</b></span></div>`;
+    <span>Tokens <b>${number(r.usage.input_tokens)} in / ${number(r.usage.output_tokens)} out</b></span></div>
+    <details class="evidence-item"><summary>Latency breakdown</summary>
+      <div class="stage-metrics">${(r.usage.per_call || []).map((call, i) => `<span>Call ${i + 1} · ${esc({gate: "Gate", route: "Routing", sql: "SQL / answer model"}[call.stage] || call.stage)} <b>${seconds(call.seconds)}</b></span>`).join("")}
+      ${calls.map((call, i) => call.execution_seconds == null ? "" : `<span>Database query ${i + 1} <b>${seconds(call.execution_seconds)}</b></span>`).join("")}</div>
+      <p class="footnote">Model times include network waits and SDK retries. Database times include SQL checks and result formatting.</p>
+    </details>`;
   $("#ask-button").disabled = state.running || !state.meta.model_ready;
   $("#ask-button").textContent = state.running ? "Running…" : "Ask the grid →";
   $("#question").disabled = state.running;

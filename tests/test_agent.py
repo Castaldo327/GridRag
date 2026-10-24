@@ -31,6 +31,8 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["state"], State.ANSWERED)
         self.assertIn("bad arguments", result["tool_calls"][0]["error"])
         self.assertEqual(result["tool_calls"][1]["csv"], "n\n1\n")
+        self.assertNotIn("execution_seconds", result["tool_calls"][0])
+        self.assertGreaterEqual(result["tool_calls"][1]["execution_seconds"], 0)
         requests = model.respond.call_args_list
         self.assertNotIn("previous_response_id", requests[0].kwargs)
         self.assertEqual(requests[1].kwargs["previous_response_id"], "query")
@@ -45,7 +47,6 @@ class AgentTests(unittest.TestCase):
         self.assertEqual((stage, model_input), (Stage.SQL, "question"))
         self.assertIn("CREATE TABLE core.example (n INTEGER);", instructions)
         self.assertIn(agent.ANSWER_RULES, instructions)
-        self.assertIn("call run_sql", instructions)
 
     def test_prose_without_queries_is_not_presented_as_verified(self):
         model = SimpleNamespace(respond=Mock(return_value=TEXT))

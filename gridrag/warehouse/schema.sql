@@ -35,6 +35,8 @@ CREATE TABLE core.dim_queue_status (
 
 -- Hourly balance: total demand (load) and net generation across all fuels, the denominator of fuel shares.
 -- One row per ISO and hour. Local timestamps repeat in the fall-back hour, so the key is UTC.
+-- Joining to generation by ISO/hour is one-to-many: each balance measure repeats for every fuel.
+-- Aggregate balance and fuel generation separately before combining totals, or make the join one-to-one.
 CREATE TABLE core.fact_balance_hourly (
     iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),
     interval_start_utc   TIMESTAMP NOT NULL,
