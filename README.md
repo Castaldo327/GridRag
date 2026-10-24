@@ -14,54 +14,47 @@ A small SQL-RAG system built for time-series analysis of fictional US electricit
 
 ## What it does
 
-GridRag is a Retrieval-Augmented Generation (RAG) system tailored specifically for time-series energy data.
+GridRag is a Retrieval-Augmented Generation (RAG) system for time-series energy
+data. Text retrieval alone cannot reliably answer questions that require joins,
+time filters, or aggregation across hourly and five-minute measurements.
+GridRag therefore retrieves schema context and uses SQL to produce evidence from
+the underlying data.
 
-Standard RAG retrieves textual chunks—an approach that falls short for hourly and five-minute grid measurements, where accurate answers depend on relational joins and aggregations. Instead of retrieving text documents, GridRag retrieves database schemas and generates evidence using SQL.
+The router scores every documented table in one model call, adds tables required
+by foreign keys, and scores the selected tables' columns in parallel. The SQL
+model receives a compact schema containing the relevant columns and the keys and
+time fields needed for valid queries. A separate database guard restricts SQL to
+the routed tables and enforces read-only execution limits.
 
-Rather than relying on hand-crafted routing rules, GridRag scores every documented physical table against the question in one decision-model call. It keeps relevant tables and their referenced dimensions, then scores the columns of those selected tables in parallel. Only the selected column definitions reach the SQL model, with identifiers and time columns retained for joins and filters. The database guard independently limits queries to the routed tables.
-
-Users can query grid demand, generation, pricing, forecasts, energy storage, or interconnection queues. GridRag isolates the necessary schema, executes read-only SQL queries, and synthesizes answers directly from the returned dataset. The UI provides real-time execution visibility—displaying selected schemas, generated SQL, raw evidence, latency metrics, and estimated API costs at each step.
+Users can ask about demand, generation, prices, forecasts, storage, outages,
+curtailment, and interconnection projects. The UI streams the answer and shows
+the selected schema, SQL, returned evidence, latency, and estimated model cost.
 
 ## Architecture
 
 [![GridRag architecture: request gate, schema selection, SQL execution and evidence-backed answers](docs/architecture.svg)](docs/architecture.svg)
 
-[View full size](docs/architecture.svg) · [Edit in draw.io](docs/architecture.drawio)
+[View full size](docs/architecture.svg)
 
-This is **structured-data RAG**: schema retrieval supplies context, SQL retrieves and aggregates evidence, and the model explains it. A vector database is not required.
+This is **structured-data RAG**: schema retrieval supplies context, SQL produces
+the evidence, and the model explains the result.
 
-The flow is:
+For each question, GridRag:
 
-1. **Read the catalog.** Load the approved table definitions and cache their columns, keys, and references.
-2. **Tag table relevance.** One Decisions call scores every physical table against the question.
-3. **Expand the selection.** Follow foreign-key references transitively and enforce the table budget before starting column requests.
-4. **Tag column relevance in parallel.** One Decisions call per retained table scores its columns, with at most four requests running at once. Keep declared keys, time columns, and identifier/code columns even when their scores are low.
-5. **Build SQL context.** Assemble selected column definitions with table documentation and applicable key constraints, in stable catalog order.
-6. **Query and answer.** Generate guarded, read-only SQL, repair errors within the call budget, and stream answer text after query evidence arrives.
+1. Gate the request for relevance and misuse.
+2. Score all catalog tables in one decision-model call.
+3. Add their foreign-key dependencies.
+4. Score each selected table's columns in parallel and retain structural fields.
+5. Send the reduced schema to the SQL model.
+6. Validate and run read-only SQL, then stream an answer from the returned rows.
 
-Missing or malformed scores retain context unless more than half the scores in a
-single decision are unusable; that decision fails rather than silently discarding
-schema. Both thresholds and concurrency are configurable. Column pruning reduces
-model context; it does **not** enforce column-level permissions. The database guard
-restricts tables, not individual columns.
-
-With N retained tables, routing uses **1 + N model calls**. Parallelism overlaps the
-column calls but does not reduce their token cost. Whether the smaller SQL prompt
-outweighs that extra work needs live measurement on this router. Family metadata is
-for documentation; routing no longer scores one shared definition per product.
-
-
-| Layer | What it does |
-| --- | --- |
-| Gate → routing | Checks relevance and possible abuse; it does not grant data access. |
-| Routing → SQL | Scores all tables, includes referenced dimensions, then scores selected tables' columns in parallel. Mostly unusable scores fail the request instead of silently dropping context. |
-| SQL → database | Independently enforces read-only access, the routed catalog tables (matched case-insensitively), and execution/result budgets; it runs the query as DuckDB's parser regenerates it, so comments cannot change what runs. |
-| Results → answer | Preserves query evidence and failures for inspection; SQL errors can be repaired within a fixed budget. |
+Unusable routing scores retain context when possible; widespread scoring failure
+stops the request. The database guard independently enforces table access, query
+budgets, and read-only SQL.
 
 ## Run locally
 
-Requires Python **3.11–3.13** and **uv**. 
-
+Requires Python **3.11–3.13** and **uv**.
 
 ```sh
 brew install uv
@@ -75,20 +68,13 @@ uv run python -m gridrag.warehouse.build
 uv run python -m app
 ```
 
-`uv sync --locked` installs the dependencies from `uv.lock` and creates the
-project's `.venv` automatically. You do not need to create or activate a virtual
-environment yourself. The dependencies are declared in `pyproject.toml`; there
-is no separate `requirements.txt`.
-
 Open **http://127.0.0.1:8000**. Add `OPENAI_API_KEY=your-key` to a local `.env`
-to run model questions. Building the database requires no API key or external
-data downloads. Model access must support the
-configured Decisions and Responses calls.
+to run model questions. The database build is deterministic and requires no API
+key or external download. Stop the app before rebuilding it. The configured
+model must support the Decisions and Responses APIs.
 
-The build command creates `data/warehouse.duckdb` from checked-in code. To
-rebuild, stop the app and rerun that command; it replaces the demo database.
-The fixed seed and dates make the data reproducible. Generated data and `.env`
-are ignored by Git.
+The build command creates `data/warehouse.duckdb` from checked-in definitions,
+generators, and a fixed seed.
 
 The CLI uses the same pipeline:
 
@@ -96,8 +82,8 @@ The CLI uses the same pipeline:
 uv run python -m gridrag "What was ERCOT's highest hourly demand on October 19, 2026?"
 ```
 
-Add `--verbose` for table and column scores and per-call diagnostics. API calls transmit
-the question, selected context, and query results to the configured provider.
+Add `--verbose` for routing scores and model-call diagnostics. Provider requests
+include the question, relevant schema definitions, and returned query rows.
 
 ## Warehouse and schema
 
@@ -108,15 +94,13 @@ the question, selected context, and query results to the configured provider.
 | Hourly balance and generation | All ISOs; Jan 1, 2025–Oct 21, 2026 |
 | Five-minute load and generation | CAISO and ERCOT; Oct 15–21, 2026 |
 | Prices, forecasts, ancillary, storage, outages, curtailment | Eight products per ISO; Oct 15–21, 2026 |
-| Interconnection queue | Current snapshot as of Oct 21, 2026 |
+| Interconnection queue | Snapshot as of Oct 21, 2026 |
 
 [Base DDL](gridrag/warehouse/schema.sql), [product definitions](gridrag/warehouse/products.py),
-and [generator](gridrag/warehouse/build.py) are all included. The
+and [database builder](gridrag/warehouse/build.py) are included. The
 [schema reference](gridrag/warehouse/SCHEMA.md) explains keys, grains, units,
 coverage, and time semantics. The catalog is explicitly registered; adding a
-database table alone does not expose it to the model, and the SQL guard only
-allows catalog tables. Each ISO has an explicit id, and each product defines its
-columns and the generator that fills its tables.
+database table does not expose it to the model or SQL guard.
 
 ## Evaluation
 
@@ -128,45 +112,31 @@ uv run python -m unittest discover -s tests
 GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p 'test_live.py'
 ```
 
-Offline tests cover the warehouse build, schema routing, SQL safeguards, failure
-handling, streaming, and configuration. They run without making provider calls.
+Offline tests cover the database build, routing, SQL safeguards, failure
+handling, streaming, and configuration without making provider calls.
 
 The shared cases in [gridrag/warehouse/evals.py](gridrag/warehouse/evals.py)
-pair each question with independent reference SQL and its expected routing and
-outcome. Labelled cases also appear as UI presets. The optional live evaluation
-runs every case and checks both the query evidence and the final answer against
-the reference value.
+pair questions with independent reference SQL and expected outcomes. Labelled
+cases also appear as UI presets. The optional live evaluation checks query
+evidence and final answers against the reference values.
 
 ## Code and configuration
 
-`answer.py` orchestrates; `gate.py` and `route.py` classify; `sql/agent.py`
-prompts for SQL and handles repair; `db.py` enforces database restrictions;
-`llm.py` owns provider calls and usage accounting. Its `Model` protocol defines
-the injected model interface used by the pipeline and test doubles. `records.py` defines the
-records each stage returns or streams, as TypedDicts, and the `State` and `Stage`
-names. `catalog.py` owns immutable, cached schema metadata (name, DDL, columns, keys, references) and
-per-ISO product families as documentation metadata; `demo_catalog()` adapts the demo
-schema, and `answer(..., catalog=...)` accepts any other `Catalog`. `app/` and
-`gridrag/warehouse/` are demo infrastructure.
+- `answer.py` coordinates the pipeline and progress events.
+- `gate.py` checks the request.
+- `catalog.py` reads and caches schema metadata.
+- `route.py` selects tables and columns.
+- `sql/agent.py` generates SQL, handles repair, and produces the answer.
+- `db.py` validates and runs read-only SQL.
+- `llm.py` owns provider calls, streaming, usage, and cost accounting.
+- `config.py` provides Pydantic-validated settings.
 
-[config.py](gridrag/config.py) defines one frozen, Pydantic-validated `Settings` dataclass with
-thresholds, budgets, models, and illustrative cost rates, loaded once from `.env`
-and the environment. Set `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` in
-either place to override model defaults. Modules read `config.settings` when they
-need a value, so tests replace it in one place. Prompts stay beside their owning
-stages; protocol strings stay literal. Cost estimates are not billing figures.
-
-Pydantic validates configuration types and ranges at construction and validates
-provider probabilities without coercing strings or booleans into scores. Internal
-JSON records remain TypedDicts; immutable catalog objects own their structural
-checks. The DDL adapter supports this repository's documented schema format, not
-arbitrary SQL dialects or automatic database discovery.
-
-Column workers share the pooled provider client; usage recording is locked. A failed
-column batch cancels queued requests and waits for already-running requests to finish
-under their configured timeouts. The worker limit applies per question, not globally
-across a deployment. See the [code audit](docs/code-audit.md) for findings and limits.
+Set `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` in `.env` or the process
+environment to change the models. Cost estimates use configured reference rates
+and are not billing records.
 
 ## Production boundary
 
-This repo is just a demo, not production-ready code. Features like the web app and warehouse setup are meant to get you up and running quickly.
+This repository is a local demo. A production deployment would also need
+authentication, data entitlements, global request limits, process isolation,
+and broader accuracy and adversarial evaluation.
