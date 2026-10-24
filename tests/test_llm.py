@@ -14,6 +14,12 @@ def reply(**payload):
 
 
 class UsageTests(unittest.TestCase):
+    def test_provider_scores_are_strict_probabilities(self):
+        for value in (None, True, "0.9", -1, 2, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(llm.probability({"table": {"probability": value}}, "table"))
+        self.assertEqual(llm.probability({"table": {"probability": 1}}, "table"), 1.0)
+
     def test_stream_delivers_text_before_final_usage_and_closes_on_disconnect(self):
         closed = []
         deltas = []

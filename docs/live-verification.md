@@ -1,5 +1,7 @@
 # Live verification — October 23, 2026
 
+These measurements used the earlier family-level router. They do not verify the later table-and-column routing design.
+
 Kept `gpt-6-luna` with reasoning `none`. Compared the existing detailed prompt with shorter alternatives using live provider calls. Reference SQL and expected answers were never sent to the model.
 
 ## Result

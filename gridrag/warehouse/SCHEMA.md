@@ -242,7 +242,7 @@ Generated in [products.py](products.py): each product below exists once per ISO,
 
 The products are **deliberately similar** (bus vs hub, real-time vs day-ahead, forecast vs actual, reserve vs energy, observed storage vs queue capacity). Pick the one that matches the question's market, grain and time semantics.
 
-Routing treats each product's seven tables as one **family**: the decision model reads a single definition with the ISO left open (`core.<iso>_<suffix>`) and separately scores which ISOs the question needs, and the router keeps those ISOs' tables. The SQL model still receives each kept table's own DDL.
+The catalog groups each product's seven tables as a **family** for documentation. Routing scores each physical table independently, including its ISO-specific DDL. It then scores columns within selected tables and passes the selected definitions to the SQL model. Join keys and time columns are retained even when their individual scores are low.
 
 | Kind | Suffix | Grain | Primary key (after `iso_id`) |
 |---|---|---|---|

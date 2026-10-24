@@ -10,7 +10,7 @@ from gridrag.records import State
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m gridrag", description=__doc__)
     parser.add_argument("question")
-    parser.add_argument("--verbose", action="store_true", help="show routing scores and per-call diagnostics")
+    parser.add_argument("--verbose", action="store_true", help="show table/column scores and per-call diagnostics")
     args = parser.parse_args()
     try:
         question = answer.clean_question(args.question)
@@ -35,8 +35,12 @@ def main() -> None:
         if g:
             print(f"Gate scores: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f}")
         if r:
-            for heading, scores in (("Routing scores:", r["scores"]), ("ISO scores:", r["iso_scores"])):
-                print(heading)
+            print("Table scores:")
+            for name, probability in r["scores"].items():
+                score = "?" if probability is None else f"{probability:.2f}"
+                print(f"  {name}: {score}")
+            for table, scores in r["column_scores"].items():
+                print(f"Column scores for {table}:")
                 for name, probability in scores.items():
                     score = "?" if probability is None else f"{probability:.2f}"
                     print(f"  {name}: {score}")

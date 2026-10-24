@@ -24,10 +24,10 @@
 <text x="720" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Classify relevance and possible abuse</text>
 <text x="1200" y="393" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Select the schema</text>
 <text x="1200" y="424" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Decisions model</text>
-<text x="1200" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Score tables · include their references</text>
+<text x="1200" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Score tables, then columns in parallel</text>
 <polyline points="1200,490 1200,527 720,527 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
 <rect x="751" y="513" width="421" height="28" rx="0" fill="#FFFFFF" stroke="none"/>
-<text x="962" y="532" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#087E8B">Selected schema · full columns + references</text>
+<text x="962" y="532" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#087E8B">Selected schema · relevant columns + references</text>
 <rect x="40" y="570" width="1360" height="358" rx="16" fill="#F5F9FC" stroke="#E2EDF5"/>
 <polyline points="720,570 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
 <text x="68" y="605" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#50758E">02 / QUERY THE DATA AND EXPLAIN</text>

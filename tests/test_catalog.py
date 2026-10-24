@@ -1,4 +1,4 @@
-"""The catalog: documented tables with their references, and per-ISO families that routing scores once."""
+"""Catalog metadata, immutable snapshots, and schema excerpts used for column routing."""
 
 import unittest
 
@@ -44,6 +44,37 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual([table.name for table in tables], ["core.region", "core.site"])
         self.assertTrue(tables[0].ddl.startswith("-- Regions\n"))
         self.assertTrue(tables[1].ddl.endswith("x INT\n);"))  # blank lines inside the statement are kept
+
+    def test_column_excerpts_preserve_comments_and_skip_unselected_measures(self):
+        table = demo_catalog().tables["core.fact_balance_hourly"]
+        self.assertIn("demand_mw", table.columns)
+        self.assertIn("demand (load), MW", table.columns["demand_mw"])
+        excerpt = table.selected_schema(["iso_id", "interval_start_utc", "demand_mw"])
+        self.assertIn("Primary key", excerpt)
+        self.assertIn("demand (load), MW", excerpt)
+        self.assertNotIn("net_generation_mw", excerpt)
+        self.assertNotIn("demand_forecast_mw", excerpt)
+
+    def test_compact_column_parser_handles_commas_inside_types(self):
+        table = Table.parse("CREATE TABLE core.sample (id INT, amount DECIMAL(12,3), "
+                            "name VARCHAR, PRIMARY KEY (id));")
+        self.assertEqual(list(table.columns), ["id", "amount", "name"])
+
+    def test_declared_keys_survive_pruning_and_literals_do_not_split_columns(self):
+        table = Table.parse("CREATE TABLE core.sample (code VARCHAR UNIQUE, parent VARCHAR, "
+                            "stamp TIMESTAMPTZ, note VARCHAR DEFAULT 'a,b(--x)', "
+                            "FOREIGN KEY (parent) REFERENCES core.sample (code));")
+        self.assertEqual(list(table.columns), ["code", "parent", "stamp", "note"])
+        self.assertEqual(table.structural_columns, {"code", "parent", "stamp"})
+        excerpt = table.selected_schema(table.structural_columns)
+        self.assertIn("FOREIGN KEY (parent)", excerpt)
+        with duckdb.connect() as connection:
+            connection.execute("CREATE SCHEMA core")
+            connection.execute(table.selected_schema(table.columns))
+        with self.assertRaises(TypeError):
+            table.columns["new"] = "new INTEGER"
+        with self.assertRaises(ValueError):
+            Table.parse("CREATE TABLE core.broken (value INTEGER")
 
     def test_inconsistent_catalogs_are_rejected(self):
         region = Table.parse("CREATE TABLE core.region (id INTEGER);")

@@ -50,7 +50,9 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(res["route"], selection)  # what was chosen stays visible
 
     def test_sql_receives_only_the_routed_schema(self):
-        selection = {"tables": ["core.dim_iso", "core.dim_location"], "scores": {}, "iso_scores": {},
+        selection = {"tables": ["core.dim_iso", "core.dim_location"], "scores": {}, "column_scores": {},
+                     "columns": {"core.dim_iso": ["iso_id", "iso_code"],
+                                 "core.dim_location": ["location_id", "iso_id", "location_code"]},
                      "fallback": False}
         output = {"answer": "28 locations", "state": State.ANSWERED, "tool_calls": []}
         with (patch.object(answer, "gate", return_value=ALLOWED),
@@ -61,7 +63,9 @@ class FailureTests(unittest.TestCase):
         sql.assert_called_once()
         self.assertEqual(sql.call_args.args[1], "How many price locations are there?")
         self.assertEqual(sql.call_args.kwargs["schema"],
-                         f"{tables['core.dim_iso'].ddl}\n\n{tables['core.dim_location'].ddl}")
+                         "\n\n".join(tables[name].selected_schema(selection["columns"][name])
+                                     for name in selection["tables"]))
+        self.assertNotIn("location_type", sql.call_args.kwargs["schema"])
         self.assertEqual(sql.call_args.kwargs["allowed_tables"], selection["tables"])
         self.assertEqual((res["state"], res["answer"]), (State.ANSWERED, "28 locations"))
         self.assertEqual(set(res["timings"]), {"gate", "route", "sql", "total"})
@@ -78,7 +82,8 @@ class FailureTests(unittest.TestCase):
             return {"state": State.ANSWERED, "answer": "Hello world", "tool_calls": []}
         with (patch.object(answer.time, "perf_counter", side_effect=lambda: now[0]),
               patch.object(answer, "gate", return_value=ALLOWED),
-              patch.object(answer, "route", return_value={"tables": ["core.dim_iso"]}),
+              patch.object(answer, "route", return_value={"tables": ["core.dim_iso"],
+                                                               "columns": {"core.dim_iso": ["iso_id"]}}),
               patch.object(answer.agent, "run", side_effect=stream)):
             result = answer.answer("question", model())
         self.assertEqual(result["timings"]["first_token"], 3.0)

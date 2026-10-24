@@ -1,19 +1,84 @@
-"""The schema catalog: documented tables with the tables their foreign keys reference, plus families of per-ISO
-tables that routing scores as one unit before keeping the requested ISOs' members.
+"""The schema catalog: documented tables, columns, and foreign-key references.
 
 demo_catalog() adapts the checked-in, documented CREATE TABLE statements. This is intentionally not a general SQL
-parser or live database introspector. Production callers can supply an approved Catalog to answer(..., catalog=...).
+parser or live database introspector. Product families remain descriptive metadata; routing scores their
+physical tables individually. Production callers can supply an approved Catalog to answer(..., catalog=...).
 """
 
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from functools import cache
+from functools import cache, cached_property
 from types import MappingProxyType
 
 _STATEMENT = re.compile(r"(?:^[ \t]*--[^\n]*\n)*^CREATE TABLE \w+\.\w+\s*\([\s\S]*?^\);", re.MULTILINE | re.IGNORECASE)
 _NAME = re.compile(r"\bCREATE TABLE\s+(\w+\.\w+)", re.IGNORECASE)
 _REFERENCE = re.compile(r"\bREFERENCES\s+(\w+\.\w+)", re.IGNORECASE)
+_COLUMN_NAME = re.compile(r"^([A-Za-z_]\w*)\s+", re.IGNORECASE)
+_SQL_TEXT = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")
+
+
+def _code(ddl: str) -> str:
+    """Remove comments without altering quoted SQL literals."""
+    def strip_comment(match: re.Match) -> str:
+        token = match[0]
+        # Preserve offsets so names located in cleaned SQL still index the original documentation.
+        return re.sub(r"[^\n]", " ", token) if token.startswith(("--", "/*")) else token
+
+    return _SQL_TEXT.sub(strip_comment, ddl)
+
+
+_CONSTRAINTS = {"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"}
+
+
+def _definitions(ddl: str) -> list[str]:
+    """Split this project's documented CREATE TABLE body at top-level commas."""
+    name = _NAME.search(_code(ddl))
+    if name is None:
+        raise ValueError("Not a schema-qualified CREATE TABLE statement")
+    start = ddl.find("(", name.end())
+    if start < 0:
+        raise ValueError(f"Table {name[1]} has no column definitions")
+
+    parts, current = [], []
+    depth, index = 1, start + 1
+    while index < len(ddl) and depth:
+        char = ddl[index]
+        # Quoted values and comments are opaque: their commas/parentheses are not delimiters.
+        if token := _SQL_TEXT.match(ddl, index):
+            current.append(token[0])
+            index = token.end()
+            continue
+        if char in "'\"" or ddl.startswith("/*", index):
+            raise ValueError(f"Unclosed literal or comment in {name[1]}")
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if not depth:
+                break
+        elif char == "," and depth == 1:
+            # Inline comments after a column's comma describe that column.
+            next_index = index + 1
+            while next_index < len(ddl) and ddl[next_index] in " \t":
+                next_index += 1
+            if ddl.startswith("--", next_index):
+                end = ddl.find("\n", next_index)
+                if end < 0:
+                    end = len(ddl)
+                current.append(" " + ddl[next_index:end])
+                index = end
+            parts.append("".join(current).strip())
+            current = []
+            index += 1
+            continue
+        current.append(char)
+        index += 1
+    if depth:
+        raise ValueError(f"Unclosed table definition for {name[1]}")
+    if current:
+        parts.append("".join(current).strip())
+    return parts
 
 
 @dataclass(frozen=True)
@@ -26,12 +91,82 @@ class Table:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "references", frozenset(self.references))
+        if not self.columns:
+            raise ValueError(f"Table {self.name} has no supported column definitions")
+
+    @cached_property
+    def definitions(self) -> tuple[str, ...]:
+        """Parse once; column scoring and schema rendering share this immutable metadata."""
+        return tuple(_definitions(self.ddl))
+
+    @cached_property
+    def columns(self) -> Mapping[str, str]:
+        """Column name -> documented definition, preserving inline comments."""
+        columns = {}
+        for definition in self.definitions:
+            code = _code(definition).strip()
+            match = _COLUMN_NAME.match(code)
+            if match is None:
+                raise ValueError(f"Unsupported column definition in {self.name}: {code!r}")
+            if match[1].upper() not in _CONSTRAINTS:
+                name = match[1].lower()
+                if name in columns:
+                    raise ValueError(f"Duplicate column {self.name}.{name}")
+                columns[name] = definition
+        return MappingProxyType(columns)
+
+    @cached_property
+    def structural_columns(self) -> frozenset[str]:
+        """Keep declared keys and time columns even when their relevance score is low.
+
+        Identifier/code suffixes remain a conservative fallback for this demo's DDL.
+        Unique keys can be targets of foreign keys even when they are not primary keys.
+        """
+        keys = set()
+        for definition in self.definitions:
+            code = _code(definition)
+            for match in re.finditer(r"\b(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I):
+                keys.update(name.strip().lower() for name in match[1].split(","))
+        for name, definition in self.columns.items():
+            if name.endswith(("_id", "_code")) or re.search(
+                r"\b(?:DATE|TIMESTAMP|TIMESTAMPTZ|REFERENCES|PRIMARY KEY|UNIQUE)\b", _code(definition), re.I
+            ):
+                keys.add(name)
+        return frozenset(keys & self.columns.keys())
+
+    def selected_schema(self, columns: Iterable[str]) -> str:
+        """A compact schema excerpt for SQL generation, retaining table documentation."""
+        selected = set(columns)
+        if unknown := selected - self.columns.keys():
+            raise ValueError(f"Unknown columns for {self.name}: {sorted(unknown)}")
+        preamble = self.ddl[:_NAME.search(_code(self.ddl)).start()].strip()
+        definitions = [description for name, description in self.columns.items() if name in selected]
+        if not definitions:
+            raise ValueError(f"No columns selected for {self.name}")
+        # Retain declared join/key constraints when their local columns are present.
+        for definition in self.definitions:
+            code = _code(definition).strip()
+            if constraint := re.match(r"(?:CONSTRAINT\s+\w+\s+)?(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I):
+                names = {name.strip().lower() for name in constraint[1].split(",")}
+                if names <= selected:
+                    definitions.append(definition)
+        lines = []
+        for index, definition in enumerate(definitions):
+            code = _code(definition).strip()
+            comments = [match[0] for match in _SQL_TEXT.finditer(definition)
+                        if match[0].startswith(("--", "/*"))]
+            suffix = "," if index < len(definitions) - 1 else ""
+            lines.append(f"    {code}{suffix}{'  ' + ' '.join(comments) if comments else ''}")
+        header = f"{preamble}\n" if preamble else ""
+        if primary_key := re.search(r"\bPRIMARY KEY\s*\(([^)]*)\)", _code(self.ddl), re.I):
+            header += f"-- Primary key: ({primary_key[1]})\n"
+        return f"{header}CREATE TABLE {self.name} (\n" + "\n".join(lines) + "\n);"
 
     @classmethod
     def parse(cls, ddl: str) -> "Table":
         """A table from one documented CREATE TABLE statement. References come from its code, not its comments;
         names are lower-cased, as DuckDB resolves them case-insensitively."""
-        code = re.sub(r"--[^\n]*", "", ddl)
+        code = _code(ddl)
         if not (name := _NAME.search(code)):
             raise ValueError(f"Not a schema-qualified CREATE TABLE statement: {ddl.strip()[:80]!r}")
         return cls(name[1].lower(), ddl.strip(), frozenset(table.lower() for table in _REFERENCE.findall(code)))
@@ -39,7 +174,7 @@ class Table:
 
 @dataclass(frozen=True)
 class Family:
-    """Tables that share one definition, one per ISO. Routing reads ddl once, with the ISO left open."""
+    """Tables that share one product definition, one per ISO."""
 
     name: str
     ddl: str
@@ -53,7 +188,7 @@ class Family:
 
 @dataclass(frozen=True)
 class Catalog:
-    """Every table SQL may query, by name, and the families routing scores in place of their members."""
+    """Every table SQL may query, by name, plus optional product-family metadata."""
 
     tables: Mapping[str, Table]
     families: Mapping[str, Family] = field(default_factory=lambda: MappingProxyType({}))
@@ -100,7 +235,7 @@ class Catalog:
         return tuple(dict.fromkeys(iso for family in self.families.values() for iso in family.tables))
 
     def units(self) -> dict[str, str]:
-        """What routing scores, with the definition it reads: each table outside a family, then each family."""
+        """A compact product-level catalog view for display and inspection."""
         members = {name for family in self.families.values() for name in family.tables.values()}
         return {**{name: table.ddl for name, table in self.tables.items() if name not in members},
                 **{name: family.ddl for name, family in self.families.items()}}

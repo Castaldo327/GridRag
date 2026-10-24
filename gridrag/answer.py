@@ -98,7 +98,8 @@ def _run(trace: _Trace, catalog: Catalog) -> Answer:
         return trace.record(State.ABSTAINED, "No matching warehouse tables were found for this question.")
 
     with trace.timed(Stage.SQL, {"route": trace.route}):
-        schema = "\n\n".join(catalog.tables[table].ddl for table in tables)
+        schema = "\n\n".join(catalog.tables[table].selected_schema(trace.route["columns"][table])
+                             for table in tables)
         output = agent.run(llm, question, schema=schema, allowed_tables=tables, on_progress=trace.report)
     trace.tool_calls = output["tool_calls"]
     return trace.record(output["state"], output["answer"])

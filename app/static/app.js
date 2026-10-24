@@ -111,7 +111,7 @@ function paint() {
       ${i === 1 && route ? `<div class="schema-meter" role="img" aria-label="${selected.length} of ${total} catalog tables selected">
         <span style="width:${100 * selected.length / total}%"></span></div>
         <details class="schema-list"><summary>Selected tables${route.fallback ? " · includes uncertain matches" : ""}</summary>
-          ${selected.map(t => `<code>${esc(t)}</code>`).join("") || "None"}</details>` : ""}</div></div>`;
+          ${selected.map(t => `<code>${esc(t)}${route.columns?.[t] ? ` · ${esc(route.columns[t].join(", "))}` : ""}</code>`).join("") || "None"}</details>` : ""}</div></div>`;
   }).join("");
   $("#answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";
   $("#answer").innerHTML = state.error ? `<p class="error">${esc(state.error)}</p>` : r ?

@@ -36,9 +36,10 @@ class Gate(TypedDict):
 
 class Selection(TypedDict):
     tables: list[str]  # handed to SQL in catalog order, referenced tables included
-    scores: dict[str, float | None]  # core table or product family -> probability it is needed
-    iso_scores: dict[str, float | None]  # ISO -> probability the request needs it
-    fallback: bool  # an unusable score kept its table, family or ISO
+    scores: dict[str, float | None]  # table -> probability it is needed
+    column_scores: dict[str, dict[str, float | None]]  # selected table -> column -> probability
+    columns: dict[str, list[str]]  # selected table -> columns supplied to SQL
+    fallback: bool  # at least one unusable score retained context
 
 
 class QueryResult(TypedDict, total=False):

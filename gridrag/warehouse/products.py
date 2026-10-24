@@ -4,7 +4,7 @@ storage dispatch, outages, curtailment), with distinct markets, grains and time 
 Similar products are intentional analytical alternatives (bus vs hub, real-time vs day-ahead, forecast vs
 actual, reserve vs energy price, observed storage vs proposed queue capacity), not copies.
 Each product defines its columns, the comments routing reads and the generator that fills its tables, so a
-table's DDL and rows come from one definition. Routing scores each product once, as a family of per-ISO tables.
+table's DDL and rows come from one definition. Routing scores the resulting per-ISO tables individually.
 """
 
 from collections.abc import Callable, Mapping, Sequence

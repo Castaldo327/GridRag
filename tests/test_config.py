@@ -2,7 +2,7 @@
 
 import tempfile
 import unittest
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 from gridrag.config import Settings, load_settings
@@ -19,6 +19,13 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual((exported.openai_api_key, exported.answer_model), ("exported", "env-model"))
             missing = load_settings(Path(tmp) / "missing", {"GRIDRAG_DECISIONS_MODEL": ""})
             self.assertEqual((missing.openai_api_key, missing.decisions_model), (None, Settings().decisions_model))
+
+    def test_invalid_limits_and_scores_fail_before_requests_start(self):
+        for changes in ({"route_column_workers": 0}, {"route_column_workers": True},
+                        {"route_min_probability": "0.2"}, {"route_min_column_probability": 1.1},
+                        {"route_max_unscored": float("nan")}, {"sql_timeout_s": -1}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                replace(Settings(), **changes)
 
     def test_settings_are_frozen_and_never_print_the_key(self):
         settings = Settings(openai_api_key="secret")

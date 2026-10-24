@@ -80,7 +80,7 @@
         <mxCell id="node-23" value="Decisions model" style="text;html=0;align=center;verticalAlign=middle;whiteSpace=wrap;overflow=hidden;fontFamily=Helvetica;fontSize=15;fontColor=#087E8B;fontStyle=1;spacing=0;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="1000.0" y="409" width="400" height="19.5" />
         </mxCell>
-        <mxCell id="node-24" value="Score tables · include their references" style="text;html=0;align=center;verticalAlign=middle;whiteSpace=wrap;overflow=hidden;fontFamily=Helvetica;fontSize=15;fontColor=#536477;fontStyle=0;spacing=0;" vertex="1" parent="1">
+        <mxCell id="node-24" value="Score tables, then columns in parallel" style="text;html=0;align=center;verticalAlign=middle;whiteSpace=wrap;overflow=hidden;fontFamily=Helvetica;fontSize=15;fontColor=#536477;fontStyle=0;spacing=0;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="1000.0" y="440" width="400" height="19.5" />
         </mxCell>
         <mxCell id="edge-25" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#087E8B;strokeWidth=2;endArrow=block;endFill=1;dashed=0;dashPattern=6 5;" edge="1" parent="1">
@@ -96,7 +96,7 @@
         <mxCell id="node-26" value="" style="rounded=0;absoluteArcSize=1;arcSize=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="751" y="513" width="421" height="28" />
         </mxCell>
-        <mxCell id="node-27" value="Selected schema · full columns + references" style="text;html=0;align=center;verticalAlign=middle;whiteSpace=wrap;overflow=hidden;fontFamily=Helvetica;fontSize=15;fontColor=#087E8B;fontStyle=1;spacing=0;" vertex="1" parent="1">
+        <mxCell id="node-27" value="Selected schema · relevant columns + references" style="text;html=0;align=center;verticalAlign=middle;whiteSpace=wrap;overflow=hidden;fontFamily=Helvetica;fontSize=15;fontColor=#087E8B;fontStyle=1;spacing=0;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="742.0" y="517" width="440" height="19.5" />
         </mxCell>
         <mxCell id="node-28" value="" style="rounded=1;absoluteArcSize=1;arcSize=32;fillColor=#F5F9FC;strokeColor=#E2EDF5;" vertex="1" parent="1">

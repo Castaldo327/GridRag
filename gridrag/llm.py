@@ -4,13 +4,13 @@ One OpenAI client per process, so every question reuses pooled HTTPS connections
 one question's calls, each tagged with the stage (gate, route, sql) that made it.
 """
 
-import math
 import threading
 import time
 from collections.abc import Callable
 from typing import Any, Literal, Protocol
 
 from openai import OpenAI
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gridrag import config
 from gridrag.records import ModelCall, Stage, Usage
@@ -20,7 +20,7 @@ _client_lock = threading.Lock()
 
 
 class Model(Protocol):
-    """Provider-independent contract used by the pipeline and scripted test doubles."""
+    """Provider-independent contract. Routing may call decide concurrently for different tables."""
 
     def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]: ...
 
@@ -57,13 +57,19 @@ def output_text(resp: dict) -> str:
     return "".join(texts)
 
 
+class _RelevanceScore(BaseModel):
+    """Validate the provider value without coercing strings or booleans into scores."""
+
+    model_config = ConfigDict(strict=True, allow_inf_nan=False)
+    probability: float = Field(ge=0, le=1)
+
+
 def probability(answers: dict, name: str) -> float | None:
     """Malformed, absent or refused scores are uncertainty, never a confident rejection."""
-    answer = answers.get(name)
-    value = answer.get("probability") if isinstance(answer, dict) else None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    try:
+        return _RelevanceScore.model_validate(answers.get(name)).probability
+    except ValidationError:
         return None
-    return float(value) if 0 <= value <= 1 and math.isfinite(value) else None
 
 
 def call_cost(kind: str, usage: dict) -> float:

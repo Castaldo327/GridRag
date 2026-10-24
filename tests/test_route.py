@@ -1,89 +1,105 @@
-"""Routing contracts on small catalogs, independent of the warehouse's products and column types."""
+"""Table-first, column-second routing on catalogs independent of the demo warehouse."""
 
+import re
+import threading
 import unittest
 from dataclasses import replace
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from gridrag import config
-from gridrag.catalog import Catalog, Family, Table
+from gridrag.catalog import Catalog, Table
 from gridrag.records import Stage
 from gridrag.route import RoutingFailed, RoutingTooBroad, route
 
-PRICES = Catalog.of(
-    [Table.parse("CREATE TABLE core.dim_iso (iso_id SMALLINT PRIMARY KEY);"),
-     Table.parse("CREATE TABLE core.demand (iso_id SMALLINT REFERENCES core.dim_iso (iso_id), mw DOUBLE);"),
-     *(Table.parse(f"CREATE TABLE core.{iso}_price (iso_id SMALLINT REFERENCES core.dim_iso (iso_id), lmp DOUBLE);")
-       for iso in ("caiso", "ercot", "pjm"))],
-    [Family("core.<iso>_price", "-- One table per ISO. Hub prices.\nCREATE TABLE core.<iso>_price (lmp DOUBLE);",
-            {"CAISO": "core.caiso_price", "ERCOT": "core.ercot_price", "PJM": "core.pjm_price"})],
-)
+CATALOG = Catalog.of([
+    Table.parse("CREATE TABLE core.dim_iso (iso_id INTEGER PRIMARY KEY, iso_code VARCHAR);"),
+    Table.parse("-- Hourly demand\nCREATE TABLE core.demand (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
+                "interval_start_local TIMESTAMP, demand_mw DOUBLE, unused DOUBLE);"),
+    Table.parse("-- CAISO hub prices\nCREATE TABLE core.caiso_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
+                "lmp DOUBLE);"),
+    Table.parse("-- ERCOT hub prices\nCREATE TABLE core.ercot_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
+                "lmp DOUBLE);"),
+])
 
 
-def scored(units, isos=()):
-    """A Decisions stand-in returning these probabilities for the routed units, then the ISOs, in order."""
-    answers = {**{f"t{i}": {"probability": p} for i, p in enumerate(units) if p is not None},
-               **{f"iso{i}": {"probability": p} for i, p in enumerate(isos) if p is not None}}
-    return SimpleNamespace(decide=lambda stage, question, questions: answers)
+class ScoredModel:
+    def __init__(self, tables, columns=None, barrier=None):
+        self.tables = tables
+        self.columns = columns or {}
+        self.barrier = barrier
+        self.calls = []
+        self.lock = threading.Lock()
+
+    def decide(self, stage, input_text, questions):
+        assert stage is Stage.ROUTE
+        with self.lock:
+            self.calls.append((input_text, questions))
+        if questions[0]["name"] == "t0":
+            return {f"t{i}": {"probability": self.tables.get(name, 0.01)}
+                    for i, name in enumerate(CATALOG.tables) if self.tables.get(name, 0.01) is not None}
+        if self.barrier:
+            self.barrier.wait(timeout=2)
+        table = re.search(r"CREATE TABLE (core\.\w+)", input_text)[1]
+        names = list(CATALOG.tables[table].columns)
+        return {f"c{i}": {"probability": self.columns.get(table, {}).get(name, 0.01)}
+                for i, name in enumerate(names) if self.columns.get(table, {}).get(name, 0.01) is not None}
 
 
 class RouteTests(unittest.TestCase):
-    def test_new_schema_routes_without_product_rules_and_keeps_reference_chain(self):
-        catalog = Catalog.of([
-            Table.parse("CREATE TABLE core.region (id INTEGER PRIMARY KEY);"),
-            Table.parse("CREATE TABLE core.station (region INTEGER REFERENCES core.region (id));"),
-            Table.parse("-- Daily precipitation\nCREATE TABLE core.weather (station INTEGER REFERENCES "
-                        "core.station (id), rain DECIMAL(12,3), attributes JSON);"),
-            Table.parse("CREATE TABLE core.unrelated (value DOUBLE);"),
-        ])
+    def test_each_physical_table_is_scored_before_its_columns(self):
+        model = ScoredModel(
+            {"core.ercot_price": 0.99, "core.caiso_price": 0.01},
+            {"core.ercot_price": {"lmp": 0.95}, "core.dim_iso": {"iso_code": 0.9}},
+        )
+        selected = route("ERCOT hub price?", model, CATALOG)
+        self.assertEqual(selected["tables"], ["core.dim_iso", "core.ercot_price"])
+        self.assertIn("core.caiso_price", selected["scores"])
+        self.assertNotIn("core.caiso_price", selected["column_scores"])
+        self.assertEqual(selected["columns"]["core.ercot_price"], ["iso_id", "lmp"])
+        self.assertEqual(selected["columns"]["core.dim_iso"], ["iso_id", "iso_code"])
+        self.assertEqual(len(model.calls), 3)  # one table call, two column calls
+        self.assertEqual(len(model.calls[0][1]), len(CATALOG.tables))
+        self.assertIn("CAISO hub prices", model.calls[0][1][2]["instructions"])
 
-        def decide(stage, question, questions):
-            self.assertEqual(stage, Stage.ROUTE)
-            self.assertEqual(len(questions), 4)  # no families, so no ISO questions
-            self.assertIn("Daily precipitation", questions[2]["instructions"])
-            self.assertIn("attributes JSON", questions[2]["instructions"])
-            return {f"t{i}": {"probability": p} for i, p in enumerate([0.01, 0.01, 0.99, 0.01])}
-
-        selected = route("Rain by region?", SimpleNamespace(decide=decide), catalog)
-        self.assertEqual(selected["tables"], ["core.region", "core.station", "core.weather"])
-        self.assertFalse(selected["fallback"])
-
-    def test_a_family_is_scored_once_and_keeps_only_the_requested_isos(self):
-        def decide(stage, question, questions):
-            self.assertEqual([q["name"] for q in questions], ["t0", "t1", "t2", "iso0", "iso1", "iso2"])
-            self.assertIn("Hub prices", questions[2]["instructions"])
-            self.assertIn("PJM", questions[5]["instructions"])
-            return scored([0.01, 0.01, 0.97], [0.95, 0.02, 0.9]).decide(stage, question, questions)
-
-        selected = route("CAISO and PJM hub prices?", SimpleNamespace(decide=decide), PRICES)
-        self.assertEqual(selected["tables"], ["core.dim_iso", "core.caiso_price", "core.pjm_price"])
-        self.assertEqual(selected["scores"], {"core.dim_iso": 0.01, "core.demand": 0.01, "core.<iso>_price": 0.97})
-        self.assertEqual(selected["iso_scores"], {"CAISO": 0.95, "ERCOT": 0.02, "PJM": 0.9})
-
-    def test_iso_choice_only_matters_for_families(self):
-        selected = route("ERCOT demand?", scored([0.01, 0.99, 0.01], [0.01, 0.99, 0.01]), PRICES)
+    def test_column_scoring_prunes_measures_but_keeps_join_and_time_columns(self):
+        model = ScoredModel({"core.demand": 0.99}, {"core.demand": {"demand_mw": 0.9}})
+        selected = route("Peak demand?", model, CATALOG)
         self.assertEqual(selected["tables"], ["core.dim_iso", "core.demand"])
+        self.assertEqual(selected["columns"]["core.demand"],
+                         ["iso_id", "interval_start_local", "demand_mw"])
+        self.assertNotIn("unused", selected["columns"]["core.demand"])
+        excerpt = CATALOG.tables["core.demand"].selected_schema(selected["columns"]["core.demand"])
+        self.assertNotIn("unused", excerpt)
+        self.assertIn("Hourly demand", excerpt)
 
-    def test_when_no_iso_stands_out_every_iso_is_kept(self):
-        selected = route("Hub prices?", scored([0.01, 0.01, 0.9], [0.01, 0.01, 0.01]), PRICES)
-        self.assertEqual(selected["tables"], ["core.dim_iso", "core.caiso_price", "core.ercot_price", "core.pjm_price"])
+    def test_independent_column_decisions_run_concurrently(self):
+        model = ScoredModel(
+            {"core.demand": 0.99, "core.ercot_price": 0.99},
+            barrier=threading.Barrier(3),
+        )
+        with patch.object(config, "settings", replace(config.settings, route_column_workers=3)):
+            selected = route("Compare demand and price", model, CATALOG)
+        self.assertEqual(len(selected["tables"]), 3)
 
-    def test_malformed_scores_widen_instead_of_dropping_context(self):
-        for value in [float("nan"), float("inf"), -1, 2, "0.9", True]:
-            with self.subTest(value=value):
-                selected = route("CAISO hub prices?", scored([0.01, 0.01, value], [0.9, 0.01, value]), PRICES)
-                self.assertEqual(selected["tables"], ["core.dim_iso", "core.caiso_price", "core.pjm_price"])
-                self.assertTrue(selected["fallback"])
+    def test_uncertain_scores_are_kept_but_mostly_missing_scores_fail(self):
+        model = ScoredModel({"core.demand": None}, {"core.demand": {"demand_mw": None}})
+        selected = route("Demand?", model, CATALOG)
+        self.assertTrue(selected["fallback"])
+        self.assertIn("core.demand", selected["tables"])
+        self.assertIn("demand_mw", selected["columns"]["core.demand"])
+        with self.assertRaises(RoutingFailed):
+            route("Question?", ScoredModel({name: None for name in CATALOG.tables}), CATALOG)
 
-    def test_mostly_unusable_scores_are_a_routing_failure(self):
-        for llm in (SimpleNamespace(decide=lambda *args: {}), scored([0.9, None, None], [None, None, 0.9])):
-            with self.subTest(llm=llm), self.assertRaises(RoutingFailed):
-                route("Hub prices?", llm, PRICES)
+    def test_unusable_column_decision_fails_instead_of_returning_partial_schema(self):
+        model = ScoredModel({"core.demand": 0.99},
+                            {"core.dim_iso": {"iso_id": None, "iso_code": None}})
+        with self.assertRaises(RoutingFailed):
+            route("Demand?", model, CATALOG)
 
-    def test_budget_is_enforced_after_expanding_families(self):
-        llm = scored([0.01, 0.01, 0.9], [0.9, 0.9, 0.9])
-        self.assertEqual(len(route("Hub prices?", llm, PRICES)["tables"]), 4)
-        with (patch.object(config, "settings", replace(config.settings, max_routed_tables=3)),
+    def test_table_budget_stops_before_column_calls(self):
+        model = ScoredModel({"core.demand": 0.99, "core.ercot_price": 0.99})
+        with (patch.object(config, "settings", replace(config.settings, max_routed_tables=2)),
               self.assertRaises(RoutingTooBroad) as raised):
-            route("Hub prices?", llm, PRICES)
-        self.assertEqual(len(raised.exception.selection["tables"]), 4)  # the selection stays visible
+            route("Compare demand and price", model, CATALOG)
+        self.assertEqual(len(raised.exception.selection["tables"]), 3)
+        self.assertEqual(len(model.calls), 1)
