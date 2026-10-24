@@ -65,6 +65,13 @@ class GuardTests(unittest.TestCase):
                                "-0.000123456::DOUBLE AS tiny, NULL::DOUBLE AS missing", 1)
         self.assertEqual(out["csv"], "share,mw,tiny,missing\n0.42072033,70979.2216,-0.000123456,\n")
 
+    def test_exact_decimals_and_nullable_large_integers_survive_serialization(self):
+        out = db.run_model_sql(
+            "SELECT 12345678901234567890.123456789::DECIMAL(38,9) AS amount, "
+            "9007199254740993::BIGINT AS id UNION ALL SELECT NULL, NULL", 2,
+        )
+        self.assertEqual(out["csv"], "amount,id\n12345678901234567890.123456789,9007199254740993\n,\n")
+
     def test_sql_errors_come_back_as_data(self):
         out = db.run_model_sql("SELECT no_such_column FROM core.dim_iso", 10)
         self.assertIn("Binder", out["error"])

@@ -6,6 +6,8 @@ tables, runs it as DuckDB's parser regenerates it, and returns errors as data, s
 query instead of the program raising.
 """
 
+import csv
+import io
 import json
 import threading
 from collections.abc import Collection, Iterator
@@ -108,29 +110,34 @@ def _timed_cursor(seconds: float) -> Iterator[duckdb.DuckDBPyConnection]:
 
 
 def _fetch(cur: duckdb.DuckDBPyConnection, sql: str, allowed: set[str], max_rows: int):
-    """The query's rows as a DataFrame, one more than max_rows so truncation is detectable. Raises QueryRejected
+    """The column names and native rows, one more than max_rows so truncation is detectable. Raises QueryRejected
     with a message the model can act on."""
     try:
         normalized = _check(cur, sql, allowed)
     except (duckdb.Error, RecursionError) as exc:  # QueryRejected is not a duckdb.Error, so it passes through
         raise QueryRejected(f"invalid query: {type(exc).__name__}") from exc
     try:
-        return cur.execute(f"SELECT * FROM ({normalized}) AS result LIMIT {max_rows + 1}").df()
+        cur.execute(f"SELECT * FROM ({normalized}) AS result LIMIT {max_rows + 1}")
+        return [column[0] for column in cur.description], cur.fetchall()
     except duckdb.InterruptException as exc:
         raise QueryRejected(f"query exceeded the {config.settings.sql_timeout_s:g}-second execution budget") from exc
     except duckdb.Error as exc:
         raise QueryRejected(f"{type(exc).__name__}: {exc}"[:600]) from exc
 
 
-def _result(df, max_rows: int) -> QueryResult:
+def _result(columns: list[str], rows: list[tuple], max_rows: int) -> QueryResult:
     """The rows as CSV, flagged when truncated, or an error when the CSV is too large."""
     settings = config.settings
-    # Preserve numeric precision; presentation rounding belongs in the answer/UI.
-    csv = df.head(max_rows).to_csv(index=False)
-    if len(csv.encode("utf-8")) > settings.sql_max_result_bytes:
+    # Native values preserve DECIMAL and large integers without DataFrame float coercion.
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(columns)
+    writer.writerows(rows[:max_rows])
+    csv_text = buffer.getvalue()
+    if len(csv_text.encode("utf-8")) > settings.sql_max_result_bytes:
         return {"error": f"result exceeds {settings.sql_max_result_bytes} bytes; aggregate or select fewer columns"}
-    out: QueryResult = {"rows": min(len(df), max_rows), "csv": csv}
-    if len(df) > max_rows:
+    out: QueryResult = {"rows": min(len(rows), max_rows), "csv": csv_text}
+    if len(rows) > max_rows:
         out["truncated"] = f"more than {max_rows} rows; aggregate or filter in SQL"
     return out
 
@@ -146,7 +153,7 @@ def run_model_sql(sql: str, max_rows: int, allowed_tables: Collection[str] | Non
     allowed = {table.lower() for table in (demo_catalog().tables if allowed_tables is None else allowed_tables)}
     try:
         with _timed_cursor(settings.sql_timeout_s) as cur:
-            df = _fetch(cur, sql.strip(), allowed, max_rows)
+            columns, rows = _fetch(cur, sql.strip(), allowed, max_rows)
     except QueryRejected as exc:
         return {"error": str(exc)}
-    return _result(df, max_rows)
+    return _result(columns, rows, max_rows)
