@@ -16,7 +16,7 @@ A small, explainable SQL-RAG demo over fictional US electricity data.</p>
 
 GridRag is my attempt at a Retrieval Augmented Generation (RAG) system that works on time series data. Standard RAG retrieves text chunks, which doesn't suit hourly and five-minute grid measurements, where the right answer usually comes from an aggregation or a join. So the system retrieves schema instead of documents, and the evidence comes from SQL.
 
-Rather than writing routing rules by hand for each kind of question, I use a decision model to score the documented tables in one call. The system keeps the relevant tables and adds any tables they reference. The model that generates the SQL only sees that selected schema.
+Rather than writing routing rules by hand for each kind of question, I use a decision model to score the documented schema in one call: each core table, each product family (the same table for every ISO, scored once), and which ISOs the question needs. The system keeps the relevant tables, expands each selected family to the requested ISOs' tables, and adds any tables they reference. The model that generates the SQL only sees that selected schema.
 
 You can ask about demand, generation, prices, forecasts, storage, or interconnection projects. GridRag picks the relevant tables, runs read-only SQL against them, and writes its answer from the rows that come back. The UI shows each stage as it runs, along with the selected tables, the SQL, the evidence, latency, and estimated model cost. All of the data is synthetic.
 
@@ -31,8 +31,8 @@ This is **structured-data RAG**: schema retrieval supplies context, SQL retrieve
 | Layer | What it does |
 | --- | --- |
 | Gate → routing | Checks relevance and possible abuse; it does not grant data access. |
-| Routing → SQL | Keeps whole selected tables and their references, preserving joins and calculation inputs. |
-| SQL → database | Independently enforces read-only access, table restrictions, and execution/result budgets. |
+| Routing → SQL | Keeps whole selected tables, the requested ISOs' tables of each selected product family, and their references, preserving joins and calculation inputs. Mostly unusable scores fail the request instead of asking the user to narrow it. |
+| SQL → database | Independently enforces read-only access, the routed catalog tables (matched case-insensitively), and execution/result budgets; it runs the query as DuckDB's parser regenerates it, so comments cannot change what runs. |
 | Results → answer | Preserves query evidence and failures for inspection; SQL errors can be repaired within a fixed budget. |
 
 ## Run locally
@@ -61,7 +61,7 @@ The CLI uses the same pipeline:
 uv run python -m gridrag "What was ERCOT's highest hourly demand on October 19, 2026?"
 ```
 
-Add `--verbose` for routing scores and per-call diagnostics. API calls transmit
+Add `--verbose` for routing and ISO scores and per-call diagnostics. API calls transmit
 the question, selected context, and query results to the configured provider.
 
 ## Warehouse and schema
@@ -79,7 +79,9 @@ the question, selected context, and query results to the configured provider.
 and [generator](gridrag/warehouse/build.py) are all included. The
 [schema reference](gridrag/warehouse/SCHEMA.md) explains keys, grains, units,
 coverage, and time semantics. The catalog is explicitly registered; adding a
-database table alone does not expose it to the model.
+database table alone does not expose it to the model, and the SQL guard only
+allows catalog tables. Each ISO has an explicit id, and each product defines its
+columns and the generator that fills its tables.
 
 ## Evaluation
 
@@ -91,10 +93,18 @@ uv run python -m unittest discover -s tests
 GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p 'test_live.py'
 ```
 
-Offline tests cover SQL restrictions, timeout recovery, precision, routing
-uncertainty, tool budgets, failures, and warehouse invariants. Live evaluations
-compare representative questions with reference SQL: fuel shares, interval
-values, queue counts, price spreads, forecast cutoffs, and battery energy.
+Offline tests cover SQL restrictions and normalization, timeout recovery,
+precision, family routing and routing uncertainty, tool budgets, failures,
+settings, and warehouse invariants.
+
+Evaluation questions live in one table,
+[gridrag/warehouse/evals.py](gridrag/warehouse/evals.py): each case pairs a
+question with independent reference SQL, its expected end state, and tables the
+route must or must not include. The UI offers the labelled cases as presets. Live
+evaluations ask every case (fuel shares, interval values, queue counts, bus and
+hub prices, price spreads, forecast cutoffs, battery energy, a too-broad request,
+and declined requests) and require the answer to state the reference value at
+the precision it shows.
 
 UI preset checks compare the last scalar query result with an independent
 reference; they do **not** grade prose or prove semantic correctness. Live
@@ -104,14 +114,20 @@ and adversarial evaluations are required before deployment.
 ## Code and configuration
 
 `answer.py` orchestrates; `gate.py` and `route.py` classify; `sql/agent.py`
-handles SQL repair; `db.py` enforces database restrictions; `llm.py` owns provider
-calls and usage accounting. `catalog.py` adapts the demo schema. `app/` and
+prompts for SQL and handles repair; `db.py` enforces database restrictions;
+`llm.py` owns provider calls and usage accounting. `records.py` defines the
+records each stage returns or streams, as TypedDicts, and the `State` and `Stage`
+names. `catalog.py` describes queryable tables (name, DDL, references) and the
+per-ISO product families routing scores once; `demo_catalog()` adapts the demo
+schema, and `answer(..., catalog=...)` accepts any other `Catalog`. `app/` and
 `gridrag/warehouse/` are demo infrastructure.
 
-[config.py](gridrag/config.py) names thresholds, budgets, models, and illustrative
-cost rates. Export `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` to override
-model defaults. Prompts stay beside their owning stages; protocol strings stay
-literal. Cost estimates are not billing figures.
+[config.py](gridrag/config.py) defines one frozen `Settings` object with
+thresholds, budgets, models, and illustrative cost rates, loaded once from `.env`
+and the environment. Set `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` in
+either place to override model defaults. Modules read `config.settings` when they
+need a value, so tests replace it in one place. Prompts stay beside their owning
+stages; protocol strings stay literal. Cost estimates are not billing figures.
 
 ## Production boundary
 

@@ -4,8 +4,9 @@ The gate is a classification aid that saves SQL calls on requests the warehouse 
 not authorization. The read-only database guard in gridrag.db is enforced regardless of what it decides.
 """
 
-from gridrag.config import GATE_MAX_MALICIOUS, GATE_MIN_RELEVANCE
+from gridrag import config
 from gridrag.llm import probability
+from gridrag.records import Gate, Stage
 
 QUESTIONS = [
     {
@@ -30,18 +31,19 @@ QUESTIONS = [
 ]
 
 
-def gate(question: str, llm) -> dict:
+def gate(question: str, llm) -> Gate:
     """{allowed, reason, relevance, malicious}. Lenient on relevance (an underspecified grid question still
     reaches SQL, which can explain coverage), strict on abuse."""
-    answers = llm.decide("gate", question, QUESTIONS)
+    answers = llm.decide(Stage.GATE, question, QUESTIONS)
     relevance = probability(answers, "relevant")
     malicious = probability(answers, "malicious")
     if relevance is None or malicious is None:
         raise RuntimeError("The request gate could not classify the question")
-    allowed = relevance >= GATE_MIN_RELEVANCE and malicious < GATE_MAX_MALICIOUS
+    settings = config.settings
+    allowed = relevance >= settings.gate_min_relevance and malicious < settings.gate_max_malicious
     if allowed:
         reason = "Relevant analytical question"
-    elif malicious >= GATE_MAX_MALICIOUS:
+    elif malicious >= settings.gate_max_malicious:
         reason = "Possible instruction-hijacking or unsafe database request"
     else:
         reason = "Outside the available electricity data"

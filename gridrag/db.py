@@ -1,30 +1,41 @@
 """Read-only warehouse access for model-written SQL.
 
 One read-only DuckDB connection per process, locked down: no file or network access from SQL and
-configuration that cannot be changed from a query. run_model_sql() accepts a single SELECT over core
-tables and returns errors as data, so a model can repair its query instead of the program raising.
+configuration that cannot be changed from a query. run_model_sql() accepts a single SELECT over catalog
+tables, runs it as DuckDB's parser regenerates it, and returns errors as data, so a model can repair its
+query instead of the program raising.
 """
 
 import json
 import threading
+from collections.abc import Collection
 
 import duckdb
 
-from gridrag.config import (DB, DB_MEMORY_LIMIT, DB_THREADS, SQL_MAX_CHARS, SQL_MAX_RESULT_BYTES,
-                            SQL_MAX_ROWS, SQL_TIMEOUT_S)
+from gridrag import config
+from gridrag.catalog import demo_catalog
+from gridrag.records import QueryResult
+
+SAFE_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
+ONE_SELECT = "only a single SELECT (or WITH ... SELECT) query is allowed"
 
 _db: duckdb.DuckDBPyConnection | None = None
 _db_lock = threading.Lock()
+
+
+class QueryRejected(Exception):
+    """The guard will not run this query; the message goes back to the model."""
 
 
 def _database() -> duckdb.DuckDBPyConnection:
     global _db
     with _db_lock:
         if _db is None:
-            if not DB.exists():
-                raise FileNotFoundError(f"warehouse missing: {DB}; run python -m gridrag.warehouse.build")
-            connection = duckdb.connect(str(DB), read_only=True, config={
-                "memory_limit": DB_MEMORY_LIMIT, "threads": DB_THREADS, "temp_directory": "",
+            settings = config.settings
+            if not settings.db_path.exists():
+                raise FileNotFoundError(f"warehouse missing: {settings.db_path}; run python -m gridrag.warehouse.build")
+            connection = duckdb.connect(str(settings.db_path), read_only=True, config={
+                "memory_limit": settings.db_memory_limit, "threads": settings.db_threads, "temp_directory": "",
             })
             try:
                 # Configure resources before locking external access and settings.
@@ -37,19 +48,17 @@ def _database() -> duckdb.DuckDBPyConnection:
     return _db
 
 
-SAFE_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
-
-
 def _references(node, tables: set, functions: set, ctes: set) -> None:
-    """Collects (schema, table) references, table functions and CTE names from a parsed query tree."""
+    """Collects schema.table references, table functions and CTE names from a parsed query tree. Names are
+    lower-cased, as DuckDB resolves them case-insensitively."""
     if isinstance(node, dict):
-        ctes = ctes | {entry["key"] for entry in (node.get("cte_map") or {}).get("map", [])}
+        ctes = ctes | {entry["key"].lower() for entry in (node.get("cte_map") or {}).get("map", [])}
         if node.get("type") == "BASE_TABLE":
-            schema, name = node.get("schema_name") or "", node["table_name"]
+            schema, name = (node.get("schema_name") or "").lower(), node["table_name"].lower()
             if catalog := node.get("catalog_name"):
-                schema = f"{catalog}.{schema}"
+                schema = f"{catalog.lower()}.{schema}"
             if schema or name not in ctes:
-                tables.add((schema, name))
+                tables.add(f"{schema}.{name}" if schema else name)
         elif node.get("type") == "TABLE_FUNCTION":
             functions.add((node.get("function") or {}).get("function_name", "?"))
         for value in node.values():
@@ -59,60 +68,60 @@ def _references(node, tables: set, functions: set, ctes: set) -> None:
             _references(value, tables, functions, ctes)
 
 
-def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed_tables: set[str] | None = None) -> str | None:
-    """one SELECT, tables only from core (or the query's own CTEs) and, when given, only from
-    allowed_tables, and no table functions beyond SAFE_TABLE_FUNCTIONS."""
+def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed: set[str]) -> str:
+    """The query as DuckDB's parser regenerates it, once it is one SELECT over allowed tables (or the query's own
+    CTEs) with no table functions beyond SAFE_TABLE_FUNCTIONS. Running the regenerated text means the checked
+    statement is the one that runs, and comments or semicolons cannot break the row limit. Raises QueryRejected."""
     (text,) = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchone()
     parsed = json.loads(text)
     if parsed.get("error"):
         if parsed.get("error_type") == "not implemented":  # json_serialize_sql supports SELECT statements
-            return "only a single SELECT (or WITH ... SELECT) query is allowed"
-        return f"{parsed.get('error_type', 'parser')} error: {parsed.get('error_message', '')}"[:600]
+            raise QueryRejected(ONE_SELECT)
+        raise QueryRejected(f"{parsed.get('error_type', 'parser')} error: {parsed.get('error_message', '')}"[:600])
     if len(parsed["statements"]) != 1:
-        return "only a single SELECT (or WITH ... SELECT) query is allowed"
-    tables, functions = set(), set()
+        raise QueryRejected(ONE_SELECT)
+    tables: set[str] = set()
+    functions: set[str] = set()
     _references(parsed["statements"], tables, functions, set())
-    if bad := sorted(f"{schema}.{name}" if schema else name for schema, name in tables if schema != "core"):
-        return f"not available: {', '.join(bad)}. Use schema-qualified tables from core."
-    if allowed_tables is not None and (
-        bad := sorted(f"{schema}.{name}" for schema, name in tables if f"{schema}.{name}" not in allowed_tables)
-    ):
-        return f"outside the selected tables: {', '.join(bad)}. Use only the supplied tables."
+    if bad := sorted(tables - allowed):
+        raise QueryRejected(f"not available: {', '.join(bad)}. Use only the supplied schema-qualified tables.")
     if bad := sorted(functions - SAFE_TABLE_FUNCTIONS):
-        return f"table functions are not allowed: {', '.join(bad)}"
-    return None
+        raise QueryRejected(f"table functions are not allowed: {', '.join(bad)}")
+    (normalized,) = cur.execute("SELECT json_deserialize_sql(?::JSON)", [text]).fetchone()
+    return normalized
 
 
-def run_model_sql(sql: str, max_rows: int, allowed_tables: set[str] | None = None) -> dict:
+def run_model_sql(sql: str, max_rows: int, allowed_tables: Collection[str] | None = None) -> QueryResult:
     """Runs one model-written query: {"rows", "csv"[, "truncated"]}, or {"error"} for the model to fix.
-    allowed_tables (schema-qualified) restricts the query to a routed slice; None allows any core table."""
-    if not isinstance(sql, str) or not sql.strip() or len(sql) > SQL_MAX_CHARS:
-        return {"error": f"query must contain 1–{SQL_MAX_CHARS} characters"}
-    if type(max_rows) is not int or not 1 <= max_rows <= SQL_MAX_ROWS:
-        raise ValueError(f"max_rows must be between 1 and {SQL_MAX_ROWS}")
-    sql = sql.strip().rstrip(";").strip()
+    allowed_tables (schema-qualified) restricts the query to a routed slice; None allows every catalog table."""
+    settings = config.settings
+    if not isinstance(sql, str) or not sql.strip() or len(sql) > settings.sql_max_chars:
+        return {"error": f"query must contain 1–{settings.sql_max_chars} characters"}
+    if type(max_rows) is not int or not 1 <= max_rows <= settings.sql_max_rows:
+        raise ValueError(f"max_rows must be between 1 and {settings.sql_max_rows}")
+    allowed = {table.lower() for table in (demo_catalog().tables if allowed_tables is None else allowed_tables)}
     cur = _database().cursor()
-    timer = threading.Timer(SQL_TIMEOUT_S, cur.interrupt)
+    timer = threading.Timer(settings.sql_timeout_s, cur.interrupt)
     timer.daemon = True
     timer.start()
     try:
         try:
-            error = _check(cur, sql, allowed_tables)
+            normalized = _check(cur, sql.strip(), allowed)
+        except QueryRejected as exc:
+            return {"error": str(exc)}
         except (duckdb.Error, RecursionError) as exc:
             return {"error": f"invalid query: {type(exc).__name__}"}
-        if error:
-            return {"error": error}
         try:
-            df = cur.execute(f"SELECT * FROM ({sql}) AS result LIMIT {max_rows + 1}").df()
+            df = cur.execute(f"SELECT * FROM ({normalized}) AS result LIMIT {max_rows + 1}").df()
         except duckdb.InterruptException:
-            return {"error": f"query exceeded the {SQL_TIMEOUT_S:g}-second execution budget"}
+            return {"error": f"query exceeded the {settings.sql_timeout_s:g}-second execution budget"}
         except duckdb.Error as exc:
             return {"error": f"{type(exc).__name__}: {exc}"[:600]}
         # Preserve numeric precision; presentation rounding belongs in the answer/UI.
         csv = df.head(max_rows).to_csv(index=False)
-        if len(csv.encode("utf-8")) > SQL_MAX_RESULT_BYTES:
-            return {"error": f"result exceeds {SQL_MAX_RESULT_BYTES} bytes; aggregate or select fewer columns"}
-        out = {"rows": min(len(df), max_rows), "csv": csv}
+        if len(csv.encode("utf-8")) > settings.sql_max_result_bytes:
+            return {"error": f"result exceeds {settings.sql_max_result_bytes} bytes; aggregate or select fewer columns"}
+        out: QueryResult = {"rows": min(len(df), max_rows), "csv": csv}
         if len(df) > max_rows:
             out["truncated"] = f"more than {max_rows} rows; aggregate or filter in SQL"
         return out

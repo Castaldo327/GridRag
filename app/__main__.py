@@ -8,12 +8,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from app.presets import PRESETS, reference, validate
-from gridrag.answer import answer
-from gridrag.config import load_env
-from gridrag.route import schema_blocks
+from gridrag import config
+from gridrag.answer import answer, clean_question
+from gridrag.catalog import demo_catalog
 
 STATIC = Path(__file__).parent / "static"
 RUN_LOCK = threading.Lock()
+MAX_BODY_BYTES = 16384
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -40,8 +41,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, (STATIC / name).read_bytes(), content_type)
         elif path == "/api/meta":
             try:
-                self.send(200, {"catalog_tables": len(schema_blocks()),
-                                "model_ready": bool(load_env().get("OPEN_AI_KEY")),
+                catalog = demo_catalog()
+                self.send(200, {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
+                                "max_question_chars": config.settings.max_question_chars,
+                                "model_ready": bool(config.settings.openai_api_key),
                                 "presets": [reference(p) for p in PRESETS]})
             except Exception:
                 logging.exception("Could not load demo references")
@@ -60,16 +63,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(415, {"error": "Expected application/json"})
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 16384:
+            if not 0 < size <= MAX_BODY_BYTES:
                 raise ValueError()
-            payload = json.loads(self.rfile.read(size))
-            question = payload.get("question")
-            if not isinstance(question, str) or not 0 < len(question.strip()) <= 2000:
-                raise ValueError()
-            question = question.strip()
+            question = clean_question(json.loads(self.rfile.read(size)).get("question"))
         except (ValueError, AttributeError, UnicodeDecodeError):
-            return self.send(400, {"error": "Enter a question of 1–2000 characters"})
-        if not load_env().get("OPEN_AI_KEY"):
+            return self.send(400, {"error": f"Enter a question of 1–{config.settings.max_question_chars} characters"})
+        if not config.settings.openai_api_key:
             return self.send(503, {"error": "Set OPENAI_API_KEY in the environment or .env to run a question."})
         if not RUN_LOCK.acquire(blocking=False):
             return self.send(409, {"error": "A question is already running. Try again when it finishes."})
@@ -82,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             # Resolve expected values independently, and never put them into the model prompt.
-            preset = next((p for p in PRESETS if p["question"] == question), None)
+            preset = next((p for p in PRESETS if p.question == question), None)
             expected = reference(preset) if preset else None
             if streaming:
                 self.send_response(200)
@@ -96,12 +95,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = answer(question, on_progress=lambda update: emit({"type": "progress", **update}))
             else:
                 result = answer(question)
-            if expected:
-                result["validation"] = validate(result, expected)
+            body = {**result, "validation": validate(result, expected)} if expected else result
             if streaming:
-                emit({"type": "done", "result": result})
+                emit({"type": "done", "result": body})
             else:
-                self.send(200, result)
+                self.send(200, body)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:

@@ -7,10 +7,12 @@ one question's calls, each tagged with the stage (gate, route, sql) that made it
 import math
 import threading
 import time
+from typing import Literal
 
 from openai import OpenAI
 
 from gridrag import config
+from gridrag.records import ModelCall, Stage, Usage
 
 _client: OpenAI | None = None
 _client_lock = threading.Lock()
@@ -20,8 +22,11 @@ def client() -> OpenAI:
     global _client
     with _client_lock:  # concurrent requests share one initialized HTTP client
         if _client is None:
-            _client = OpenAI(api_key=config.require_key("OPEN_AI_KEY"), timeout=config.CALL_TIMEOUT_S,
-                             max_retries=config.API_MAX_RETRIES)
+            settings = config.settings
+            if not settings.openai_api_key:
+                raise RuntimeError("OPENAI_API_KEY is not set; put it in .env or export it")
+            _client = OpenAI(api_key=settings.openai_api_key, timeout=settings.call_timeout_s,
+                             max_retries=settings.api_max_retries)
         return _client
 
 
@@ -51,25 +56,25 @@ def probability(answers: dict, name: str) -> float | None:
 
 def call_cost(kind: str, usage: dict) -> float:
     """USD for one call from its provider usage; cached input tokens are billed at the cached rate."""
-    price = config.PRICES[kind]
+    rates = config.settings.prices[kind]
     cached = (usage.get("input_tokens_details") or {}).get("cached_tokens") or 0
     uncached = (usage.get("input_tokens") or 0) - cached
-    return (uncached * price["input"] + cached * price["cached_input"]
-            + (usage.get("output_tokens") or 0) * price["output"]) / 1e6
+    return (uncached * rates.input + cached * rates.cached_input
+            + (usage.get("output_tokens") or 0) * rates.output) / 1e6
 
 
 class LLM:
     """One question's model calls, each recorded with the stage that made it."""
 
     def __init__(self):
-        self.calls: list[dict] = []
+        self.calls: list[ModelCall] = []
         self._lock = threading.Lock()  # protect per-request usage if callers share an LLM
 
-    def _record(self, call: dict) -> None:
+    def _record(self, call: ModelCall) -> None:
         with self._lock:
             self.calls.append(call)
 
-    def _request(self, kind: str, stage: str, method, **kwargs) -> dict:
+    def _request(self, kind: Literal["decisions", "responses"], stage: Stage, method, **kwargs) -> dict:
         t = time.perf_counter()
         try:
             resp = method(**kwargs).model_dump(mode="json")
@@ -91,27 +96,28 @@ class LLM:
         })
         return resp
 
-    def decide(self, stage: str, input_text: str, questions: list[dict]) -> dict[str, dict]:
+    def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]:
         """One Decisions request; answers keyed by question name (a refused question is absent)."""
         resp = self._request(
             "decisions", stage, client().decisions.create,
-            model=config.DECISIONS_MODEL, input=input_text, questions=questions,
+            model=config.settings.decisions_model, input=input_text, questions=questions,
         )
         return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
 
-    def respond(self, stage: str, instructions: str, input_items, **kwargs) -> dict:
+    def respond(self, stage: Stage, instructions: str, input_items, **kwargs) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
+        settings = config.settings
         return self._request(
             "responses", stage, client().responses.create,
-            model=config.ANSWER_MODEL,
+            model=settings.answer_model,
             instructions=instructions,
             input=input_items,
-            reasoning={"effort": config.ANSWER_REASONING},
-            max_output_tokens=config.ANSWER_MAX_OUTPUT_TOKENS,
+            reasoning={"effort": settings.answer_reasoning},
+            max_output_tokens=settings.answer_max_output_tokens,
             **kwargs,
         )
 
-    def totals(self) -> dict:
+    def totals(self) -> Usage:
         with self._lock:
             calls = list(self.calls)
         return {

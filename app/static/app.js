@@ -18,11 +18,11 @@ function render() {
           <small id="status-${p.id}">Not run</small></button>`).join("")}</div>
       <form id="ask-form" class="ask-form">
         <label class="sr-only" for="question">Your question</label>
-        <textarea id="question" rows="3" maxlength="2000" required placeholder="Ask a question about the warehouse…"></textarea>
+        <textarea id="question" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Ask a question about the warehouse…"></textarea>
         <button id="ask-button" type="submit">Ask the grid →</button>
       </form>
       <div id="reference"></div>
-      <p class="coverage">${state.meta.catalog_tables} catalog tables · Seven ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
+      <p class="coverage">${state.meta.catalog_tables} catalog tables · ${state.meta.isos.length} ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
       ${state.meta.model_ready ? "" : '<p class="error">Model not configured. Add OPENAI_API_KEY to .env to ask questions. Reference values are available below.</p>'}
     </section>
     <div class="workspace">

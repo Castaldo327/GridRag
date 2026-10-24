@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from gridrag import llm
+from gridrag.records import Stage
 
 
 def reply(**payload):
@@ -26,11 +27,11 @@ class UsageTests(unittest.TestCase):
         )
         model = llm.LLM()
         with patch.object(llm, "client", return_value=fake):
-            model.decide("gate", "question", [])
-            model.respond("sql", "instructions", "question")
+            model.decide(Stage.GATE, "question", [])
+            model.respond(Stage.SQL, "instructions", "question")
             fake.responses.create = broken
             with self.assertRaises(TimeoutError):
-                model.respond("sql", "instructions", "question")
+                model.respond(Stage.SQL, "instructions", "question")
         totals = model.totals()
         self.assertEqual([(c["stage"], c["kind"]) for c in totals["per_call"]],
                          [("gate", "decisions"), ("sql", "responses"), ("sql", "responses")])

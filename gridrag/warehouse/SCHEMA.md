@@ -5,14 +5,14 @@ A small, **fictional** DuckDB warehouse of US grid data, rebuilt from scratch by
 | Source | What it defines |
 |---|---|
 | [schema.sql](schema.sql) | Hand-written dimensions, hourly/5-minute facts, and the queue table |
-| [products.py](products.py) | Generated per-ISO "product" tables (prices, forecasts, ancillary, storage, outages, curtailment) |
+| [products.py](products.py) | Generated per-ISO "product" tables (prices, forecasts, ancillary, storage, outages, curtailment), each with the generator that fills it |
 | [build.py](build.py) | Synthetic data generation and load (seeded, so every rebuild is identical) |
 
 `build.schema_text()` concatenates `schema.sql` with the generated product DDL, so the full DDL is the union of both.
 
 ## At a glance
 
-- **7 ISOs:** CAISO, ERCOT, ISONE, MISO, NYISO, PJM, SPP (`iso_id` 1–7 in that order).
+- **7 ISOs:** CAISO, ERCOT, ISONE, MISO, NYISO, PJM, SPP (`iso_id` 1–7). Each `Iso` in build.py sets its id explicitly, so adding an ISO never renumbers the others' rows, locations or `CHECK`s.
 - **13 fuels**, **5 queue statuses**, **28 locations** (3 buses + 1 hub per ISO).
 - **Core tables:** 4 dimensions + 4 facts + 1 queue table = 9 (65 tables in total).
 - **Product tables:** 8 products × 7 ISOs = 56 tables, named `core.<iso>_<product>`.
@@ -238,11 +238,13 @@ Synthetic-data quirk: `completed_date` and `withdrawn_date` are computed as offs
 
 ## Per-ISO product tables
 
-Generated in [products.py](products.py): each product below exists once per ISO, as `core.<iso>_<suffix>` (lowercase ISO, e.g. `core.caiso_lmp_rt_hub_5min`). Each table's `iso_id` has a `CHECK` pinning it to that ISO. All cover 2026-10-15 → 2026-10-21 and all columns are `NOT NULL`.
+Generated in [products.py](products.py): each product below exists once per ISO, as `core.<iso>_<suffix>` (lowercase ISO, e.g. `core.caiso_lmp_rt_hub_5min`). Each table's `iso_id` has a `CHECK` pinning it to that ISO. All cover 2026-10-15 → 2026-10-21 and all columns are `NOT NULL`. A product defines its columns, comments and a `generate` function, so its DDL and rows come from one definition.
 
 The products are **deliberately similar** (bus vs hub, real-time vs day-ahead, forecast vs actual, reserve vs energy, observed storage vs queue capacity). Pick the one that matches the question's market, grain and time semantics.
 
-| Family | Suffix | Grain | Primary key (after `iso_id`) |
+Routing treats each product's seven tables as one **family**: the decision model reads a single definition with the ISO left open (`core.<iso>_<suffix>`) and separately scores which ISOs the question needs, and the router keeps those ISOs' tables. The SQL model still receives each kept table's own DDL.
+
+| Kind | Suffix | Grain | Primary key (after `iso_id`) |
 |---|---|---|---|
 | prices | `lmp_rt_bus_5min` | 5 min × 3 buses | `interval_start_utc, location_id` |
 | prices | `lmp_rt_hub_5min` | 5 min × hub | `interval_start_utc, location_id` |
