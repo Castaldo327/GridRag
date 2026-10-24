@@ -130,13 +130,4 @@ stages; protocol strings stay literal. Cost estimates are not billing figures.
 
 ## Production boundary
 
-The core has explicit safeguards, but this repository is a demo, not a
-production service. The web app and warehouse generators are setup code.
-Authentication, data entitlements, process-level resource isolation,
-retention/logging policy, and measured model quality remain release requirements.
-SQL interruption and memory settings are safeguards, not a complete sandbox.
-The gate is a classifier, not an authorization layer.
-
-The final core audit covered configuration, routing, provider calls, SQL execution,
-failure handling, and module boundaries. Offline checks passed; live-provider
-accuracy has not been verified in this review.
+This repo is just a demo, not production-ready code. Features like the web app and warehouse setup are meant to get you up and running quickly.
