@@ -20,7 +20,7 @@ _client_lock = threading.Lock()
 
 def client() -> OpenAI:
     global _client
-    with _client_lock:  # concurrent requests share one initialized HTTP client
+    with _client_lock: 
         if _client is None:
             settings = config.settings
             if not settings.openai_api_key:
