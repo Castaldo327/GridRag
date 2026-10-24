@@ -15,12 +15,22 @@ function render() {
       <p>Explore demand, generation, prices, and projects. Follow a question from schema selection to SQL and an answer backed by data.</p>
       <aside class="data-window" id="data-window" aria-label="Synthetic data coverage">
         <strong>Data ends October 21, 2026 · This is a fixed snapshot, not live data.</strong>
-        <span>Hourly demand &amp; generation: Jan 1, 2025–Oct 21, 2026.</span>
-        <span>Five-minute data, prices, forecasts &amp; other grid products: Oct 15–21, 2026. Project queue: snapshot as of Oct 21, 2026.</span>
-        <span>Use dates within these ranges, or choose a preset below.</span>
+        <span>Start with a region, a measure, and a date in the ranges below. Use specific dates rather than “today.”</span>
       </aside>
+      <details class="question-guide" open>
+        <summary>What can I ask?</summary>
+        <div class="guide-grid">
+          <div><strong>Demand &amp; generation by fuel</strong><p>Hourly peaks, averages, totals and fuel shares, including solar and wind.</p><small>All 7 regions · Jan 1, 2025–Oct 21, 2026</small></div>
+          <div><strong>Five-minute demand &amp; generation</strong><p>Look at a specific time or compare changes within a day.</p><small>CAISO and ERCOT only · Oct 15–21, 2026</small></div>
+          <div><strong>Prices, forecasts &amp; operations</strong><p>Bus/hub prices, load forecasts, battery dispatch, outages, curtailment and ancillary prices. Forecasts are for demand, not solar generation.</p><small>All 7 regions · Oct 15–21, 2026</small></div>
+          <div><strong>Proposed projects</strong><p>Count queued projects or compare proposed capacity by region, fuel and project status.</p><small>All 7 regions · Snapshot as of Oct 21, 2026</small></div>
+        </div>
+        <p class="guide-regions"><strong>Region names:</strong> ${state.meta.isos.map(esc).join(" · ")}. CAISO is California; ERCOT is Texas. Dates use each region’s local time unless you ask for UTC.</p>
+        <button class="guide-example" type="button" data-question="What was CAISO's highest hourly solar generation in MW on October 19, 2026?">Try: CAISO’s highest hourly solar generation on October 19, 2026 →</button>
+      </details>
+      <p class="preset-hint">Choose a question to edit, then select <strong>Ask the grid</strong>.</p>
       <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
-        <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("")}</div>
+        <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.question)}</span></button>`).join("")}</div>
       <form id="ask-form" class="ask-form">
         <label class="sr-only" for="question">Your question</label>
         <textarea id="question" aria-describedby="data-window" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Try: What was ERCOT’s peak demand on October 19, 2026?"></textarea>
@@ -56,6 +66,13 @@ function render() {
       state.result = state.runs.get(p.id) || null;
       state.error = ""; state.progress = {};
       paintPresets(); paint();
+    };
+  });
+  document.querySelectorAll("[data-question]").forEach(button => {
+    button.onclick = () => {
+      $("#question").value = button.dataset.question;
+      $("#question").dispatchEvent(new Event("input"));
+      $("#question").focus();
     };
   });
   $("#question").value = new URLSearchParams(location.search).get("q") || state.meta.presets[0].question;
@@ -123,7 +140,7 @@ function paint() {
   $("#ask-button").disabled = state.running || !state.meta.model_ready;
   $("#ask-button").textContent = state.running ? "Running…" : "Ask the grid →";
   $("#question").disabled = state.running;
-  document.querySelectorAll("[data-preset]").forEach(b => { b.disabled = state.running; });
+  document.querySelectorAll("[data-preset], [data-question]").forEach(b => { b.disabled = state.running; });
 }
 
 async function ask() {

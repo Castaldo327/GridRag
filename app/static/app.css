@@ -91,3 +91,15 @@ button:focus-visible, summary:focus-visible { outline: 2px solid #176fba; outlin
 .stage-spinner { width: 13px; height: 13px; border: 2px solid #ffffff60; border-top-color: white; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .stage-spinner { animation: none; } }
+
+.question-guide { margin: 18px 0; border: 1px solid #dbe4ec; border-radius: 10px; background: #ffffffb3; padding: 16px 18px; }
+.question-guide summary { cursor: pointer; font-size: 14px; font-weight: 650; color: #204f76; }
+.guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; margin: 20px 0; }
+.guide-grid strong { font-size: 13px; }
+.guide-grid p, .guide-regions { margin: 6px 0; font-size: 12px; color: #52677a; line-height: 1.6; }
+.guide-grid small { font-size: 11px; color: #41688b; }
+.guide-example { margin-top: 12px; border: 1px solid #b9d4ea; background: #edf5fc; color: #205c8c; border-radius: 7px; padding: 10px 12px; text-align: left; font-size: 12px; line-height: 1.5; }
+.hero > .preset-hint { margin: 20px 0 0; font-size: 12px; }
+.preset-hint + .examples { margin-top: 10px; }
+.examples span { line-height: 1.5; }
+@media (max-width: 550px) { .guide-grid { grid-template-columns: 1fr; gap: 16px; } }
