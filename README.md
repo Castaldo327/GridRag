@@ -20,11 +20,12 @@ time filters, or aggregation across hourly and five-minute measurements.
 GridRag therefore retrieves schema context and uses SQL to produce evidence from
 the underlying data.
 
-The router scores every documented table in one model call, adds tables required
-by foreign keys, and scores the selected tables' columns in parallel. The SQL
-model receives a compact schema containing the relevant columns and the keys and
-time fields needed for valid queries. A separate database guard restricts SQL to
-the routed tables and enforces read-only execution limits.
+One routing call scores every documented table. The router then adds referenced
+tables and scores each selected table's columns in a separate call; those column
+calls run in parallel. The SQL model receives a compact schema containing the
+relevant columns and the keys and time fields needed for valid queries. A
+separate database guard restricts SQL to the routed tables and enforces read-only
+execution limits.
 
 Users can ask about demand, generation, prices, forecasts, storage, outages,
 curtailment, and interconnection projects. The UI streams the answer and shows
@@ -44,7 +45,8 @@ For each question, GridRag:
 1. Gate the request for relevance and misuse.
 2. Score all catalog tables in one decision-model call.
 3. Add their foreign-key dependencies.
-4. Score each selected table's columns in parallel and retain structural fields.
+4. Make one column-scoring call per selected table, run those calls in parallel,
+   and retain structural fields.
 5. Send the reduced schema to the SQL model.
 6. Validate and run read-only SQL, then stream an answer from the returned rows.
 
