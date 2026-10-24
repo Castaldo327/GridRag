@@ -22,43 +22,9 @@ You can ask about demand, generation, prices, forecasts, storage, or interconnec
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    Q([Your question])
+[![GridRag architecture: request gate, schema selection, SQL execution and evidence-backed answers](docs/architecture.svg)](docs/architecture.svg)
 
-    subgraph context["01 · FIND THE RIGHT CONTEXT"]
-        direction LR
-        G["Request gate<br/>Relevance & abuse checks"]
-        R["Schema selection<br/>Relevant tables + references"]
-        C[("Documented<br/>schema catalog")]
-        G --> R
-        C -.-> R
-    end
-
-    subgraph evidence["02 · QUERY AND EXPLAIN"]
-        direction LR
-        M["SQL model<br/>Write · inspect · repair"]
-        D[("Guarded DuckDB<br/>Read-only · bounded queries")]
-        A(["Answer<br/>with query evidence"])
-        M -->|SQL| D
-        D -->|Rows or error| M
-        M --> A
-    end
-
-    Q --> G
-    R -->|Selected schema| M
-
-    classDef input fill:#eef2ff,stroke:#818cf8,color:#312e81,stroke-width:2px
-    classDef decision fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a,stroke-width:1.5px
-    classDef store fill:#fff7ed,stroke:#fb923c,color:#7c2d12,stroke-width:1.5px
-    classDef result fill:#ecfdf5,stroke:#34d399,color:#064e3b,stroke-width:2px
-    class Q input
-    class G,R,M decision
-    class C,D store
-    class A result
-    style context fill:#f8fafc,stroke:#cbd5e1,color:#475569
-    style evidence fill:#f8fafc,stroke:#cbd5e1,color:#475569
-```
+[View full size](docs/architecture.svg) · [Edit in draw.io](docs/architecture.drawio)
 
 This is **structured-data RAG**: schema retrieval supplies context, SQL retrieves and aggregates evidence, and the model explains it. A vector database is not required.
 

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1060" viewBox="0 0 1440 1060" role="img" aria-labelledby="title desc">
+<title id="title">GridRag architecture</title><desc id="desc">A question passes a request gate and schema selection. The selected schema goes to a SQL model, which queries guarded DuckDB and uses returned rows to answer. Errors can be repaired within a fixed budget.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7692A8"/></marker><marker id="teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#087E8B"/></marker></defs>
+<rect x="0" y="0" width="1440" height="1060" rx="0" fill="#FFFFFF" stroke="none"/>
+<text x="56" y="60" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#087E8B">GRIDRAG / SYSTEM OVERVIEW</text>
+<text x="56" y="111" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="32" font-weight="700" fill="#172B3A">From a question to query-backed evidence.</text>
+<text x="56" y="146" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="18" font-weight="400" fill="#63788A">Retrieve the schema. Calculate with SQL. Explain the result.</text>
+<rect x="1240" y="37" width="144" height="30" rx="15" fill="#EEF5F7" stroke="none"/>
+<text x="1312" y="57" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#50758E">LOCAL DEMO</text>
+<rect x="40" y="184" width="1360" height="306" rx="16" fill="#F5F9FC" stroke="#E2EDF5"/>
+<text x="68" y="219" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#50758E">01 / UNDERSTAND THE QUESTION</text>
+<svg x="192" y="261" width="96" height="96" viewBox="0 0 96 96"><rect x="8" y="14" width="80" height="59" rx="7" fill="#DFF1FB"/><rect x="8" y="14" width="80" height="17" rx="7" fill="#1688BC"/><rect x="8" y="24" width="80" height="7" fill="#1688BC"/><circle cx="19" cy="23" r="2" fill="white"/><circle cx="27" cy="23" r="2" fill="white"/><circle cx="35" cy="23" r="2" fill="white"/><path d="M26 44h43M26 55h30" stroke="#4B9ABD" stroke-width="5" stroke-linecap="round"/><path d="M47 73l-13 13V73" fill="#DFF1FB"/></svg>
+<svg x="672" y="261" width="96" height="96" viewBox="0 0 96 96"><path d="M48 7 80 20v24c0 21-14 36-32 45C30 80 16 65 16 44V20z" fill="#DFF2F1"/><path d="M48 7 80 20v24c0 21-14 36-32 45V7" fill="#B6E2E2"/><path d="m31 46 12 12 24-27" fill="none" stroke="#087E8B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg x="1152" y="261" width="96" height="96" viewBox="0 0 96 96"><rect x="25" y="7" width="48" height="20" rx="4" fill="#177FA5"/><path d="M49 27v14M14 55V42h68v13M48 42v13" fill="none" stroke="#7692A8" stroke-width="3"/><rect x="3" y="56" width="24" height="31" rx="4" fill="#C9EAF3"/><rect x="36" y="56" width="24" height="31" rx="4" fill="#1688BC"/><rect x="69" y="56" width="24" height="31" rx="4" fill="#1688BC"/><path d="m42 70 4 5 8-11m21 6 4 5 8-11" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+<polyline points="313,309 642,309" fill="none" stroke="#7692A8" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="477" y="288" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="400" fill="#63788A">Question</text>
+<polyline points="793,309 1122,309" fill="none" stroke="#7692A8" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="957" y="288" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="400" fill="#63788A">Relevant request</text>
+<text x="240" y="393" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Ask the grid</text>
+<text x="240" y="424" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Web UI or CLI</text>
+<text x="240" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">A natural-language question</text>
+<text x="720" y="393" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Check the request</text>
+<text x="720" y="424" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Decisions model</text>
+<text x="720" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Classify relevance and possible abuse</text>
+<text x="1200" y="393" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Select the schema</text>
+<text x="1200" y="424" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Decisions model</text>
+<text x="1200" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Score tables · include their references</text>
+<polyline points="1200,490 1200,527 720,527 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
+<rect x="751" y="513" width="421" height="28" rx="0" fill="#FFFFFF" stroke="none"/>
+<text x="962" y="532" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#087E8B">Selected schema · full columns + references</text>
+<rect x="40" y="570" width="1360" height="358" rx="16" fill="#F5F9FC" stroke="#E2EDF5"/>
+<polyline points="720,570 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
+<text x="68" y="605" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#50758E">02 / QUERY THE DATA AND EXPLAIN</text>
+<svg x="192" y="650" width="96" height="96" viewBox="0 0 96 96"><path d="M14 22v52c0 10 68 10 68 0V22" fill="#BEE7F4"/><path d="M48 22h34v52c0 5-17 8-34 8" fill="#79C5E3"/><ellipse cx="48" cy="22" rx="34" ry="12" fill="#1688BC"/><ellipse cx="48" cy="22" rx="23" ry="7" fill="#49ADD2"/><path d="M14 43c0 12 68 12 68 0M14 61c0 12 68 12 68 0" fill="none" stroke="white" stroke-width="3"/></svg>
+<svg x="672" y="650" width="96" height="96" viewBox="0 0 96 96"><rect x="16" y="16" width="64" height="64" rx="11" fill="#DFF2F1"/><rect x="26" y="26" width="44" height="44" rx="6" fill="#087E8B"/><path d="M32 4v12M48 4v12M64 4v12M32 80v12M48 80v12M64 80v12M4 32h12M4 48h12M4 64h12M80 32h12M80 48h12M80 64h12" stroke="#79B8BD" stroke-width="4" stroke-linecap="round"/><path d="m42 37-9 11 9 11m12-22 9 11-9 11" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg x="1152" y="650" width="96" height="96" viewBox="0 0 96 96"><path d="M22 6h39l16 17v61a6 6 0 0 1-6 6H22a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6" fill="#DFF2F1"/><path d="M61 6v17h16" fill="#A9D9DA"/><path d="M30 37h32M30 48h25M30 59h18" stroke="#69AEB5" stroke-width="4" stroke-linecap="round"/><circle cx="72" cy="74" r="19" fill="#087E8B"/><path d="m62 74 7 7 13-15" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<polyline points="643,680 316,680" fill="none" stroke="#7692A8" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="480" y="661" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="400" fill="#63788A">Read-only SQL</text>
+<polyline points="316,724 643,724" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
+<text x="480" y="753" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="400" fill="#087E8B">Rows or a repairable error</text>
+<polyline points="797,698 1123,698" fill="none" stroke="#7692A8" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="960" y="678" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="400" fill="#63788A">Explain from returned rows</text>
+<text x="240" y="797" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Query the warehouse</text>
+<text x="240" y="828" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Guarded DuckDB</text>
+<text x="240" y="860" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Selected tables only</text>
+<text x="240" y="885" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Execution and result limits</text>
+<text x="720" y="797" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Write, inspect, repair</text>
+<text x="720" y="828" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">SQL model</text>
+<text x="720" y="860" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Generate SQL from the selected schema</text>
+<text x="720" y="885" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Retry failed queries within a fixed budget</text>
+<text x="1200" y="797" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Return an answer</text>
+<text x="1200" y="828" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Evidence included</text>
+<text x="1200" y="860" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Answer + executed SQL + returned rows</text>
+<text x="1200" y="885" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Explicit states when an answer is unavailable</text>
+<rect x="56" y="963" width="4" height="54" rx="2" fill="#D8A245" stroke="none"/>
+<text x="77" y="979" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="17" font-weight="700" fill="#172B3A">The gate classifies. The database enforces.</text>
+<text x="77" y="1007" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#63788A">65 documented tables · 7 ISOs · synthetic local data · no production hosting implied</text>
+</svg>
