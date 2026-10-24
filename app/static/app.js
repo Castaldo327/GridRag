@@ -10,7 +10,7 @@ const preset = () => state.meta.presets.find(p => p.question === $("#question").
 function render() {
   $("#main").innerHTML = `
     <section class="hero panel">
-      <span class="eyebrow">FICTIONAL DATA · REAL QUERIES</span>
+      <span class="eyebrow">SYNTHETIC DATA</span>
       <h1>Ask the grid.</h1>
       <p>Explore demand, generation, prices, and projects. Follow a question from schema selection to SQL and an answer backed by data.</p>
       <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
