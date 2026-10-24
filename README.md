@@ -128,22 +128,14 @@ uv run python -m unittest discover -s tests
 GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p 'test_live.py'
 ```
 
-Offline tests cover SQL restrictions and normalization, timeout recovery,
-precision, table and column routing and routing uncertainty, tool budgets, failures,
-settings, and warehouse invariants.
+Offline tests cover the warehouse build, schema routing, SQL safeguards, failure
+handling, streaming, and configuration. They run without making provider calls.
 
-Evaluation questions live in one table,
-[gridrag/warehouse/evals.py](gridrag/warehouse/evals.py): each case pairs a
-question with independent reference SQL, its expected end state, and tables the
-route must or must not include. The UI offers the labelled cases as preset
-questions. Live evaluations ask every case (fuel shares, interval values, queue
-counts, bus and hub prices, price spreads, forecast cutoffs, battery energy, a
-too-broad request, and declined requests) and require the answer to state the
-reference value in query evidence and in the answer at its displayed precision.
-The [live verification report](docs/live-verification.md) records the prompt comparison,
-measured latency/cost, and 15 reviewed runs for the previous family-level router.
-The table-and-column router needs a fresh live evaluation before its answer quality and
-latency can be compared. Broader unseen-schema and adversarial evaluations are required before deployment.
+The shared cases in [gridrag/warehouse/evals.py](gridrag/warehouse/evals.py)
+pair each question with independent reference SQL and its expected routing and
+outcome. Labelled cases also appear as UI presets. The optional live evaluation
+runs every case and checks both the query evidence and the final answer against
+the reference value.
 
 ## Code and configuration
 
