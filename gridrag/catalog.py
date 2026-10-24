@@ -91,8 +91,7 @@ def parse(script: str) -> list[Table]:
 @cache
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
-    from gridrag.warehouse import build, products  # deferred: the generators import pandas and numpy
-
+    from gridrag.warehouse import build, products  
     isos = list(build.ISO_IDS)
     return Catalog.of(parse(build.schema_text()), [
         Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),

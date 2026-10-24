@@ -7,11 +7,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from app.presets import PRESETS, reference, validate
 from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
+from gridrag.warehouse.evals import CASES
 
+PRESETS = [{"id": case.id, "label": case.label, "concept": case.concept, "question": case.question}
+           for case in CASES if case.label]
 STATIC = Path(__file__).parent / "static"
 RUN_LOCK = threading.Lock()
 MAX_BODY_BYTES = 16384
@@ -45,10 +47,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
                                 "max_question_chars": config.settings.max_question_chars,
                                 "model_ready": bool(config.settings.openai_api_key),
-                                "presets": [reference(p) for p in PRESETS]})
+                                "presets": PRESETS})
             except Exception:
-                logging.exception("Could not load demo references")
-                self.send(503, {"error": "Warehouse unavailable. Run python -m gridrag.warehouse.build, then retry."})
+                logging.exception("Could not load the catalog")
+                self.send(503, {"error": "Catalog unavailable. See the server log for details."})
         else:
             self.send(404, {"error": "Not found"})
 
@@ -80,9 +82,6 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         try:
-            # Resolve expected values independently, and never put them into the model prompt.
-            preset = next((p for p in PRESETS if p.question == question), None)
-            expected = reference(preset) if preset else None
             if streaming:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-ndjson")
@@ -95,11 +94,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = answer(question, on_progress=lambda update: emit({"type": "progress", **update}))
             else:
                 result = answer(question)
-            body = {**result, "validation": validate(result, expected)} if expected else result
             if streaming:
-                emit({"type": "done", "result": body})
+                emit({"type": "done", "result": result})
             else:
-                self.send(200, body)
+                self.send(200, result)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:

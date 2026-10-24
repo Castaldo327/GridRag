@@ -6,6 +6,8 @@ silently removing it, but mostly unusable scores are a classifier failure, not u
 still bounds the SQL model's context.
 """
 
+from collections.abc import Iterable, Mapping
+
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.llm import probability
@@ -35,10 +37,13 @@ class RoutingFailed(RuntimeError):
     """Most routing scores were unusable, so a selection would reflect the classifier rather than the question."""
 
 
-def route(question: str, llm, catalog: Catalog | None = None) -> Selection:
-    catalog = demo_catalog() if catalog is None else catalog
-    settings = config.settings
-    units, isos = catalog.units(), catalog.isos
+def _needed(p: float | None) -> bool:
+    """An unscored candidate is kept: uncertainty retains context rather than removing it."""
+    return p is None or p >= config.settings.route_min_probability
+
+
+def _score(llm, question: str, units: Mapping[str, str], isos: Iterable[str]):
+    """One Decisions call: the probability that each unit, and each ISO, is needed (None when unusable)."""
     answers = llm.decide(Stage.ROUTE, question, [
         *({"type": "predicate", "name": f"t{i}", "instructions": TABLE_QUESTION + ddl}
           for i, ddl in enumerate(units.values())),
@@ -47,31 +52,50 @@ def route(question: str, llm, catalog: Catalog | None = None) -> Selection:
     ])
     scores = {unit: probability(answers, f"t{i}") for i, unit in enumerate(units)}
     iso_scores = {iso: probability(answers, f"iso{i}") for i, iso in enumerate(isos)}
+    return scores, iso_scores
+
+
+def _select(catalog: Catalog, scores: Mapping[str, float | None], iso_scores: Mapping[str, float | None]) -> set[str]:
+    """The tables of every needed unit; a needed family contributes only the requested ISOs' tables."""
+    requested = [iso for iso, p in iso_scores.items() if _needed(p)] or list(iso_scores)  # none stood out: keep all
+    selected: set[str] = set()
+    for unit, p in scores.items():
+        if not _needed(p):
+            continue
+        if family := catalog.families.get(unit):
+            selected |= {family.tables[iso] for iso in requested if iso in family.tables}
+        else:
+            selected.add(unit)
+    return selected
+
+
+def _with_references(catalog: Catalog, selected: set[str]) -> set[str]:
+    """The selection plus every table it references, including dimensions that reference other dimensions."""
+    closed, pending = set(selected), list(selected)
+    while pending:
+        for table in catalog.tables[pending.pop()].references - closed:
+            closed.add(table)
+            pending.append(table)
+    return closed
+
+
+def route(question: str, llm, catalog: Catalog | None = None) -> Selection:
+    catalog = demo_catalog() if catalog is None else catalog
+    settings = config.settings
+    scores, iso_scores = _score(llm, question, catalog.units(), catalog.isos)
+
     every = [*scores.values(), *iso_scores.values()]
-    if (unusable := sum(p is None for p in every)) > settings.route_max_unscored * len(every):
+    unusable = sum(p is None for p in every)
+    if unusable > settings.route_max_unscored * len(every):
         raise RoutingFailed(f"{unusable} of {len(every)} routing scores were unusable")
 
-    def needed(p: float | None) -> bool:
-        return p is None or p >= settings.route_min_probability
-
-    requested = [iso for iso, p in iso_scores.items() if needed(p)] or list(isos)  # no ISO stood out: keep them all
-    selected = set()
-    for unit, p in scores.items():
-        if needed(p):
-            family = catalog.families.get(unit)
-            selected |= {family.tables[iso] for iso in requested if iso in family.tables} if family else {unit}
-    # Follow the complete reference graph, including dimensions that reference other dimensions.
-    pending = list(selected)
-    while pending:
-        for table in catalog.tables[pending.pop()].references - selected:
-            selected.add(table)
-            pending.append(table)
+    tables = _with_references(catalog, _select(catalog, scores, iso_scores))
     selection: Selection = {
-        "tables": [table for table in catalog.tables if table in selected],
+        "tables": [table for table in catalog.tables if table in tables],
         "scores": scores,
         "iso_scores": iso_scores,
-        "fallback": any(p is None for p in every),
+        "fallback": unusable > 0,
     }
-    if len(selected) > settings.max_routed_tables:
+    if len(tables) > settings.max_routed_tables:
         raise RoutingTooBroad(selection)
     return selection

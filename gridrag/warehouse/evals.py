@@ -1,7 +1,7 @@
 """Evaluation questions for the demo warehouse, each with independent reference SQL that never reaches the model.
 
-The web UI offers the labelled cases as presets and checks their query evidence. The live tests ask every case
-and check the end state, the route and, when a case has reference SQL, the value its answer states.
+The web UI offers the labelled cases as preset questions. The live tests ask every case and check the end
+state, the route and, when a case has reference SQL, the value its answer states.
 """
 
 import csv

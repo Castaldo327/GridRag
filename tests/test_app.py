@@ -1,4 +1,4 @@
-"""Local API contracts and honest reference validation, without provider calls."""
+"""Local API contracts, without provider calls."""
 
 import io
 import json
@@ -6,8 +6,7 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from app.__main__ import Handler
-from app.presets import PRESETS, validate
+from app.__main__ import PRESETS, Handler
 from gridrag import config
 
 
@@ -49,21 +48,19 @@ class AppTests(unittest.TestCase):
             model.assert_not_called()
 
     def test_meta_serves_the_limits_and_coverage_the_page_shows(self):
-        with patch("app.__main__.reference", side_effect=lambda case: {"id": case.id}):
-            status, meta = send("GET /api/meta HTTP/1.1\r\nHost: localhost:8000")
+        status, meta = send("GET /api/meta HTTP/1.1\r\nHost: localhost:8000")
         self.assertEqual(status, 200)
         self.assertEqual(meta["max_question_chars"], config.settings.max_question_chars)
         self.assertEqual(meta["isos"], ["CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP"])
         self.assertEqual(meta["catalog_tables"], 65)
-        self.assertEqual([p["id"] for p in meta["presets"]], [case.id for case in PRESETS])
+        self.assertEqual([p["id"] for p in meta["presets"]], [p["id"] for p in PRESETS])
 
-    def test_preset_api_keeps_reference_out_of_model_input(self):
+    def test_answers_return_whole_or_as_a_progress_stream(self):
         result = {"state": "answered", "answer": "14 projects", "tool_calls": [
             {"query": "SELECT count(*)", "csv": "projects\n14\n", "rows": 1, "error": None},
         ]}
-        reference = {"expected": 14, "unit": "projects", "tolerance": 0}
         def fake_answer(question, on_progress=None):
-            self.assertEqual(question, PRESETS[2].question)
+            self.assertEqual(question, PRESETS[2]["question"])
             if on_progress:
                 for stage in ("gate", "route", "sql", "answer"):
                     on_progress({"stage": stage})
@@ -72,24 +69,12 @@ class AppTests(unittest.TestCase):
         for stream in (False, True):
             with (self.subTest(stream=stream),
                   patch("app.__main__.answer", side_effect=fake_answer),
-                  patch("app.__main__.reference", return_value=reference),
                   patch.object(config, "settings", replace(config.settings, openai_api_key="test"))):
-                status, body = post({"question": PRESETS[2].question}, stream=stream)
+                status, body = post({"question": PRESETS[2]["question"]}, stream=stream)
                 self.assertEqual(status, 200)
                 if stream:
                     self.assertEqual([e["stage"] for e in body[:-1]], ["gate", "route", "sql", "answer"])
                     self.assertEqual(body[-1]["type"], "done")
                     body = body[-1]["result"]
-                self.assertEqual(body["validation"]["status"], "match")
+                self.assertNotIn("validation", body)
                 self.assertEqual(body["tool_calls"][0]["csv"], "projects\n14\n")
-
-    def test_mismatch_or_missing_evidence_requires_review(self):
-        expected = {"expected": -1.09, "unit": "USD/MWh", "tolerance": .01}
-        for result in (
-            {"state": "answered", "answer": "-1.09", "tool_calls": []},
-            {"state": "answered", "tool_calls": [{"csv": "value\n1.09\n"}]},
-            {"state": "answered", "tool_calls": [{"csv": "value\n-1.09\n"}, {"csv": "value\n2\n"}]},
-            {"state": "failed", "tool_calls": [{"csv": "value\n-1.09\n"}]},
-        ):
-            with self.subTest(result=result):
-                self.assertEqual(validate(result, expected)["status"], "review")

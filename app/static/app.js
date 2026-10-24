@@ -14,14 +14,12 @@ function render() {
       <h1>Ask the grid.</h1>
       <p>Explore demand, generation, prices, and projects. Follow a question from schema selection to SQL and an answer backed by data.</p>
       <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
-        <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span>
-          <small id="status-${p.id}">Not run</small></button>`).join("")}</div>
+        <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("")}</div>
       <form id="ask-form" class="ask-form">
         <label class="sr-only" for="question">Your question</label>
         <textarea id="question" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Ask a question about the warehouse…"></textarea>
         <button id="ask-button" type="submit">Ask the grid →</button>
       </form>
-      <div id="reference"></div>
       <p class="coverage">${state.meta.catalog_tables} catalog tables · ${state.meta.isos.length} ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
       ${state.meta.model_ready ? "" : '<p class="error">Model not configured. Add OPENAI_API_KEY to .env to ask questions. Reference values are available below.</p>'}
     </section>
@@ -33,7 +31,6 @@ function render() {
       <section class="panel answer-panel">
         <div class="panel-head"><div><span class="eyebrow">RESULT</span><h2>Answer</h2></div><span id="answer-state"></span></div>
         <div id="answer" class="answer" aria-live="polite"></div>
-        <div id="validation"></div>
       </section>
     </div>
     <section class="panel details-panel" id="details-panel" hidden>
@@ -45,30 +42,25 @@ function render() {
       <div id="metrics"></div>
     </section>`;
   $("#ask-form").onsubmit = e => { e.preventDefault(); ask(); };
-  $("#question").oninput = () => { state.result = null; state.error = ""; state.progress = {}; paintReference(); paint(); };
+  $("#question").oninput = () => { state.result = null; state.error = ""; state.progress = {}; paintPresets(); paint(); };
   document.querySelectorAll("[data-preset]").forEach(button => {
     button.onclick = () => {
       const p = state.meta.presets[Number(button.dataset.preset)];
       $("#question").value = p.question;
       state.result = state.runs.get(p.id) || null;
       state.error = ""; state.progress = {};
-      paintReference(); paint();
+      paintPresets(); paint();
     };
   });
   $("#question").value = new URLSearchParams(location.search).get("q") || state.meta.presets[0].question;
-  paintReference(); paint();
+  paintPresets(); paint();
 }
 
-function paintReference() {
+function paintPresets() {
   const p = preset();
   document.querySelectorAll("[data-preset]").forEach(button => {
     button.setAttribute("aria-pressed", String(state.meta.presets[Number(button.dataset.preset)] === p));
   });
-  $("#reference").innerHTML = p ? `<details class="reference">
-    <summary>Reference: <b>${number(p.expected)} ${esc(p.unit)}</b> <span>· computed from this warehouse</span></summary>
-    <p>Use this independent query to review the model's result. It is never supplied to the model.
-      The numeric check compares its last scalar query result within ±${p.tolerance} ${esc(p.unit)}; review the SQL and answer for meaning.</p>
-    <pre>${esc(p.sql)}</pre></details>` : '<p class="footnote">Custom question · no preset reference check.</p>';
 }
 
 function paint() {
@@ -101,12 +93,7 @@ function paint() {
   $("#answer").innerHTML = state.error ? `<p class="error">${esc(state.error)}</p>` : r ?
     `<div class="answer-text">${esc(r.answer)}</div>` : state.running ?
     `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
-    '<p class="empty">Choose a preset, inspect its reference, then ask the grid.</p>';
-  const v = r?.validation;
-  $("#validation").innerHTML = v ? `<div class="validation ${v.status === "match" ? "matched" : ""}">
-    <b>${v.status === "match" ? "Numeric evidence matches" : "Needs review"}</b>
-    <div>Reference: ${number(v.expected)} ${esc(v.unit)} · Query: ${v.actual == null ? "no scalar result" : `${number(v.actual)} ${esc(v.unit)}`}</div>
-    <p>This checks the numeric query result. Review the SQL and answer before accepting correctness.</p></div>` : "";
+    '<p class="empty">Choose a preset or write a question, then ask the grid.</p>';
   $("#details-panel").hidden = !calls.length;
   $("#details").innerHTML = calls.map((call, i) => `<details class="evidence-item" ${i === calls.length - 1 ? "open" : ""}>
     <summary>Query ${i + 1} · ${call.error ? "error" : `${call.rows} result rows`}</summary>
@@ -125,10 +112,6 @@ function paint() {
   $("#ask-button").textContent = state.running ? "Running…" : "Ask the grid →";
   $("#question").disabled = state.running;
   document.querySelectorAll("[data-preset]").forEach(b => { b.disabled = state.running; });
-  for (const p of state.meta.presets) {
-    const run = state.runs.get(p.id);
-    $(`#status-${p.id}`).textContent = run ? run.validation?.status === "match" ? "Numeric match ✓" : "Needs review" : "Not run";
-  }
 }
 
 async function ask() {

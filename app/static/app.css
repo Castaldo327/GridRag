@@ -70,25 +70,15 @@ h2 { margin: 5px 0 0; font-size: 19px; letter-spacing: -.025em; }
 .examples button { text-align: left; border-radius: 9px; padding: 13px 14px; display: flex; flex-direction: column; gap: 6px; }
 .examples b { font-size: 13px; }
 .examples span { font-size: 11px; color: #60758a; }
-.examples small { font-size: 10px; color: #71879b; }
 .examples button[aria-pressed="true"] { border-color: #176fba; background: #edf6ff; box-shadow: inset 0 0 0 1px #176fba; }
 button:disabled { cursor: default; opacity: .6; }
 button:focus-visible, summary:focus-visible { outline: 2px solid #176fba; outline-offset: 3px; }
-.reference { color: #355a7c; font-size: 12px; line-height: 1.6; }
-.reference summary { cursor: pointer; }
-.reference summary span { color: #71879b; }
-.reference p { margin: 10px 0; max-width: 800px; }
-.reference pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 8px; background: #edf2f7; font: 11px/1.6 ui-monospace, monospace; }
 .flow-step.complete .step-number { background: #dff2e9; color: #16764a; }
 .schema-meter { background: #e5ecf3; height: 7px; border-radius: 9px; overflow: hidden; margin-top: 12px; }
 .schema-meter span { display: block; height: 100%; min-width: 0; background: #227ec4; }
 .schema-list { margin-top: 10px; font-size: 11px; color: #52677a; }
 .schema-list summary { cursor: pointer; }
 .schema-list code { display: block; margin-top: 7px; overflow-wrap: anywhere; }
-.validation { background: #fff7eb; border: 1px solid #ead4b6; border-radius: 9px; padding: 15px; font-size: 12px; line-height: 1.6; margin-top: 20px; }
-.validation.matched { background: #f0faf5; border-color: #b6dfd2; }
-.validation b { display: block; margin-bottom: 6px; }
-.validation p { margin: 8px 0 0; color: #60758a; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 550px) { .examples { grid-template-columns: repeat(2, 1fr); } .hero { padding: 20px; } .topbar span { display: none; } }
 @media (prefers-reduced-motion: reduce) { .loading i { animation: none; } }

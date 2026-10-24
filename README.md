@@ -46,8 +46,8 @@ uv run python -m app
 ```
 
 Open **http://127.0.0.1:8000**. Add `OPENAI_API_KEY=your-key` to a local `.env`
-to run model questions. Building the database and inspecting preset references
-requires no API key or external data downloads. Model access must support the
+to run model questions. Building the database requires no API key or external
+data downloads. Model access must support the
 configured Decisions and Responses calls.
 
 The build command creates `data/warehouse.duckdb` from checked-in code. To
@@ -100,15 +100,12 @@ settings, and warehouse invariants.
 Evaluation questions live in one table,
 [gridrag/warehouse/evals.py](gridrag/warehouse/evals.py): each case pairs a
 question with independent reference SQL, its expected end state, and tables the
-route must or must not include. The UI offers the labelled cases as presets. Live
-evaluations ask every case (fuel shares, interval values, queue counts, bus and
-hub prices, price spreads, forecast cutoffs, battery energy, a too-broad request,
-and declined requests) and require the answer to state the reference value at
-the precision it shows.
-
-UI preset checks compare the last scalar query result with an independent
-reference; they do **not** grade prose or prove semantic correctness. Live
-accuracy remains unverified in this review. Broader paraphrase, unseen-schema,
+route must or must not include. The UI offers the labelled cases as preset
+questions. Live evaluations ask every case (fuel shares, interval values, queue
+counts, bus and hub prices, price spreads, forecast cutoffs, battery energy, a
+too-broad request, and declined requests) and require the answer to state the
+reference value at the precision it shows. Live accuracy remains unverified in
+this review. Broader paraphrase, unseen-schema,
 and adversarial evaluations are required before deployment.
 
 ## Code and configuration

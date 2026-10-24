@@ -3,7 +3,6 @@
 import math
 import unittest
 
-from app.presets import PRESETS
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.warehouse import evals
@@ -23,9 +22,6 @@ class EvalTests(unittest.TestCase):
             with self.subTest(case=case.id):
                 self.assertLessEqual(set(case.tables) | set(case.excluded), tables.keys())
                 self.assertEqual(bool(case.sql), case.state is State.ANSWERED)
-
-    def test_presets_are_the_labelled_cases(self):
-        self.assertEqual([case.id for case in PRESETS], ["peak", "share", "queue", "spread", "forecast", "storage"])
 
 
 if __name__ == "__main__":
