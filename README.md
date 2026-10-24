@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">GridRag</h1>
 <p align="center"><strong>Ask the grid.</strong><br>
-A small, explainable SQL-RAG demo over fictional US electricity data.</p>
+A small SQL-RAG system build for time series data over fictional US electricity gird data.</p>
 <p align="center">
   <a href="#run-locally">Run locally</a> ·
   <a href="#architecture">Architecture</a> ·
