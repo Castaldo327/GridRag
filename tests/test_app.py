@@ -64,6 +64,8 @@ class AppTests(unittest.TestCase):
             if on_progress:
                 for stage in ("gate", "route", "sql", "answer"):
                     on_progress({"stage": stage})
+                on_progress({"answer_delta": "14 "})
+                on_progress({"answer_delta": "projects"})
             return result
 
         for stream in (False, True):
@@ -73,7 +75,8 @@ class AppTests(unittest.TestCase):
                 status, body = post({"question": PRESETS[2]["question"]}, stream=stream)
                 self.assertEqual(status, 200)
                 if stream:
-                    self.assertEqual([e["stage"] for e in body[:-1]], ["gate", "route", "sql", "answer"])
+                    self.assertEqual([e["stage"] for e in body if "stage" in e], ["gate", "route", "sql", "answer"])
+                    self.assertEqual("".join(e.get("answer_delta", "") for e in body), "14 projects")
                     self.assertEqual(body[-1]["type"], "done")
                     body = body[-1]["result"]
                 self.assertNotIn("validation", body)

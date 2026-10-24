@@ -104,11 +104,21 @@ class LLM:
         )
         return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
 
-    def respond(self, stage: Stage, instructions: str, input_items, **kwargs) -> dict:
+    def respond(self, stage: Stage, instructions: str, input_items, *, on_text=None, **kwargs) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
         settings = config.settings
+        responses = client().responses
+
+        def stream_response(**options):
+            # The SDK assembles tool calls and final usage while text deltas reach the UI.
+            with responses.stream(**options) as stream:
+                for event in stream:
+                    if event.type == "response.output_text.delta":
+                        on_text(event.delta)
+                return stream.get_final_response()
+
         return self._request(
-            "responses", stage, client().responses.create,
+            "responses", stage, stream_response if on_text is not None else responses.create,
             model=settings.answer_model,
             instructions=instructions,
             input=input_items,

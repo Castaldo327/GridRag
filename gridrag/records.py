@@ -95,7 +95,7 @@ class Answer(TypedDict):
     gate: Gate | None
     route: Selection | None
     tool_calls: list[ToolCall]
-    timings: dict[str, float]  # seconds per stage, and total
+    timings: dict[str, float]  # seconds per stage, total, and first_token when answer text streamed
     usage: Usage
     error: NotRequired[str]
     stage: NotRequired[Stage]
@@ -104,6 +104,8 @@ class Answer(TypedDict):
 class Progress(TypedDict, total=False):
     """A synchronous progress update: the stage now running, and results as they arrive."""
 
+    answer_text: str  # reset provisional text at a new model turn
+    answer_delta: str  # append streamed text; final Answer remains authoritative
     stage: Stage
     gate: Gate
     route: Selection

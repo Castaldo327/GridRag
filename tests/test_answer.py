@@ -66,6 +66,24 @@ class FailureTests(unittest.TestCase):
         self.assertEqual((res["state"], res["answer"]), (State.ANSWERED, "28 locations"))
         self.assertEqual(set(res["timings"]), {"gate", "route", "sql", "total"})
 
+    def test_first_token_measures_request_start_and_is_not_overwritten(self):
+        now = [10.0]
+        def stream(*args, on_progress, **kwargs):
+            on_progress({"answer_delta": ""})
+            now[0] = 13.0
+            on_progress({"answer_delta": "Hello"})
+            now[0] = 18.0
+            on_progress({"answer_delta": " world"})
+            now[0] = 20.0
+            return {"state": State.ANSWERED, "answer": "Hello world", "tool_calls": []}
+        with (patch.object(answer.time, "perf_counter", side_effect=lambda: now[0]),
+              patch.object(answer, "gate", return_value=ALLOWED),
+              patch.object(answer, "route", return_value={"tables": ["core.dim_iso"]}),
+              patch.object(answer.agent, "run", side_effect=stream)):
+            result = answer.answer("question", model())
+        self.assertEqual(result["timings"]["first_token"], 3.0)
+        self.assertEqual(result["timings"]["total"], 10.0)
+
     def test_questions_outside_the_length_limit_are_rejected(self):
         for question in ("", "   ", "x" * (config.settings.max_question_chars + 1), None):
             with self.subTest(question=question), self.assertRaises(ValueError):

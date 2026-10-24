@@ -37,6 +37,8 @@ class _Trace:
         self.started = time.perf_counter()
 
     def report(self, update: Progress) -> None:
+        if update.get("answer_delta") and "first_token" not in self.timings:
+            self.timings["first_token"] = round(time.perf_counter() - self.started, 3)
         if "tool_calls" in update:  
             self.tool_calls = list(update["tool_calls"])
         if self.on_progress is not None:

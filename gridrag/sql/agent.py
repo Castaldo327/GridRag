@@ -153,13 +153,15 @@ def run(
             request_options["previous_response_id"] = previous_response_id
 
         has_evidence = any(call["csv"] is not None for call in tool_calls)
-        report({"stage": Stage.ANSWER if has_evidence else Stage.SQL})
+        report({"stage": Stage.ANSWER if has_evidence else Stage.SQL, "answer_text": ""})
+        if has_evidence and on_progress is not None:
+            request_options["on_text"] = lambda delta: report({"answer_delta": delta})
         response = llm.respond(Stage.SQL, instructions, model_input, **request_options)
         tool_call = _next_tool_call(response, tools_allowed=tools_allowed)
         if tool_call is None:
             return _finish_answer(response, tool_calls)
 
-        report({"stage": Stage.SQL})
+        report({"stage": Stage.SQL, "answer_text": ""})
         record, reply = _execute_sql(tool_call, allowed_tables)
         tool_calls.append(record)
         report({"stage": Stage.SQL, "tool_calls": list(tool_calls)})

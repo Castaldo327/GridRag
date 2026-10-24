@@ -1,6 +1,7 @@
 """Per-call usage, cost and timing bookkeeping, with a fake client instead of the provider."""
 
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,6 +14,38 @@ def reply(**payload):
 
 
 class UsageTests(unittest.TestCase):
+    def test_stream_delivers_text_before_final_usage_and_closes_on_disconnect(self):
+        closed = []
+        deltas = []
+        class Stream(list):
+            def get_final_response(self):
+                self_result = reply(output=[], usage={"input_tokens": 10, "output_tokens": 2})
+                return self_result
+
+        @contextmanager
+        def stream(**kwargs):
+            try:
+                yield Stream([SimpleNamespace(type="response.output_text.delta", delta="Hello"),
+                              SimpleNamespace(type="response.output_text.delta", delta=" world")])
+            finally:
+                closed.append(True)
+
+        fake = SimpleNamespace(responses=SimpleNamespace(stream=stream))
+        model = llm.LLM()
+        def receive(delta):
+            self.assertEqual(model.totals()["calls"], 0)
+            deltas.append(delta)
+        with patch.object(llm, "client", return_value=fake):
+            model.respond(Stage.SQL, "instructions", "question", on_text=receive)
+            self.assertEqual(deltas, ["Hello", " world"])
+            self.assertEqual(model.totals()["output_tokens"], 2)
+            def disconnected(delta):
+                raise BrokenPipeError()
+            with self.assertRaises(BrokenPipeError):
+                model.respond(Stage.SQL, "instructions", "question", on_text=disconnected)
+        self.assertEqual(len(closed), 2)
+        self.assertEqual(model.totals()["failed_calls"], 1)
+
     def test_every_call_is_recorded_with_its_stage_tokens_and_cost(self):
         def broken(**kw):
             raise TimeoutError("provider timed out")

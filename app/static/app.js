@@ -97,7 +97,8 @@ function paint() {
   }).join("");
   $("#answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";
   $("#answer").innerHTML = state.error ? `<p class="error">${esc(state.error)}</p>` : r ?
-    `<div class="answer-text">${esc(r.answer)}</div>` : state.running ?
+    `<div class="answer-text">${esc(r.answer)}</div>` : state.running && state.progress.answer_text ?
+    `<div class="answer-text">${esc(state.progress.answer_text)}</div>` : state.running ?
     `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
     '<p class="empty">Choose a preset or write a question, then ask the grid.</p>';
   $("#details-panel").hidden = !calls.length;
@@ -108,11 +109,11 @@ function paint() {
     ${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("");
   $("#metrics-panel").hidden = !r;
   if (r) $("#metrics").innerHTML = `<div class="metric-grid">
-    <div><small>End to end</small><strong>${seconds(r.timings.total)}</strong></div>
+    <div title="From request processing start to the first streamed answer text"><small>First answer token</small><strong>${seconds(r.timings.first_token)}</strong></div>
     <div><small>Model calls</small><strong>${r.usage.calls}</strong></div>
     <div><small>Estimated token cost</small><strong>$${r.usage.cost_usd.toFixed(5)}</strong></div>
     <div><small>SQL queries</small><strong>${calls.length}</strong></div></div>
-    <div class="stage-metrics">${["gate", "route", "sql"].map(s => `<span>${{gate:"Gate", route:"Routing", sql:"SQL + answer"}[s]} <b>${seconds(r.timings[s])}</b></span>`).join("")}
+    <div class="stage-metrics"><span>Total completion <b>${seconds(r.timings.total)}</b></span>${["gate", "route", "sql"].map(s => `<span>${{gate:"Gate", route:"Routing", sql:"SQL + answer"}[s]} <b>${seconds(r.timings[s])}</b></span>`).join("")}
     <span>Tokens <b>${number(r.usage.input_tokens)} in / ${number(r.usage.output_tokens)} out</b></span></div>
     <details class="evidence-item"><summary>Latency breakdown</summary>
       <div class="stage-metrics">${(r.usage.per_call || []).map((call, i) => `<span>Call ${i + 1} · ${esc({gate: "Gate", route: "Routing", sql: "SQL / answer model"}[call.stage] || call.stage)} <b>${seconds(call.seconds)}</b></span>`).join("")}
@@ -148,8 +149,13 @@ async function ask() {
           const event = JSON.parse(line);
           if (event.type === "error") throw new Error(event.error);
           if (event.type === "progress") {
-            Object.assign(state.progress, event);
-            paint();
+            if (event.answer_delta !== undefined) {
+              state.progress.answer_text = (state.progress.answer_text || "") + event.answer_delta;
+              $("#answer").textContent = state.progress.answer_text;
+            } else {
+              Object.assign(state.progress, event);
+              paint();
+            }
           }
           if (event.type === "done") {
             state.result = event.result;
