@@ -16,6 +16,8 @@ h1, h2, p { margin-top: 0; }
 h1 { margin: 8px 0 8px; font-size: clamp(32px, 4vw, 48px); letter-spacing: -.055em; }
 h2 { margin: 5px 0 0; font-size: 19px; letter-spacing: -.025em; }
 .hero > p { max-width: 730px; color: #52677a; line-height: 1.6; }
+.data-window { display: grid; gap: 5px; max-width: 940px; margin: 20px 0; padding: 15px 18px; border-left: 3px solid #176fba; border-radius: 0 8px 8px 0; background: #edf5fc; color: #426078; font-size: 13px; line-height: 1.5; }
+.data-window strong { color: #204f76; }
 .ask-form { display: flex; gap: 10px; max-width: 940px; margin: 24px 0 18px; }
 .ask-form button, .boot-error button { border: 0; padding: 0 21px; border-radius: 9px; color: #fff; background: #176fba; font-weight: 650; }
 .ask-form button:disabled { opacity: .55; cursor: wait; }

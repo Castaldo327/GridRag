@@ -13,11 +13,17 @@ function render() {
       <span class="eyebrow">SYNTHETIC DATA</span>
       <h1>Ask the grid.</h1>
       <p>Explore demand, generation, prices, and projects. Follow a question from schema selection to SQL and an answer backed by data.</p>
+      <aside class="data-window" id="data-window" aria-label="Synthetic data coverage">
+        <strong>Data ends October 21, 2026 · This is a fixed snapshot, not live data.</strong>
+        <span>Hourly demand &amp; generation: Jan 1, 2025–Oct 21, 2026.</span>
+        <span>Five-minute data, prices, forecasts &amp; other grid products: Oct 15–21, 2026. Project queue: snapshot as of Oct 21, 2026.</span>
+        <span>Use dates within these ranges, or choose a preset below.</span>
+      </aside>
       <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
         <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("")}</div>
       <form id="ask-form" class="ask-form">
         <label class="sr-only" for="question">Your question</label>
-        <textarea id="question" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Ask a question about the warehouse…"></textarea>
+        <textarea id="question" aria-describedby="data-window" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Try: What was ERCOT’s peak demand on October 19, 2026?"></textarea>
         <button id="ask-button" type="submit">Ask the grid →</button>
       </form>
       <p class="coverage">${state.meta.catalog_tables} catalog tables · ${state.meta.isos.length} ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
