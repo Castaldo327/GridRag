@@ -3,13 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Grid History</title>
+  <title>Ask the grid · GridRag</title>
   <link rel="icon" href="/static/logo-mark.png">
-  <link rel="stylesheet" href="/static/app.css?v=demo-9">
+  <link rel="stylesheet" href="/static/app.css?v=demo-10">
 </head>
 <body>
-  <header class="topbar"><img src="/static/logo-mark.png" alt=""><strong>Grid History</strong><span>Ask the grid data</span></header>
-  <main id="main" class="main"></main>
-  <script src="/static/app.js?v=demo-9"></script>
+  <header class="topbar" aria-label="Grid status navigation">
+    <div class="topbar-brand"><img src="/static/logo-mark.png" alt=""><strong>Grid Status</strong></div>
+    <span class="topbar-divider" aria-hidden="true">/</span>
+    <span class="topbar-current">All</span>
+    <div class="topbar-regions" aria-hidden="true"><span>ERCOT</span><span>PJM</span><span>CAISO</span><span>SPP</span><span>MISO</span><span>NYISO</span><span>ISONE</span><span>IESO</span></div>
+  </header>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Preview navigation">
+      <div class="sidebar-account"><span class="account-avatar" aria-hidden="true">●</span>Personal account <span class="account-chevron">‹</span></div>
+      <div class="sidebar-group">
+        <div class="sidebar-item"><span class="nav-icon">ϟ</span>Live <span class="nav-chevron">›</span></div>
+        <div class="sidebar-item"><span class="nav-icon">▤</span>Insights</div>
+        <div class="sidebar-item"><span class="nav-icon">◇</span>Maps <span class="nav-chevron">›</span></div>
+        <div class="sidebar-item"><span class="nav-icon">▦</span>Charts &amp; Dashboards</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-item"><span class="nav-icon">◎</span>Nodal Analysis</div>
+        <div class="sidebar-item"><span class="nav-icon">◴</span>Forecast Analysis</div>
+        <div class="sidebar-item"><span class="nav-icon">⌁</span>Interconnection</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-item"><span class="nav-icon">↗</span>Trends</div>
+        <div class="sidebar-item"><span class="nav-icon">♜</span>Record Tracker</div>
+        <div class="sidebar-item"><span class="nav-icon">♧</span>Alerts</div>
+        <div class="sidebar-item"><span class="nav-icon">⚑</span>EIA Browser</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-item"><span class="nav-icon">▣</span>Data Catalog</div>
+        <div class="sidebar-item"><span class="nav-icon">▤</span>Export Data</div>
+      </div>
+      <div class="sidebar-group sidebar-service">
+        <span class="sidebar-caption">GRIDRAG SERVICE</span>
+        <div class="sidebar-item selected" aria-current="page"><span class="nav-icon">✧</span>Ask the grid <span class="nav-chevron">›</span></div>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="contact-preview">Contact Us</div>
+        <div class="sidebar-item jump-preview"><span class="nav-icon">⌕</span>Jump to <small>⌘+K</small></div>
+        <div class="sidebar-item"><span class="nav-icon">⊞</span>All Apps</div>
+        <div class="sidebar-item"><span class="nav-icon">▤</span>Resources</div>
+        <div class="sidebar-item"><span class="nav-icon">⚙</span>Settings</div>
+      </div>
+    </aside>
+    <main class="content-area"><div class="content-heading"><span>GRIDRAG / ANALYSIS</span><strong>Ask the grid</strong><span class="content-heading-end">Synthetic warehouse <i></i> Ready</span></div><div id="main" class="main"></div></main>
+  </div>
+  <script src="/static/app.js?v=demo-10"></script>
 </body>
 </html>

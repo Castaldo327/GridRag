@@ -17,7 +17,7 @@ function render() {
         <strong>Data ends October 21, 2026 · This is a fixed snapshot, not live data.</strong>
         <span>Start with a region, a measure, and a date in the ranges below. Use specific dates rather than “today.”</span>
       </aside>
-      <details class="question-guide" open>
+      <details class="question-guide">
         <summary>What can I ask?</summary>
         <div class="guide-grid">
           <div><strong>Demand &amp; generation by fuel</strong><p>Hourly peaks, averages, totals and fuel shares, including solar and wind.</p><small>All 7 regions · Jan 1, 2025–Oct 21, 2026</small></div>
