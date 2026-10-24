@@ -14,7 +14,7 @@ A small, explainable SQL-RAG demo over fictional US electricity data.</p>
 
 ## What it does
 
-GridRag is my attempt at a RAG system that works on time series data. Standard RAG retrieves text chunks, which doesn't suit hourly and five-minute grid measurements, where the right answer usually comes from an aggregation or a join. So the system retrieves schema instead of documents, and the evidence comes from SQL.
+GridRag is my attempt at a Retrieval Augmented Generation (RAG) system that works on time series data. Standard RAG retrieves text chunks, which doesn't suit hourly and five-minute grid measurements, where the right answer usually comes from an aggregation or a join. So the system retrieves schema instead of documents, and the evidence comes from SQL.
 
 Rather than writing routing rules by hand for each kind of question, I use a decision model to score the documented tables in one call. The system keeps the relevant tables and adds any tables they reference. The model that generates the SQL only sees that selected schema.
 
