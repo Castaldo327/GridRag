@@ -1,28 +1,57 @@
-# GridRag
+<p align="center">
+  <img src="app/static/logo-mark.png" alt="Grid Status logo" width="96" height="96">
+</p>
+<h1 align="center">GridRag</h1>
+<p align="center"><strong>Ask the grid. Inspect the evidence.</strong><br>
+A small, explainable SQL-RAG demo over fictional US electricity data.</p>
+<p align="center">
+  <a href="#run-locally">Run locally</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="gridrag/warehouse/SCHEMA.md">Schema</a> ·
+  <a href="#evaluation">Evaluation</a> ·
+  <a href="AUDIT.md">Engineering review</a>
+</p>
 
-A small text-to-SQL demo over fictional US electricity data. It shows how a
-model can select relevant schema, write SQL, and answer from query results.
-The schema carries product knowledge; the pipeline stays the same as products
-are added.
+## What it does
+
+Ask about demand, generation, prices, forecasts, storage, or interconnection
+projects. GridRag selects relevant schema, executes read-only SQL, and answers
+from the returned rows. The UI shows the active stage, selected tables, SQL,
+evidence, latency, and estimated model cost. Six presets have independent
+reference queries for comparison.
+
+## Architecture
 
 ```mermaid
 flowchart LR
     Q[Question] --> G[Request gate]
-    G --> R[Schema routing]
-    R --> S[SQL model]
-    S --> D[Read-only DuckDB]
-    D --> S
-    S --> A[Answer from results]
+    G --> R[Schema retrieval]
+    C[Documented catalog] --> R
+    R --> M[SQL model]
+    M --> D[Guarded DuckDB query]
+    D -->|Rows or repairable error| M
+    M --> A[Answer with inspectable evidence]
 ```
 
-The gate classifies relevance and abuse. Routing selects whole tables and adds
-their referenced tables automatically. The SQL model receives that schema slice,
-can inspect data, and can repair a failed query using the returned error.
-DuckDB access is independently restricted to read-only queries on selected tables.
+This is **structured-data RAG**: schema retrieval supplies context, SQL retrieves
+and aggregates evidence, and the model explains it. A vector database is not
+required for this relational workload.
 
-## Run from scratch
+| Boundary | Why it matters |
+| --- | --- |
+| Gate → routing | Classifies scope; it does not grant database access. |
+| Routing → SQL | Keeps whole selected tables and their references, preserving joins and calculation inputs. |
+| SQL → database | Independently enforces read-only access, table restrictions, and execution/result budgets. |
+| Results → answer | Preserves query evidence and failures for inspection; SQL errors can be repaired within a fixed budget. |
 
-From the repository root, with Python 3.11–3.13 and `uv` installed:
+Product semantics live in schema documentation rather than product-specific
+routing branches. New approved catalogs can be supplied through
+`answer(question, catalog=...)`. Routing quality still needs evaluation; a
+successful query alone does not establish answer correctness.
+
+## Run locally
+
+Requires Python **3.11–3.13** and **uv**. From the repository root:
 
 ```sh
 uv sync --locked
@@ -30,60 +59,76 @@ uv run python -m gridrag.warehouse.build
 uv run python -m app
 ```
 
-Open http://127.0.0.1:8000. The build command creates
-`data/warehouse.duckdb` entirely from the checked-in schema and Python generators
-in `gridrag/warehouse/`. No database download, external data source, or API key is
-needed to build the warehouse or inspect preset references. The seed and date
-range are fixed so reviewers get the same demonstration data.
+Open **http://127.0.0.1:8000**. Add `OPENAI_API_KEY=your-key` to a local `.env`
+to run model questions. Building the database and inspecting preset references
+requires no API key or external data downloads. Model access must support the
+configured Decisions and Responses calls.
 
-To rebuild, stop the app and rerun the same build command; it replaces the
-existing demo database. Generated `data/` files stay out of Git; all creation
-code and `uv.lock` belong in the repository.
+The build command creates `data/warehouse.duckdb` from checked-in code. To
+rebuild, stop the app and rerun that command; it replaces the demo database.
+The fixed seed and dates make the data reproducible. Generated data and `.env`
+are ignored by Git.
 
-Set `OPENAI_API_KEY` in your environment or `.env`, then ask:
+The CLI uses the same pipeline:
 
 ```sh
 uv run python -m gridrag "What was ERCOT's highest hourly demand on October 19, 2026?"
-uv run python -m gridrag "What share of PJM's generation came from natural gas in September 2026?"
-uv run python -m gridrag "For CAISO_HUB on October 21, 2026 from 5 pm to 6 pm local, what was average real-time hub LMP minus day-ahead hourly hub LMP?"
 ```
 
-These demonstrate a single measure, a calculation across tables, and a comparison
-across time grains. The output shows the answer, how much schema was selected,
-the SQL, and elapsed time and estimated model cost. Add `--verbose` for individual
-routing scores and call diagnostics. Model calls send schema, the question, and
-query results to the configured API.
+Add `--verbose` for routing scores and per-call diagnostics. API calls transmit
+the question, selected context, and query results to the configured provider.
 
-## Local UI
+## Warehouse and schema
+
+**65 tables · 7 ISOs · entirely fictional data**
+
+| Data | Coverage |
+| --- | --- |
+| Hourly balance and generation | All ISOs; Jan 1, 2025–Oct 21, 2026 |
+| Five-minute load and generation | CAISO and ERCOT; Oct 15–21, 2026 |
+| Prices, forecasts, ancillary, storage, outages, curtailment | Eight products per ISO; Oct 15–21, 2026 |
+| Interconnection queue | Current snapshot as of Oct 21, 2026 |
+
+[Base DDL](gridrag/warehouse/schema.sql), [product definitions](gridrag/warehouse/products.py),
+and [generator](gridrag/warehouse/build.py) are all included. The
+[schema reference](gridrag/warehouse/SCHEMA.md) explains keys, grains, units,
+coverage, and time semantics. The catalog is explicitly registered; adding a
+database table alone does not expose it to the model.
+
+## Evaluation
 
 ```sh
-uv run python -m app
+# Deterministic checks; no provider requests, even if an API key is present.
+uv run python -m unittest discover -s tests
+
+# Explicitly opt into paid, live-model evaluations.
+GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p 'test_live.py'
 ```
 
-Open http://127.0.0.1:8000. Choose one of six preset questions, inspect its
-reference SQL and value, then click **Ask the grid**. You can also edit the
-question. The UI highlights the active stage as the backend runs and shows selected schema, SQL,
-returned data, timings and estimated cost. Use `--port 8001` for another port.
+Offline tests cover SQL restrictions, timeout recovery, precision, routing
+uncertainty, tool budgets, failures, and warehouse invariants. Live evaluations
+compare representative questions with reference SQL: fuel shares, interval
+values, queue counts, price spreads, forecast cutoffs, and battery energy.
 
-References run locally against the current warehouse and are never supplied to
-the model. A **Numeric evidence matches** result means the last scalar query
-result matches the reference within the displayed tolerance; it does not certify
-the prose or SQL semantics. Other result shapes are marked **Needs review**.
-Preset run statuses last for the current page session. Selecting a preset does
-not call the API; clicking Ask does. One question runs at a time.
+UI preset checks compare the last scalar query result with an independent
+reference; they do **not** grade prose or prove semantic correctness. Live
+accuracy remains unverified in this review. Broader paraphrase, unseen-schema,
+and adversarial evaluations are required before deployment.
 
-## Read the implementation
+## Code and configuration
 
-- `gridrag/answer.py`: orchestration of the three stages.
-- `gridrag/gate.py` and `gridrag/route.py`: model decisions.
-- `gridrag/sql/agent.py`: bounded SQL execution and repair loop.
-- `gridrag/db.py`: database restrictions and result formatting.
-- `gridrag/warehouse/`: synthetic data and documented schema.
+`answer.py` orchestrates; `gate.py` and `route.py` classify; `sql/agent.py`
+handles SQL repair; `db.py` enforces database restrictions; `llm.py` owns provider
+calls and usage accounting. `catalog.py` adapts the demo schema. `app/` and
+`gridrag/warehouse/` are demo infrastructure.
 
-New tables must be registered in the schema catalog with meaningful descriptions,
-units, grain and references. There are no separate product-specific routing rules.
-See [ROUTING.md](ROUTING.md) for the routing tradeoffs and validation status.
+[config.py](gridrag/config.py) names thresholds, budgets, models, and illustrative
+cost rates. Export `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` to override
+model defaults. Prompts stay beside their owning stages; protocol strings stay
+literal. Cost estimates are not billing figures.
 
-This demo demonstrates schema selection, not a measured claim of lower total cost
-or unchanged accuracy. The router itself sees the catalog. Live checks must verify
-answer quality and latency; offline tests alone cannot establish either.
+**Production boundary:** the core has explicit safeguards, but this repository
+is not a production service. Authentication, data entitlements, process-level
+resource isolation, retention/logging policy, and measured model quality remain
+release requirements. See the [engineering audit](AUDIT.md) for findings and
+explicit demo exceptions.

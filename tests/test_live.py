@@ -1,12 +1,14 @@
-"""End-to-end accuracy checks using real provider calls. Skipped without OPEN_AI_KEY."""
+"""End-to-end accuracy checks using real provider calls. Opt in with GRIDRAG_LIVE_TESTS=1 and an API key."""
 
+import os
 import re
 import unittest
 
 from gridrag import answer, config, db
 
 
-@unittest.skipUnless(config.load_env().get("OPEN_AI_KEY"), "OPEN_AI_KEY not set")
+@unittest.skipUnless(os.environ.get("GRIDRAG_LIVE_TESTS") == "1" and config.load_env().get("OPEN_AI_KEY"),
+                     "Set GRIDRAG_LIVE_TESTS=1 and an API key to run paid provider evaluations")
 class LiveTests(unittest.TestCase):
     def test_real_model_answers_from_a_successful_query(self):
         res = answer.answer("What was ERCOT's highest hourly demand in MW on October 19, 2026 (local time)?")

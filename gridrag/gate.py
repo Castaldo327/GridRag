@@ -4,6 +4,9 @@ The gate is a classification aid that saves SQL calls on requests the warehouse 
 not authorization. The read-only database guard in gridrag.db is enforced regardless of what it decides.
 """
 
+from gridrag.config import GATE_MAX_MALICIOUS, GATE_MIN_RELEVANCE
+from gridrag.llm import probability
+
 QUESTIONS = [
     {
         "type": "predicate",
@@ -13,8 +16,6 @@ QUESTIONS = [
             "Count demand, generation, grid prices, fuels, time series, ISO operations, interconnection queues, "
             "and proposed projects as on topic. An ambiguous ISO, missing period, unsupported metric, or "
             "unavailable historical data does not make a grid question off topic. "
-            "Examples ON topic: 'What was peak demand yesterday?', 'What were ERCOT energy prices?', "
-            "'How many solar projects are in the MISO queue?'. Example OFF topic: 'Why are Persimmons so bitter?'."
         ),
     },
     {
@@ -30,17 +31,17 @@ QUESTIONS = [
 
 
 def gate(question: str, llm) -> dict:
-    """{allowed, reason, relevance, malicious}. Lenient on relevance (an off-topic grid question still
+    """{allowed, reason, relevance, malicious}. Lenient on relevance (an underspecified grid question still
     reaches SQL, which can explain coverage), strict on abuse."""
     answers = llm.decide("gate", question, QUESTIONS)
-    relevance = (answers.get("relevant") or {}).get("probability")
-    malicious = (answers.get("malicious") or {}).get("probability")
+    relevance = probability(answers, "relevant")
+    malicious = probability(answers, "malicious")
     if relevance is None or malicious is None:
         raise RuntimeError("The request gate could not classify the question")
-    allowed = relevance >= 0.3 and malicious < 0.7
+    allowed = relevance >= GATE_MIN_RELEVANCE and malicious < GATE_MAX_MALICIOUS
     if allowed:
         reason = "Relevant analytical question"
-    elif malicious >= 0.7:
+    elif malicious >= GATE_MAX_MALICIOUS:
         reason = "Possible instruction-hijacking or unsafe database request"
     else:
         reason = "Outside the available electricity data"

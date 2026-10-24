@@ -1,6 +1,7 @@
 """Model-written SQL runs read-only, guarded and bounded. Needs data/: python -m gridrag.warehouse.build."""
 
 import unittest
+from unittest.mock import patch
 
 import duckdb
 
@@ -41,11 +42,20 @@ class GuardTests(unittest.TestCase):
     def test_fractions_keep_their_digits_and_large_values_keep_cents(self):
         out = db.run_model_sql("SELECT 0.42072033::DOUBLE AS share, 70979.2216::DOUBLE AS mw, "
                                "-0.000123456::DOUBLE AS tiny, NULL::DOUBLE AS missing", 1)
-        self.assertEqual(out["csv"], "share,mw,tiny,missing\n0.42072,70979.22,-0.000123456,\n")
+        self.assertEqual(out["csv"], "share,mw,tiny,missing\n0.42072033,70979.2216,-0.000123456,\n")
 
     def test_sql_errors_come_back_as_data(self):
         out = db.run_model_sql("SELECT no_such_column FROM core.dim_iso", 10)
         self.assertIn("Binder", out["error"])
+
+    def test_query_timeout_recovers_and_large_results_are_rejected(self):
+        with patch.object(db, "SQL_TIMEOUT_S", 0.05):
+            out = db.run_model_sql("SELECT sum(sin(i)) FROM range(1000000000) t(i)", 1)
+        self.assertIn("execution budget", out["error"])
+        self.assertEqual(db.run_model_sql("SELECT 1 AS n", 1)["csv"], "n\n1\n")
+        with patch.object(db, "SQL_MAX_RESULT_BYTES", 10):
+            out = db.run_model_sql("SELECT repeat('x', 20) AS text", 1)
+        self.assertIn("result exceeds", out["error"])
 
     def test_connection_blocks_writes_and_files_even_without_the_guard(self):
         for sql in ["DELETE FROM core.dim_iso", "SELECT * FROM read_csv('/etc/passwd')"]:

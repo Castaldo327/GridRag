@@ -3,7 +3,7 @@
     model writes SQL -> run_sql executes it (gridrag.db guard) -> model answers from the rows
 
 If a query fails, the error goes back and the model may try again, up to SQL_MAX_ROUNDS model calls;
-the last call has no tools, so the loop always ends with an answer.
+the last call cannot execute tools. Exhaustion or malformed provider output fails explicitly.
 """
 
 import json
@@ -42,7 +42,7 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
     """{answer, state, tool_calls}. state is answered, abstained (no query was run) or write_failed
     (every query failed): only an answer backed by at least one successful query counts as answered."""
     report = on_progress or (lambda update: None)
-    calls, evidence, resp, items = [], [], None, question
+    calls, has_evidence, resp, items = [], False, None, question
     for n in range(1, SQL_MAX_ROUNDS + 1):
         kwargs = {
             "tools": TOOLS,
@@ -51,9 +51,15 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
         }
         if resp:
             kwargs["previous_response_id"] = resp["id"]
-        report({"stage": "answer" if evidence else "sql"})
+        report({"stage": "answer" if has_evidence else "sql"})
         resp = llm.respond("sql", instructions, items, **kwargs)
+        if resp.get("status") in {"incomplete", "failed"}:
+            raise RuntimeError("SQL model did not return a complete response")
         pending = [o for o in resp.get("output", []) if o.get("type") == "function_call"]
+        if pending and (n == SQL_MAX_ROUNDS or len(pending) > 1):
+            raise RuntimeError("SQL model exceeded the tool-call budget")
+        if any(not isinstance(c.get("call_id"), str) or not c["call_id"] for c in pending):
+            raise RuntimeError("SQL model returned an invalid tool call")
         if not pending:
             break
         items = []
@@ -61,13 +67,14 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
             report({"stage": "sql"})
             try:
                 args = json.loads(c["arguments"])
-                if c["name"] != "run_sql" or not isinstance(args.get("query"), str):
+                if c.get("name") != "run_sql" or not isinstance(args, dict) or not isinstance(args.get("query"), str):
                     raise ValueError("expected run_sql with a string query")
-                out = db.run_model_sql(args["query"], SQL_MAX_ROWS, allowed_tables)
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 args, out = {"query": c.get("arguments")}, {"error": f"bad arguments: {exc}"}
+            else:
+                out = db.run_model_sql(args["query"], SQL_MAX_ROWS, allowed_tables)
             if "csv" in out:
-                evidence.append(out["csv"])
+                has_evidence = True
             calls.append({"query": args["query"], "rows": out.get("rows"), "error": out.get("error"),
                           "csv": out.get("csv"), "truncated": out.get("truncated")})
             report({"stage": "sql", "tool_calls": list(calls)})
@@ -75,7 +82,7 @@ def run(llm, instructions: str, question: str, allowed_tables: set[str] | None =
     text = output_text(resp)
     if not text.strip() or resp.get("status") in {"incomplete", "failed"}:
         raise RuntimeError("SQL model did not return a complete answer")
-    if calls and not evidence:
+    if calls and not has_evidence:
         return {"answer": "I could not verify an answer from the data.", "state": "write_failed", "tool_calls": calls}
     if not calls:
         return {

@@ -4,6 +4,7 @@ One OpenAI client per process, so every question reuses pooled HTTPS connections
 one question's calls, each tagged with the stage (gate, route, sql) that made it.
 """
 
+import math
 import threading
 import time
 
@@ -17,9 +18,10 @@ _client_lock = threading.Lock()
 
 def client() -> OpenAI:
     global _client
-    with _client_lock:  # parallel routing calls must not each build their own client
+    with _client_lock:  # concurrent requests share one initialized HTTP client
         if _client is None:
-            _client = OpenAI(api_key=config.require_key("OPEN_AI_KEY"), timeout=config.CALL_TIMEOUT_S)
+            _client = OpenAI(api_key=config.require_key("OPEN_AI_KEY"), timeout=config.CALL_TIMEOUT_S,
+                             max_retries=config.API_MAX_RETRIES)
         return _client
 
 
@@ -38,6 +40,15 @@ def output_text(resp: dict) -> str:
     return "".join(texts)
 
 
+def probability(answers: dict, name: str) -> float | None:
+    """Malformed, absent or refused scores are uncertainty, never a confident rejection."""
+    answer = answers.get(name)
+    value = answer.get("probability") if isinstance(answer, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if 0 <= value <= 1 and math.isfinite(value) else None
+
+
 def call_cost(kind: str, usage: dict) -> float:
     """USD for one call from its provider usage; cached input tokens are billed at the cached rate."""
     price = config.PRICES[kind]
@@ -52,7 +63,7 @@ class LLM:
 
     def __init__(self):
         self.calls: list[dict] = []
-        self._lock = threading.Lock()  # routing records calls from parallel threads
+        self._lock = threading.Lock()  # protect per-request usage if callers share an LLM
 
     def _record(self, call: dict) -> None:
         with self._lock:
