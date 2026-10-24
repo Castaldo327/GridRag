@@ -2,52 +2,72 @@
   <img src="app/static/logo-mark.png" alt="Grid Status logo" width="96" height="96">
 </p>
 <h1 align="center">GridRag</h1>
-<p align="center"><strong>Ask the grid. Inspect the evidence.</strong><br>
+<p align="center"><strong>Ask the grid.</strong><br>
 A small, explainable SQL-RAG demo over fictional US electricity data.</p>
 <p align="center">
   <a href="#run-locally">Run locally</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="gridrag/warehouse/SCHEMA.md">Schema</a> ·
   <a href="#evaluation">Evaluation</a> ·
-  <a href="AUDIT.md">Engineering review</a>
+  <a href="#production-boundary">Production boundary</a>
 </p>
 
 ## What it does
 
-Ask about demand, generation, prices, forecasts, storage, or interconnection
-projects. GridRag selects relevant schema, executes read-only SQL, and answers
-from the returned rows. The UI shows the active stage, selected tables, SQL,
-evidence, latency, and estimated model cost. Six presets have independent
-reference queries for comparison.
+GridRag is my attempt at a RAG system that works on time series data. Standard RAG retrieves text chunks, which doesn't suit hourly and five-minute grid measurements, where the right answer usually comes from an aggregation or a join. So the system retrieves schema instead of documents, and the evidence comes from SQL.
+
+Rather than writing routing rules by hand for each kind of question, I use a decision model to score the documented tables in one call. The system keeps the relevant tables and adds any tables they reference. The model that generates the SQL only sees that selected schema.
+
+You can ask about demand, generation, prices, forecasts, storage, or interconnection projects. GridRag picks the relevant tables, runs read-only SQL against them, and writes its answer from the rows that come back. The UI shows each stage as it runs, along with the selected tables, the SQL, the evidence, latency, and estimated model cost. All of the data is synthetic.
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-    Q[Question] --> G[Request gate]
-    G --> R[Schema retrieval]
-    C[Documented catalog] --> R
-    R --> M[SQL model]
-    M --> D[Guarded DuckDB query]
-    D -->|Rows or repairable error| M
-    M --> A[Answer with inspectable evidence]
+flowchart TB
+    Q([Your question])
+
+    subgraph context["01 · FIND THE RIGHT CONTEXT"]
+        direction LR
+        G["Request gate<br/>Relevance & abuse checks"]
+        R["Schema selection<br/>Relevant tables + references"]
+        C[("Documented<br/>schema catalog")]
+        G --> R
+        C -.-> R
+    end
+
+    subgraph evidence["02 · QUERY AND EXPLAIN"]
+        direction LR
+        M["SQL model<br/>Write · inspect · repair"]
+        D[("Guarded DuckDB<br/>Read-only · bounded queries")]
+        A(["Answer<br/>with query evidence"])
+        M -->|SQL| D
+        D -->|Rows or error| M
+        M --> A
+    end
+
+    Q --> G
+    R -->|Selected schema| M
+
+    classDef input fill:#eef2ff,stroke:#818cf8,color:#312e81,stroke-width:2px
+    classDef decision fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a,stroke-width:1.5px
+    classDef store fill:#fff7ed,stroke:#fb923c,color:#7c2d12,stroke-width:1.5px
+    classDef result fill:#ecfdf5,stroke:#34d399,color:#064e3b,stroke-width:2px
+    class Q input
+    class G,R,M decision
+    class C,D store
+    class A result
+    style context fill:#f8fafc,stroke:#cbd5e1,color:#475569
+    style evidence fill:#f8fafc,stroke:#cbd5e1,color:#475569
 ```
 
-This is **structured-data RAG**: schema retrieval supplies context, SQL retrieves
-and aggregates evidence, and the model explains it. A vector database is not
-required for this relational workload.
+This is **structured-data RAG**: schema retrieval supplies context, SQL retrieves and aggregates evidence, and the model explains it. A vector database is not required.
 
-| Boundary | Why it matters |
+| Layer | What it does |
 | --- | --- |
-| Gate → routing | Classifies scope; it does not grant database access. |
+| Gate → routing | Checks relevance and possible abuse; it does not grant data access. |
 | Routing → SQL | Keeps whole selected tables and their references, preserving joins and calculation inputs. |
 | SQL → database | Independently enforces read-only access, table restrictions, and execution/result budgets. |
 | Results → answer | Preserves query evidence and failures for inspection; SQL errors can be repaired within a fixed budget. |
-
-Product semantics live in schema documentation rather than product-specific
-routing branches. New approved catalogs can be supplied through
-`answer(question, catalog=...)`. Routing quality still needs evaluation; a
-successful query alone does not establish answer correctness.
 
 ## Run locally
 
@@ -127,8 +147,15 @@ cost rates. Export `GRIDRAG_DECISIONS_MODEL` or `GRIDRAG_ANSWER_MODEL` to overri
 model defaults. Prompts stay beside their owning stages; protocol strings stay
 literal. Cost estimates are not billing figures.
 
-**Production boundary:** the core has explicit safeguards, but this repository
-is not a production service. Authentication, data entitlements, process-level
-resource isolation, retention/logging policy, and measured model quality remain
-release requirements. See the [engineering audit](AUDIT.md) for findings and
-explicit demo exceptions.
+## Production boundary
+
+The core has explicit safeguards, but this repository is a demo, not a
+production service. The web app and warehouse generators are setup code.
+Authentication, data entitlements, process-level resource isolation,
+retention/logging policy, and measured model quality remain release requirements.
+SQL interruption and memory settings are safeguards, not a complete sandbox.
+The gate is a classifier, not an authorization layer.
+
+The final core audit covered configuration, routing, provider calls, SQL execution,
+failure handling, and module boundaries. Offline checks passed; live-provider
+accuracy has not been verified in this review.
