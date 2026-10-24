@@ -39,13 +39,25 @@ This is **structured-data RAG**: schema retrieval supplies context, SQL retrieve
 
 ## Run locally
 
-Requires Python **3.11–3.13** and **uv**. From the repository root:
+Requires Python **3.11–3.13** and **uv**. 
+
+
+```sh
+brew install uv
+```
+
+From the repository root:
 
 ```sh
 uv sync --locked
 uv run python -m gridrag.warehouse.build
 uv run python -m app
 ```
+
+`uv sync --locked` installs the dependencies from `uv.lock` and creates the
+project's `.venv` automatically. You do not need to create or activate a virtual
+environment yourself. The dependencies are declared in `pyproject.toml`; there
+is no separate `requirements.txt`.
 
 Open **http://127.0.0.1:8000**. Add `OPENAI_API_KEY=your-key` to a local `.env`
 to run model questions. Building the database requires no API key or external
