@@ -1,5 +1,6 @@
 """Tool execution budgets and evidence handling with scripted model responses."""
 
+import json
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
@@ -63,6 +64,26 @@ class AgentTests(unittest.TestCase):
             result = agent.run(model, "question", schema="")
         self.assertEqual(result["state"], State.WRITE_FAILED)
         self.assertNotIn("claimed", result["answer"])
+
+    def test_aggregate_binder_error_gives_the_model_a_repair_hint(self):
+        bad_sql = "SELECT d.iso_code, MAX(b.demand_mw) FROM core.fact_balance_hourly b JOIN core.dim_iso d USING (iso_id)"
+        corrected_sql = "SELECT MAX(b.demand_mw) FROM core.fact_balance_hourly b JOIN core.dim_iso d USING (iso_id)"
+        error = 'BinderException: column "iso_code" must appear in the GROUP BY clause'
+        model = SimpleNamespace(respond=Mock(side_effect=[
+            tool(json.dumps({"query": bad_sql})),
+            tool(json.dumps({"query": corrected_sql})),
+            TEXT,
+        ]))
+        with patch.object(agent.db, "run_model_sql", side_effect=[
+            {"error": error}, {"rows": 1, "csv": "max_demand\n47517\n"},
+        ]) as execute:
+            result = agent.run(model, "Peak demand?", schema="")
+        self.assertEqual(execute.call_count, 2)
+        self.assertEqual(result["state"], State.ANSWERED)
+        self.assertEqual(result["tool_calls"][0]["error"], error)
+        repair_output = json.loads(model.respond.call_args_list[1].args[2][0]["output"])
+        self.assertIn("GROUP BY", repair_output["hint"])
+        self.assertIn("corrected SQL", repair_output["hint"])
 
     def test_provider_cannot_override_tool_budget_or_execute_partial_output(self):
         multiple = tool()
