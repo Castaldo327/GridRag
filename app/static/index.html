@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ask the grid · GridRag</title>
   <link rel="icon" href="/static/logo-mark.png">
-  <link rel="stylesheet" href="/static/app.css?v=demo-11">
+  <link rel="stylesheet" href="/static/app.css?v=demo-15">
 </head>
 <body>
   <header class="topbar" aria-label="Grid status navigation">
@@ -40,7 +40,8 @@
       </div>
       <div class="sidebar-group sidebar-service">
         <span class="sidebar-caption">GRIDRAG SERVICE</span>
-        <div class="sidebar-item selected" aria-current="page"><span class="nav-icon">✧</span>Ask the grid <span class="nav-chevron">›</span></div>
+        <a class="sidebar-item selected" data-view-link="ask" href="#ask" aria-current="page"><span class="nav-icon">✧</span>Ask the grid <span class="nav-chevron">›</span></a>
+        <a class="sidebar-item" data-view-link="evaluation" href="#evaluation"><span class="nav-icon">▤</span>Evaluation <span class="nav-chevron">›</span></a>
       </div>
       <div class="sidebar-bottom">
         <div class="contact-preview">Contact Us</div>
@@ -50,8 +51,8 @@
         <div class="sidebar-item"><span class="nav-icon">⚙</span>Settings</div>
       </div>
     </aside>
-    <main class="content-area"><div class="content-heading"><span>GRIDRAG / ANALYSIS</span><strong>Ask the grid</strong><span class="content-heading-end">Synthetic warehouse <i></i> Ready</span></div><div id="main" class="main"></div></main>
+    <main class="content-area"><div class="content-heading"><span>GRIDRAG / ANALYSIS</span><strong id="view-title">Ask the grid</strong><nav class="view-tabs" aria-label="GridRag views"><a data-view-link="ask" href="#ask" aria-current="page">Ask the grid</a><a data-view-link="evaluation" href="#evaluation">Evaluation</a></nav><span class="content-heading-end">Synthetic warehouse <i></i> Ready</span></div><div id="main" class="main"></div></main>
   </div>
-  <script src="/static/app.js?v=demo-11"></script>
+  <script src="/static/app.js?v=demo-15"></script>
 </body>
 </html>

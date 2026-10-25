@@ -4,12 +4,14 @@ import argparse
 import json
 import logging
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
+from gridrag.warehouse.evaluation import assess, case_info
 from gridrag.warehouse.evals import CASES
 
 PRESETS = [{"id": case.id, "label": case.label, "concept": case.concept, "question": case.question}
@@ -47,7 +49,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
                                 "max_question_chars": config.settings.max_question_chars,
                                 "model_ready": bool(config.settings.openai_api_key),
-                                "presets": PRESETS})
+                                "presets": PRESETS,
+                                "evaluation_cases": [case_info(case) for case in CASES]})
             except Exception:
                 logging.exception("Could not load the catalog")
                 self.send(503, {"error": "Catalog unavailable. See the server log for details."})
@@ -55,6 +58,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(404, {"error": "Not found"})
 
     def do_POST(self):
+        if self.path == "/api/evaluate":
+            return self.do_evaluate()
         if self.path != "/api/ask":
             return self.send(404, {"error": "Not found"})
         # Accept same-origin JSON only; this local endpoint can make paid model calls.
@@ -107,6 +112,70 @@ class Handler(BaseHTTPRequestHandler):
                 emit({"type": "error", "error": error})
             else:
                 self.send(500, {"error": error})
+        finally:
+            RUN_LOCK.release()
+
+    def do_evaluate(self):
+        """Run the shared live evaluation suite and stream each case as it finishes."""
+        origin = self.headers.get("Origin")
+        if origin and origin != f"http://{self.headers.get('Host')}":
+            return self.send(403, {"error": "Cross-origin requests are not accepted"})
+        if self.headers.get("Accept") != "application/x-ndjson":
+            return self.send(406, {"error": "Expected application/x-ndjson"})
+        if self.headers.get("Content-Length", "0") != "0":
+            return self.send(400, {"error": "Evaluation requests must not include a body"})
+        if not config.settings.openai_api_key:
+            return self.send(503, {"error": "Set OPENAI_API_KEY in the environment or .env to run evaluations."})
+        if not RUN_LOCK.acquire(blocking=False):
+            return self.send(409, {"error": "A question is already running. Try again when it finishes."})
+
+        def emit(event):
+            self.wfile.write((json.dumps(event) + "\n").encode())
+            self.wfile.flush()
+
+        stream_started = False
+        started = time.perf_counter()
+        passed = 0
+        cost = 0.0
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            stream_started = True
+            for index, case in enumerate(CASES):
+                emit({"type": "case_start", "index": index, "id": case.id})
+                try:
+                    result = answer(case.question, on_progress=lambda update: (
+                        emit({"type": "case_progress", "index": index, "id": case.id,
+                              "stage": update["stage"]}) if "stage" in update else None))
+                    assessment = assess(case, result)
+                    passed += assessment["passed"]
+                    cost += result["usage"]["cost_usd"]
+                    emit({"type": "case_done", "index": index, "assessment": assessment})
+                except (BrokenPipeError, ConnectionResetError):
+                    raise
+                except Exception:
+                    logging.exception("Evaluation case %s failed", case.id)
+                    emit({"type": "case_error", "index": index, "id": case.id,
+                          "error": "Could not complete this case. See the server log for details."})
+            emit({"type": "done", "summary": {"passed": passed, "total": len(CASES),
+                                               "cost_usd": round(cost, 6),
+                                               "seconds": round(time.perf_counter() - started, 3)}})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            logging.exception("Evaluation run failed")
+            if stream_started:
+                try:
+                    emit({"type": "error", "error": "Evaluation stopped. See the server log for details."})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            else:
+                self.send(500, {"error": "Evaluation could not start. See the server log for details."})
         finally:
             RUN_LOCK.release()
 

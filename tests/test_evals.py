@@ -6,6 +6,7 @@ import unittest
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.warehouse import evals
+from gridrag.warehouse.evaluation import assess
 
 
 class EvalTests(unittest.TestCase):
@@ -22,6 +23,18 @@ class EvalTests(unittest.TestCase):
             with self.subTest(case=case.id):
                 self.assertLessEqual(set(case.tables) | set(case.excluded), tables.keys())
                 self.assertEqual(bool(case.sql), case.state is State.ANSWERED)
+
+    def test_assessment_checks_answer_and_behavior_cases(self):
+        peak = evals.CASES[0]
+        expected = evals.reference_value(peak)
+        result = {"state": "answered", "route": {"tables": list(peak.tables)},
+                  "tool_calls": [{"query": "SELECT max(demand_mw)", "csv": f"value\n{expected}\n"}],
+                  "answer": f"Peak demand was {expected:,.2f} MW."}
+        self.assertTrue(assess(peak, result)["passed"])
+        wrong = {**result, "tool_calls": [{"query": "SELECT 1", "csv": "value\n1\n"}]}
+        self.assertFalse(assess(peak, wrong)["passed"])
+        self.assertTrue(assess(evals.CASES[-2], {"state": "declined", "route": None,
+                                                  "tool_calls": [], "answer": "Off topic."})["passed"])
 
 
 if __name__ == "__main__":

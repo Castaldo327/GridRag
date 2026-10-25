@@ -126,6 +126,9 @@ button:focus-visible, summary:focus-visible { outline: 2px solid #176fba; outlin
 .sidebar-caption { display: block; padding: 6px 10px; font-size: 10px; letter-spacing: .13em; color: #858a89; font-weight: 700; }
 .sidebar-item.selected { background: #edf4ef; color: #1d4d38; font-weight: 700; border-left: 3px solid #438b65; padding-left: 7px; }
 .sidebar-item.selected .nav-icon { color: #368b61; }
+.sidebar-service a.sidebar-item { color: inherit; text-decoration: none; }
+.sidebar-service a.sidebar-item.selected { color: #1d4d38; }
+.sidebar-service a.sidebar-item:hover { background: #f1f5f2; }
 .sidebar-bottom { margin-top: auto; padding: 18px 13px 14px; }
 .contact-preview { border: 1px solid #b8bdbc; color: #303534; border-radius: 5px; text-align: center; padding: 10px; margin-bottom: 16px; font-weight: 600; }
 .jump-preview { background: #f3f3f3; margin-bottom: 14px; }
@@ -135,6 +138,11 @@ button:focus-visible, summary:focus-visible { outline: 2px solid #176fba; outlin
 .content-heading > span:first-child { color: #6a706f; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
 .content-heading strong { font-size: 20px; font-weight: 600; }
 .content-heading-end { margin-left: auto; color: #707673; font-size: 12px; }
+.view-tabs { display: flex; align-self: stretch; align-items: stretch; gap: 4px; margin-left: 12px; }
+.view-tabs a { display: flex; align-items: center; padding: 2px 12px 0; border-bottom: 3px solid transparent; color: #69716b; font-size: 13px; font-weight: 600; text-decoration: none; }
+.view-tabs a:hover { color: #24573a; }
+.view-tabs a.selected { border-bottom-color: #438b65; color: #24573a; }
+.view-tabs a:focus-visible, .sidebar-service a:focus-visible { outline: 2px solid #438b65; outline-offset: -2px; }
 .content-heading-end i { display: inline-block; width: 7px; height: 7px; margin: 0 4px 1px 12px; border-radius: 50%; background: #3a9372; }
 .main { max-width: 1540px; padding: 24px 24px 70px; }
 .panel { border: 1px solid #e0e2e1; border-radius: 9px; box-shadow: none; }
@@ -159,6 +167,39 @@ h1 { font-size: clamp(34px, 3vw, 44px); letter-spacing: -.04em; font-weight: 650
 .schema-meter span { background: #429166; }
 .metric-grid > div { background: #f7f8f7; }
 .live.running { color: #28734e; }
+.evaluation-page { padding: 32px 36px; background: #fff; }
+.evaluation-intro { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding-bottom: 24px; border-bottom: 1px solid #e2e7e3; }
+.evaluation-intro h1 { margin-bottom: 10px; }
+.evaluation-intro p { max-width: 780px; margin: 0; color: #5e6861; font-size: 14px; line-height: 1.6; }
+.evaluation-action { display: grid; gap: 9px; flex: none; max-width: 235px; }
+.evaluation-action button { padding: 13px 17px; border: 0; border-radius: 7px; background: #292f2c; color: #fff; font-weight: 700; }
+.evaluation-action button:disabled { opacity: .55; cursor: default; }
+.evaluation-action small { color: #758078; font-size: 11px; line-height: 1.4; }
+.evaluation-summary { display: flex; align-items: baseline; gap: 14px; margin: 20px 0; padding: 16px 18px; border: 1px solid #d9e5db; border-radius: 8px; background: #f4f8f5; }
+.evaluation-summary strong { color: #285d3e; font-size: 18px; }
+.evaluation-summary span { color: #64756a; font-size: 12px; }
+.evaluation-cases { display: grid; gap: 10px; }
+.evaluation-case { padding: 16px 18px; border: 1px solid #e1e6e2; border-radius: 8px; background: #fff; }
+.evaluation-case.good { border-color: #b9d9c3; background: #fbfefb; }
+.evaluation-case.warn { border-color: #e8cfac; background: #fffdfa; }
+.evaluation-case.active { border-color: #7baa8a; box-shadow: 0 0 0 2px #7baa8a20; }
+.evaluation-case-head { display: flex; align-items: start; gap: 14px; }
+.case-index { display: grid; place-items: center; flex: none; width: 31px; height: 31px; border-radius: 6px; background: #eef3ef; color: #557361; font: 700 12px ui-monospace, monospace; }
+.evaluation-case-head > div { flex: 1; min-width: 0; }
+.evaluation-case-head strong { font-size: 14px; }
+.evaluation-case-head p { margin: 5px 0; color: #4f5d54; font-size: 12px; line-height: 1.5; }
+.evaluation-case-head small { color: #7a857d; font-size: 11px; }
+.badge.active { background: #e6f2e9; color: #2d7950; }
+.evaluation-result { margin: 14px 0 0 45px; padding-top: 12px; border-top: 1px solid #e3e8e4; }
+.evaluation-result > summary { cursor: pointer; color: #315e3e; font-size: 12px; font-weight: 600; }
+.evaluation-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 14px 0; padding: 0; list-style: none; }
+.evaluation-checks li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 6px; background: #f4f8f5; font-size: 11px; }
+.evaluation-checks li.warn { background: #fff3e3; }
+.evaluation-checks b { color: #2b6a45; }
+.evaluation-checks .warn b { color: #a6661e; }
+.evaluation-checks span { color: #67766c; }
+.evaluation-answer { margin: 14px 0; font-size: 12px; line-height: 1.6; }
+.evaluation-answer p { margin: 6px 0; white-space: pre-line; }
 @media (max-width: 1050px) { .app-shell { grid-template-columns: 210px minmax(0, 1fr); } .sidebar { font-size: 13px; } .main { padding: 18px; } .hero { padding: 25px; } }
-@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { display: none; } .topbar-regions { overflow: hidden; } .content-heading { padding: 0 18px; } }
-@media (max-width: 550px) { .topbar { padding: 0 14px; } .topbar-brand strong, .topbar-divider, .content-heading > span:first-child, .content-heading-end { display: none; } .main { padding: 12px 12px 35px; } .hero { padding: 20px; } }
+@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { display: none; } .topbar-regions { overflow: hidden; } .content-heading { padding: 0 18px; } .evaluation-intro { align-items: start; flex-direction: column; } .evaluation-action { max-width: none; } }
+@media (max-width: 550px) { .topbar { padding: 0 14px; } .topbar-brand strong, .topbar-divider, .content-heading > span:first-child, .content-heading-end { display: none; } .main { padding: 12px 12px 35px; } .hero, .evaluation-page { padding: 20px; } .view-tabs { margin-left: auto; gap: 0; } .view-tabs a { padding: 2px 8px 0; font-size: 12px; } .evaluation-summary { flex-direction: column; gap: 3px; } .evaluation-checks { grid-template-columns: 1fr; } .evaluation-result { margin-left: 0; } }

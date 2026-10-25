@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from app.__main__ import PRESETS, Handler
 from gridrag import config
+from gridrag.warehouse.evals import CASES
 
 
 def send(head, body=b""):
@@ -37,6 +38,11 @@ def post(payload, origin="http://localhost:8000", stream=False):
                 f"Content-Type: application/json\r\nContent-Length: {len(body)}", body)
 
 
+def post_evaluation(origin="http://localhost:8000"):
+    return send(f"POST /api/evaluate HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\n"
+                "Accept: application/x-ndjson\r\nContent-Length: 0")
+
+
 class AppTests(unittest.TestCase):
     def test_invalid_and_cross_origin_requests_never_reach_model(self):
         too_long = "x" * (config.settings.max_question_chars + 1)
@@ -54,6 +60,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(meta["isos"], ["CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP"])
         self.assertEqual(meta["catalog_tables"], 65)
         self.assertEqual([p["id"] for p in meta["presets"]], [p["id"] for p in PRESETS])
+        self.assertEqual([c["id"] for c in meta["evaluation_cases"]], [case.id for case in CASES])
+        self.assertEqual(meta["evaluation_cases"][0]["expected_state"], "answered")
+        self.assertIsInstance(meta["evaluation_cases"][0]["expected"], float)
+        self.assertIsNone(meta["evaluation_cases"][-1]["expected"])
+        self.assertNotIn("sql", meta["evaluation_cases"][0])
 
     def test_answers_return_whole_or_as_a_progress_stream(self):
         result = {"state": "answered", "answer": "14 projects", "tool_calls": [
@@ -81,3 +92,34 @@ class AppTests(unittest.TestCase):
                     body = body[-1]["result"]
                 self.assertNotIn("validation", body)
                 self.assertEqual(body["tool_calls"][0]["csv"], "projects\n14\n")
+
+    def test_full_evaluation_stream_runs_every_shared_case(self):
+        questions = []
+        def fake_answer(question, on_progress=None):
+            questions.append(question)
+            on_progress({"stage": "gate"})
+            return {"state": "answered", "answer": "example", "usage": {"cost_usd": 0.01},
+                    "tool_calls": [], "timings": {"total": 0.1}}
+
+        def fake_assess(case, result):
+            return {"id": case.id, "passed": True, "checks": [], "result": result}
+
+        with (patch("app.__main__.answer", side_effect=fake_answer),
+              patch("app.__main__.assess", side_effect=fake_assess),
+              patch.object(config, "settings", replace(config.settings, openai_api_key="test"))):
+            status, events = post_evaluation()
+        self.assertEqual(status, 200)
+        self.assertEqual(questions, [case.question for case in CASES])
+        self.assertEqual([event["id"] for event in events if event["type"] == "case_start"],
+                         [case.id for case in CASES])
+        self.assertEqual(len([event for event in events if event["type"] == "case_done"]), len(CASES))
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(events[-1]["summary"]["passed"], len(CASES))
+        self.assertAlmostEqual(events[-1]["summary"]["cost_usd"], len(CASES) * 0.01)
+
+    def test_evaluation_rejects_cross_origin_and_missing_model(self):
+        with patch("app.__main__.answer") as model:
+            self.assertEqual(post_evaluation("https://unrelated.example")[0], 403)
+            with patch.object(config, "settings", replace(config.settings, openai_api_key="")):
+                self.assertEqual(post_evaluation()[0], 503)
+            model.assert_not_called()

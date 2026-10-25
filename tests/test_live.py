@@ -2,50 +2,13 @@
 
 Asks every case in gridrag/warehouse/evals.py, the same table the UI presets come from."""
 
-import csv
-import io
-import math
 import os
-import re
 import unittest
 
 from gridrag import answer, config
 from gridrag.records import State
+from gridrag.warehouse.evaluation import evidence_matches, states_value
 from gridrag.warehouse.evals import CASES, reference_value
-
-NUMBER = re.compile(r"[-−]?\$?\d[\d,]*(?:\.(\d+))?")
-
-
-def states_value(text: str, expected: float, tolerance: float) -> bool:
-    """Whether text states expected: within the case tolerance, or equal at the precision the text shows."""
-    for number in NUMBER.finditer(text):
-        value = float(number.group().replace(",", "").replace("−", "-").replace("$", ""))
-        shown = 0.5 * 10 ** -len(number.group(1) or "")  # "70,979" stands for 70,978.5 up to 70,979.5
-        if abs(value - expected) <= max(tolerance, shown) + 1e-9:
-            return True
-    return False
-
-
-def evidence_matches(result: dict, expected: float, tolerance: float) -> bool:
-    """Require an unrounded reference value in the last successful query's numeric evidence.
-
-    This checks value agreement, not the meaning of the SQL; inspect query semantics separately.
-    """
-    for call in reversed(result["tool_calls"]):
-        if call.get("error") or not call.get("csv"):
-            continue
-        rows = iter(csv.reader(io.StringIO(call["csv"])))
-        next(rows, None)
-        for row in rows:
-            for cell in row:
-                try:
-                    value = float(cell)
-                except ValueError:
-                    continue
-                if math.isclose(value, expected, rel_tol=0, abs_tol=tolerance + 1e-9):
-                    return True
-        return False
-    return False
 
 
 class EvaluationChecks(unittest.TestCase):

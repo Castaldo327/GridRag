@@ -119,8 +119,12 @@ handling, streaming, and configuration without making provider calls.
 
 The shared cases in [gridrag/warehouse/evals.py](gridrag/warehouse/evals.py)
 pair questions with independent reference SQL and expected outcomes. Labelled
-cases also appear as UI presets. The optional live evaluation checks query
-evidence and final answers against the reference values.
+cases also appear as UI presets. The separate **Evaluation** tab runs every
+case in order through the configured model and reports each check, answer,
+SQL query, elapsed time, and estimated cost. It includes clarification and
+decline cases as well as numeric questions. Reference SQL is run independently
+and never sent to the model. Running the tab makes paid provider requests.
+The optional live test command runs the same cases without the UI.
 
 ## Code and configuration
 
