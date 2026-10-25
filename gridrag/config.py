@@ -54,7 +54,7 @@ class Settings:
     route_min_probability: Probability = 0.2
     route_min_column_probability: Probability = 0.2
     route_max_unscored: Probability = 0.5
-    max_routed_tables: PositiveInt = 12
+    max_routed_tables: PositiveInt = 10
     route_column_workers: PositiveInt = 4
     sql_max_rounds: PositiveInt = 5
     sql_max_rows: PositiveInt = 500
