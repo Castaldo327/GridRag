@@ -1,8 +1,11 @@
 """The shared evaluation table stays runnable offline. Needs data/: python -m gridrag.warehouse.build."""
 
+import csv
+import io
 import math
 import unittest
 
+from gridrag import db
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.warehouse import evals
@@ -35,6 +38,37 @@ class EvalTests(unittest.TestCase):
         self.assertFalse(assess(peak, wrong)["passed"])
         self.assertTrue(assess(evals.CASES[-2], {"state": "declined", "route": None,
                                                   "tool_calls": [], "answer": "Off topic."})["passed"])
+
+    def test_hard_case_warehouse_verification(self):
+        case = next(case for case in evals.CASES if case.id == "spread_forecast_error")
+        def row(sql):
+            result = db.run_model_sql(sql, 1)
+            self.assertNotIn("error", result)
+            return list(csv.reader(io.StringIO(result["csv"])))[1]
+
+        hour = row("""SELECT date_trunc('hour', rt.interval_start_utc) AS utc_hour,
+                    avg(rt.lmp) - max(da.lmp) AS spread
+                FROM core.caiso_lmp_rt_hub_5min rt
+                JOIN core.caiso_lmp_da_hub_hourly da
+                  ON date_trunc('hour', rt.interval_start_utc) = da.interval_start_utc
+                WHERE rt.interval_start_local::DATE = DATE '2026-10-21'
+                GROUP BY 1 HAVING count(*) = 12
+                ORDER BY spread DESC, utc_hour ASC LIMIT 1""")
+        self.assertEqual(hour[0], "2026-10-21 15:00:00")
+        self.assertAlmostEqual(float(hour[1]), -0.285)
+
+        forecast = row("""SELECT publish_time_utc, forecast_mw
+                FROM core.caiso_load_forecast_hourly
+                WHERE interval_start_utc = TIMESTAMP '2026-10-21 15:00'
+                  AND publish_time_utc <= TIMESTAMP '2026-10-21 12:00'
+                ORDER BY publish_time_utc DESC LIMIT 1""")
+        actual = float(row("""SELECT demand_mw FROM core.fact_balance_hourly
+                WHERE iso_id = 1 AND interval_start_utc = TIMESTAMP '2026-10-21 15:00'""")[0])
+        self.assertEqual(forecast[0], "2026-10-21 09:00:00")
+        self.assertAlmostEqual(float(forecast[1]), 34708.94)
+        self.assertAlmostEqual(actual, 35127.47)
+        self.assertAlmostEqual(evals.reference_value(case), float(forecast[1]) - actual)
+        self.assertAlmostEqual(evals.reference_value(case), -418.53)
 
 
 if __name__ == "__main__":
