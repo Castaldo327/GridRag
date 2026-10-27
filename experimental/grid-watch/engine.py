@@ -9,9 +9,10 @@ import time
 
 import duckdb
 from dataset import START, END, SCHEMA, frame, ingest, seed, export_fixture
-from rules import RULES, BY_ID, REVIEW_QUESTION, REVIEW_SQL, explain
+from rules import RULES, BY_ID, explain
 
 ROOT=Path(__file__).resolve().parent
+POLL_MINUTES=5
 
 def clean(value):
     if isinstance(value, datetime): return value.isoformat()+'Z'
@@ -29,7 +30,6 @@ class Engine:
         self.tick_seconds=tick_seconds
         self.model=model
         self.phase="ready"
-        self.review_summary=None
         self.conn=None
         self.version=0
         self.playing=False
@@ -53,7 +53,6 @@ class Engine:
             self.conn.execute('SET lock_configuration=true')
             if self.model: self.model.prepare()
             self.phase="ready"
-            self.review_summary=None
             self.conn.execute('''CREATE TABLE notifications(id VARCHAR PRIMARY KEY, rule_id VARCHAR, ts TIMESTAMP, kind VARCHAR, summary VARCHAR, evidence JSON);
 CREATE TABLE tasks(id VARCHAR PRIMARY KEY, alert_id VARCHAR UNIQUE, created_at TIMESTAMP, title VARCHAR, status VARCHAR);
 CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCHAR, evidence JSON, elapsed_ms DOUBLE);''')
@@ -75,7 +74,7 @@ CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCH
     def now(self): return frame(self.index)['ts']
 
     def fingerprint(self):
-        columns=self.conn.execute("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_name IN ('load_readings','line_readings','reserve_readings','reserve_history','congestion_readings') ORDER BY 1,2").fetchall()
+        columns=self.conn.execute("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_name IN ('load_readings','reserve_readings','reserve_history','congestion_readings') ORDER BY 1,2").fetchall()
         return hashlib.sha256(repr(columns).encode()).hexdigest()[:12]
 
     def validate_schema(self):
@@ -148,19 +147,6 @@ CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCH
                 self.conn.execute('INSERT INTO notifications VALUES (?, ?, ?, ?, ?, ?)',[key,rule.id,self.now,kind,summary,json.dumps(row)])
                 if kind=='triggered' and self.auto_action[rule.id]:self.make_task(key)
 
-    def generate_review(self):
-        with self.lock:
-            if not self.model:raise ValueError('Model summaries require live mode.')
-            self.playing=False
-            self.phase='reviewing'
-            self.publish()
-            try:
-                self.review_summary=self.model.review(self.now,self.cached['events'],self.cached['notifications'])
-                return clean(self.review_summary)
-            finally:
-                self.phase='ready'
-                self.publish()
-
     def advance(self, steps=1):
         with self.lock:
             if self.error: raise ValueError(self.error)
@@ -173,8 +159,10 @@ CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCH
                 old_states=self.states.copy()
                 old_checks=self.checks
                 try:
-                    self.index+=1
-                    ingest(self.conn,frame(self.index))
+                    next_index=min(40,self.index+POLL_MINUTES)
+                    for minute in range(self.index+1,next_index+1):
+                        ingest(self.conn,frame(minute))
+                    self.index=next_index
                     self.evaluate()
                     self.conn.execute('COMMIT')
                     self.publish()
@@ -201,8 +189,8 @@ CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCH
                 self.evaluate()
             elif action=='pause': self.playing=False
             elif action=='step': self.playing=False;self.advance()
-            elif action=='jump': self.playing=False;self.advance(max(0,20-self.index))
-            elif action=='finish': self.playing=False;self.advance(40-self.index)
+            elif action=='jump': self.playing=False;self.advance(max(0,(20-self.index+POLL_MINUTES-1)//POLL_MINUTES))
+            elif action=='finish': self.playing=False;self.advance((40-self.index+POLL_MINUTES-1)//POLL_MINUTES)
             elif action=='speed':
                 if value not in (0.5,1,2,4): raise ValueError('Choose a supported replay speed.')
                 self.tick_seconds=float(value)
@@ -249,24 +237,19 @@ CREATE TABLE checks(ts TIMESTAMP, rule_id VARCHAR, result VARCHAR, summary VARCH
         for n in notifications:
             n['title']=BY_ID[n['rule_id']].title
             n['evidence']=json.loads(n['evidence'])
-        if self.model:
-            from live_models import guarded_query
-            events=guarded_query(self.conn,self.model.plans['review'],self.now)
-        else:events=self.query(REVIEW_SQL,[self.now])
         current=history[-1]
         reserves=self.query('SELECT * FROM reserve_readings WHERE ts=?',[self.now])[0]
         congestion=self.query('SELECT * FROM congestion_readings WHERE ts=?',[self.now])[0]
-        lines=self.query('SELECT * FROM line_readings WHERE ts=? ORDER BY line_id',[self.now])
         rules=[{**asdict(r),'sql':self.model.plans[r.id] if self.model else r.sql,'enabled':self.enabled[r.id],'auto_action':self.auto_action[r.id],**self.states.get(r.id,{})} for r in RULES]
-        counts={name:self.conn.execute(f'SELECT count(*) FROM {name}').fetchone()[0] for name in ('load_readings','line_readings','reserve_readings','reserve_history','congestion_readings','source_events','checks')}
+        counts={name:self.conn.execute(f'SELECT count(*) FROM {name}').fetchone()[0] for name in ('load_readings','reserve_readings','reserve_history','congestion_readings','checks')}
         return clean({'version':self.version,'now':self.now,'start':START,'end':END,'index':self.index,'playing':self.playing,
-            'tick_seconds':self.tick_seconds,'error':self.error,'mode':'live' if self.model else 'scripted','database':'DuckDB','phase':self.phase,
-            'usage':self.model.usage() if self.model else None,'review_summary':self.review_summary,
+            'poll_minutes':POLL_MINUTES,'tick_seconds':self.tick_seconds,'error':self.error,'mode':'live' if self.model else 'scripted','database':'DuckDB','phase':self.phase,
+            'usage':self.model.usage() if self.model else None,
             'rules':rules,'notifications':notifications,'tasks':self.query('SELECT * FROM tasks ORDER BY created_at DESC'),
-            'history':history,'events':events,'review_question':REVIEW_QUESTION,'review_sql':self.model.plans['review'] if self.model else REVIEW_SQL,
-            'metrics':{**current,'reserve_mw':reserves['reserve_mw'],'congestion_per_mwh':congestion['congestion_per_mwh'],'outage_count':sum(1 for x in lines if x['region']=='Northern Virginia' and x['voltage_kv']>=230 and x['status']=='out')},
-            'lines':lines,'counts':counts,'checks':self.checks,'schema_fingerprint':self.schema_fingerprint,'schema_checked_at':self.schema_checked_at,
-            'review_stats':{'max_load_mw':max(x['actual_mw'] for x in history),'min_load_mw':min(x['actual_mw'] for x in history),'max_above_forecast_pct':round(max(100*(x['actual_mw']/x['forecast_mw']-1) for x in history),1)}})
+            'history':history,
+            'metrics':{**current,'reserve_mw':reserves['reserve_mw'],'congestion_per_mwh':congestion['congestion_per_mwh']},
+            'counts':counts,'checks':self.checks,'schema_fingerprint':self.schema_fingerprint,'schema_checked_at':self.schema_checked_at})
+
 
     def snapshot(self):
         return self.cached  # Published snapshots are replaced atomically, never mutated.

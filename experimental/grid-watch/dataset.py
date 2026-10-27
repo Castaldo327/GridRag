@@ -2,20 +2,16 @@
 from datetime import datetime, timedelta
 import csv
 import math
-from pathlib import Path
 import random
 
 START = datetime(2026, 7, 22, 17, 40)
 END = START + timedelta(minutes=40)
 NODE = 'NVA-DEMO-01'
-LINE = 'NVA-230-01'
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS load_readings(ts TIMESTAMP, zone VARCHAR, actual_mw DOUBLE, forecast_mw DOUBLE, PRIMARY KEY(ts, zone));
-CREATE TABLE IF NOT EXISTS line_readings(ts TIMESTAMP, line_id VARCHAR, region VARCHAR, voltage_kv INTEGER, status VARCHAR, PRIMARY KEY(ts, line_id));
 CREATE TABLE IF NOT EXISTS reserve_readings(ts TIMESTAMP PRIMARY KEY, iso VARCHAR, reserve_mw DOUBLE);
 CREATE TABLE IF NOT EXISTS reserve_history(ts TIMESTAMP PRIMARY KEY, iso VARCHAR, reserve_mw DOUBLE);
 CREATE TABLE IF NOT EXISTS congestion_readings(ts TIMESTAMP, node VARCHAR, congestion_per_mwh DOUBLE, PRIMARY KEY(ts, node));
-CREATE TABLE IF NOT EXISTS source_events(ts TIMESTAMP, kind VARCHAR, asset VARCHAR, description VARCHAR);
 '''
 
 def frame(i):
@@ -36,27 +32,11 @@ def frame(i):
     congestion = round(10 + 2 * math.sin(i / 3), 2)
     if 25 <= i <= 32:
         congestion = 48 + (i-25)*1.5
-    events = {
-        10: ('line', 'NVA-115-02', 'Northern Virginia 115 kV line goes out; below the watch’s voltage cutoff.'),
-        15: ('line', 'NVA-115-02 / SVA-345-03', 'The 115 kV line returns; a Southern Virginia 345 kV line goes out.'),
-        20: ('line', LINE, 'Northern Virginia 230 kV line goes out; the Southern Virginia line returns.'),
-        22: ('load', 'Dominion', 'Dominion load falls sharply.'),
-        24: ('reserves', 'ERCOT', 'ERCOT reserves drop below the seasonal range.'),
-        25: ('congestion', NODE, 'Node congestion rises sharply.'),
-        27: ('forecast', 'Dominion', 'Load rebounds above forecast while the line is still out.'),
-        33: ('recovery', 'ERCOT + node', 'Reserves and node congestion return to their usual range.'),
-        35: ('recovery', LINE, 'The line returns to service; Dominion load settles.'),
-    }
     return {
         'ts': ts,
         'load': [(ts, 'Dominion', load, forecast)],
-        # A 115 kV northern line and a 345 kV southern line are distractors.
-        'lines': [(ts, LINE, 'Northern Virginia', 230, 'out' if 20 <= i <= 34 else 'in_service'),
-                  (ts, 'NVA-115-02', 'Northern Virginia', 115, 'out' if 10 <= i <= 14 else 'in_service'),
-                  (ts, 'SVA-345-03', 'Southern Virginia', 345, 'out' if 15 <= i <= 19 else 'in_service')],
         'reserves': [(ts, 'ERCOT', reserves)],
         'congestion': [(ts, NODE, congestion)],
-        'events': [(ts, *events[i])] if i in events else [],
     }
 
 def seed(conn):
@@ -79,7 +59,7 @@ def seed(conn):
         ingest(conn, frame(i))
 
 def ingest(conn, item):
-    for table, key, n in [('load_readings','load',4),('line_readings','lines',5),('reserve_readings','reserves',3),('congestion_readings','congestion',3),('source_events','events',4)]:
+    for table, key, n in [('load_readings','load',4),('reserve_readings','reserves',3),('congestion_readings','congestion',3)]:
         if item[key]:
             conn.executemany(f'INSERT INTO {table} VALUES ({", ".join(["?"]*n)})', item[key])
 
@@ -88,7 +68,7 @@ def export_fixture(directory):
     directory.mkdir(parents=True, exist_ok=True)
     with (directory/'replay.csv').open('w',newline='') as f:
         writer=csv.writer(f)
-        writer.writerow(['ts_utc','dominion_load_mw','forecast_mw','nva_230_line','ercot_reserve_mw','node_congestion_dollars_mwh'])
+        writer.writerow(['ts_utc','dominion_load_mw','forecast_mw','ercot_reserve_mw','node_congestion_dollars_mwh'])
         for i in range(41):
             x=frame(i)
-            writer.writerow([x['ts'].isoformat()+'Z',x['load'][0][2],x['load'][0][3],x['lines'][0][4],x['reserves'][0][2],x['congestion'][0][2]])
+            writer.writerow([x['ts'].isoformat()+'Z',x['load'][0][2],x['load'][0][3],x['reserves'][0][2],x['congestion'][0][2]])

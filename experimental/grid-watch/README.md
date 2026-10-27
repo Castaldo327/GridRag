@@ -1,6 +1,6 @@
 # Grid Watch
 
-A deliberately small, local demo of intelligent grid alerts. The configured models generate six SQL queries, evaluate five alert conditions against new data, and summarize a fictional July 22 event.
+A local experiment in intelligent grid alerts. Experimental and not part of submission. Four watches check incoming measurements every five simulated minutes. An alert reports a measured condition; its cause remains unknown.
 
 ## Run
 
@@ -10,85 +10,70 @@ From the repository root:
 ./experimental/grid-watch/run.sh
 ```
 
-Open **http://127.0.0.1:8011**. Live mode is the default. It reads the existing project configuration: `OPENAI_API_KEY`, `GRIDRAG_ANSWER_MODEL` and `GRIDRAG_DECISIONS_MODEL` (including the repository `.env`). The current configured setup and decision models are both `gpt-6-luna`. The key stays on the server. The existing virtual environment has the dependencies; `requirements.txt` lists them for another environment.
+Open **http://127.0.0.1:8011**. Live mode uses the existing `OPENAI_API_KEY`, `GRIDRAG_ANSWER_MODEL` and `GRIDRAG_DECISIONS_MODEL` configuration, including the repository `.env`. The API key stays on the server. Fictional measurements, questions and schema go to OpenAI; follow-up tasks stay local.
 
-Add `--play` to start immediately, `--port 8012` to choose another port, or `--offline` to run the original scripted version without API calls. Live mode makes paid OpenAI calls; only fictional evidence, questions and schema are sent. Actions remain local. Stop the server with Ctrl+C. Startup and **Reset replay** rebuild this demo's runtime database and clear its alerts/tasks. The parent application's data is never touched. Validated model-generated plans and API usage logs survive replay resets; cached plans are revalidated at startup.
+Use `--offline` for scripted decisions without API calls, `--play` to start immediately, or `--port 8012` to choose a different port. Stop with Ctrl+C. Startup and **Reset replay** rebuild this demo's database and clear alerts/tasks. Validated model-generated queries and usage logs survive resets.
 
-## A two-minute walkthrough
+## Try it
 
-1. Click **Play replay** or **Jump to 2:00 PM event**. Each tick delivers one minute of observations, then awaits one batched Decisions API call. The speed selector sets the delay between ticks; API time is additional.
-2. Watch the chart, metrics and five saved watches update. Each watch runs real SQL after every new batch of data.
-3. Open any watch or alert's **View evidence** link to see the exact result, definition and saved query.
-4. Click **Create local task** on an alert. Or enable automatic local tasks in a watch's details. Tasks remain inside this demo; repeated requests for the same alert return the same task.
-5. Open **Event review** for “Show me everything that changed around the July 22 event.” **Replay to the end** fills in the whole story. **Generate summary** calls the configured Responses model using only observed events and alerts; its timestamp tells you how far that summary covers.
-6. Open **Data & queries** to inspect table sizes, assumptions and the database structure check. The replay CSV is downloadable there.
+1. Click **Play replay** or **Jump to 2:00 PM**. Each tick ingests five minutes of minute-level readings, then awaits one batched Decisions API call. The speed selector sets the delay between ticks; API time is additional.
+2. Watch reported load, reserves and congestion update. The chart compares actual load with forecast; it does not attribute changes to an operational event.
+3. Open a watch or click **View evidence** to inspect the query, measurements and decision.
+4. Click **Create local task** on a triggered alert, or enable automatic local tasks in that watch's details. Nothing is sent to another service.
+5. Open **Data & queries** to inspect the tables, definitions and database structure check, or download the replay CSV.
 
-## The six questions
+## Watches
 
-| Question | Demo meaning | First trigger (Eastern) |
+| Watch | Condition | First detection (Eastern) |
 | --- | --- | --- |
-| Dominion load drops more than 1,000 MW in 10 minutes | Latest reading versus exactly 10 minutes earlier; strictly greater than 1,000 MW | 2:02 PM |
-| A 230 kV or higher line goes out in Northern Virginia | Voltage ≥230 kV and exact region match | 2:00 PM |
-| ERCOT reserves fall below normal for this time of year | Below the 10th percentile from the prior three years, July 8–August 5, at the matching hour | 2:04 PM |
-| Congestion at my node is in the top 5% of the last 90 days | Signed congestion $/MWh at fictional node `NVA-DEMO-01`, at or above the trailing 95th percentile; excludes the current reading | 2:05 PM |
-| Load runs 5% above forecast while a line is out | Dominion load >105% of its forecast, with a qualifying Northern Virginia line out at that minute | 2:07 PM |
-| Everything that changed around the July 22 event | All scripted source changes observed so far in the 1:40–2:20 PM replay, with related alerts and recoveries | Event review |
+| Sudden load drop | Dominion load drops strictly more than 1,000 MW versus exactly 10 minutes earlier | 2:05 PM |
+| Unusually low reserves | ERCOT reserves fall below the seasonal 10th percentile | 2:05 PM |
+| Unusual node congestion | Congestion at fictional node `NVA-DEMO-01` reaches the trailing 90-day 95th percentile | 2:05 PM |
+| Load above forecast | Dominion actual load exceeds 105% of its matching forecast | 2:10 PM |
 
-Lower-voltage and out-of-region outages happen earlier as negative examples. Five alerts fire once each. All five conditions recover by 2:15 PM. The 40-minute replay completes at 2:20 PM.
+Checks run at 1:40, 1:45, 1:50 PM and so on. Detection can lag a measurement change by up to five simulated minutes. Each condition triggers once and later clears; the replay ends at 2:20 PM. A condition clearing means the latest reading no longer meets the rule. It does not establish that a grid incident has been resolved.
 
-## What is real, and what is simplified?
+All data is fictional. The stream contains load, forecasts, reserves and congestion, with historical baselines. It contains no line-status reports or prewritten explanations of what influenced the readings. Dominion and ERCOT are separate markets; coincident changes do not establish a connection.
 
-**Working:** deterministic dataset generation, timestamped data ingestion, saved SQL execution, live server-sent updates, evidence inspection, missing-data handling, repeat-alert suppression, recovery messages, database structure checks and local follow-up tasks.
+## Model behavior
 
-**Live models:** the configured Responses model generates each query from the question, its agreed definition, schema and evidence-field contract. The reference SQL is not supplied to the model. A parser guard permits only a single SELECT over allowed tables; database file/network access is disabled and queries have time, memory and row limits. Generated queries must reproduce the independent fixture results at all 41 timestamps before being activated, including a check that future rows stay out. Up to three setup attempts are allowed per query. Validated plans are saved for reuse.
+The configured Responses model generates four evidence queries from the questions, agreed definitions, schema and field contracts. Reference SQL is never supplied to the model. Each query must pass the read-only parser guard and independent fixture comparisons at all 41 timestamps before activation. Queries have time, memory and row limits; database file/network access is disabled. Validated queries are saved and reused.
 
-Each live tick sends the resulting evidence to the configured Decisions model, which chooses `match`, `clear` or `unknown` for each enabled watch. SQL returns measurements, not the final match flag. Application code enforces freshness, handles repeated matches, and creates local tasks. The short numeric alert explanations are formatted from evidence; the event-review summary is model-written. API failures pause playback and produce unknown results. **Retry check** retries the same minute without clearing alerts; there is no silent scripted fallback.
+Each tick sends the resulting measurements to the configured Decisions model, which selects `match`, `clear` or `unknown` for each enabled watch. Application code checks freshness, suppresses repeated matches and applies local task permissions. The short alert descriptions format the observed numbers; they do not explain causes. Failed API calls pause playback and produce unknown results. **Retry check** retries the same minute without clearing alert history.
 
-**Bounded scope:** the six questions are presets, not an unrestricted chat interface. In explicit `--offline` mode, SQL templates and deterministic decisions replace the models.
+This is a bounded, single-user demo. DuckDB supplies the local database. ClickHouse, MCP and external notification destinations are not connected. `--offline` explicitly uses reviewed SQL and deterministic decisions instead of model calls.
 
-**Database:** DuckDB stands in for the diagram's ClickHouse service, so the demo needs no running Docker engine. This is a real local database, not canned UI responses. A ClickHouse version would need a database adapter and SQL dialect changes.
+## Baselines and structure checks
 
-**Actions:** the local task list demonstrates the last architecture step. MCP, email, Slack and external APIs are not connected. Nothing is sent outside the app.
+- Reserves: 174 historical observations across 2023–2025, July 8–August 5, comparing the same UTC hour (the same local hour in July).
+- Congestion: 91 days of hourly history plus minute-level incoming readings; the percentile uses available observations in the preceding 90 days and excludes the current reading.
+- All timestamps are stored in UTC and displayed in Eastern time.
+- Database structure is checked at startup, every 24 hours and on demand. Changes pause playback until reset. Missing readings produce unknown results and do not clear an existing alert.
 
-**Schema checks:** run at startup, every 24 hours of server uptime, and on demand. A changed structure pauses playback until reset; this demo does not use a model to repair SQL. A query failure produces an unknown result and pauses playback. Missing current rows produce an unknown result and do not close an existing incident.
+## Files
 
-**Historical comparisons:** reserve history has 174 observations across 2023–2025. Congestion history covers 91 days at hourly intervals; new observations arrive each minute. The percentile is over available observations, not time-weighted. All timestamps are stored in UTC and displayed in Eastern time. The July timing avoids daylight-saving ambiguity.
+All demo files are in this folder:
 
-All names, readings, lines and incidents are fictional. ERCOT and PJM are separate examples; the shared timeline does not establish causation.
+- `dataset.py`: reproducible readings and historical baselines.
+- `rules.py`: four watch definitions and independent reference SQL.
+- `live_models.py`: SQL generation, validation, batched decisions and API usage accounting.
+- `engine.py`: five-minute replay, checks, alerts and local tasks.
+- `server.py`, `static/`: local HTTP service and UI.
+- `runtime/grid.duckdb`: generated readings, checks, alerts and tasks.
+- `runtime/replay.csv`: full replay fixture, including future rows for offline inspection; running queries receive only ingested rows.
+- `runtime/model_plans.json`, `runtime/saved_rules.json`: generated and active query plans.
+- `runtime/model_calls.jsonl`, `runtime/setup_attempts.jsonl`: call usage and generated SQL attempts, without API keys.
+- `runtime/live_validation.json`: latest live replay validation report.
 
-## Files and generated data
+Runtime files are ignored by Git. Playback and watch switches reset on restart. API history is retained for accurate usage reporting, including earlier development runs.
 
-All demo files stay in this folder:
+## Usage and verification
 
-- `dataset.py` — tables, historical baselines and replay records.
-- `rules.py` — the five questions, definitions and read-only SQL plans.
-- `engine.py` — replay clock, data ingestion, checks, alert state and tasks.
-- `live_models.py` — model-generated SQL, fixture validation, batched decisions, summaries and actual token accounting.
-- `server.py` — loopback-only HTTP server and server-sent event stream.
-- `static/` — UI and a reference copy of the proposed architecture diagram.
-- `runtime/grid.duckdb` — generated database, including readings, checks, alerts and tasks.
-- `runtime/replay.csv` — the full reproducible replay fixture. It contains future replay rows intentionally; queries/UI receive only ingested rows.
-- `runtime/saved_rules.json` — the active SQL plans and definitions.
-- `runtime/model_plans.json` — validated model-generated queries with a configuration/schema cache key.
-- `runtime/setup_attempts.jsonl` — generated SQL from setup attempts.
-- `runtime/model_calls.jsonl` — API call metadata and actual provider-reported token usage (never the API key).
-- `runtime/live_validation.json` — the completed live replay validation report.
-
-Runtime files are ignored by Git. Watch switches and playback state are in memory; resetting/restarting returns to the initial state. This is a single-user demo, not a production notification service.
-
-## Prompt caching and usage
-
-The stable decision instructions and definitions precede the changing evidence. An explicit prefix cache breakpoint requests reuse with the Decisions API's supported 30-minute lifetime. The UI shows actual API calls, input/output tokens, cached input and cache writes across the saved call history, including setup/validation runs. A counter of zero means the provider reported no cached tokens; it is not replaced with an assumed discount. These are token counts, not a billing estimate.
-
-API references: [Decisions](https://developers.openai.com/api/docs/guides/decisions), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
-
-## Verify
+Stable instructions precede changing evidence, with an explicit cache breakpoint. The UI reports actual input/output tokens, cache reads and cache writes. Zero cached tokens means zero reported reuse; no discount is assumed. These counts are not a billing estimate.
 
 ```sh
 .venv/bin/python -m unittest discover -s experimental/grid-watch/tests -v
 node --check experimental/grid-watch/static/app.js
 ```
 
-The 15 offline tests make no API calls. They check the live integration with a fake provider, model-failure handling, SQL access restrictions, expected trigger times, strict thresholds, both sides of the combined condition, voltage/region exclusions, no future-data leakage, missing-data behavior, duplicate suppression, task idempotency, pause/reset, schema changes and the event timeline.
-
-A separate paid end-to-end replay was also completed: 205 SQL checks, all five expected first-trigger times, five recoveries, and a live event summary. Its report is in `runtime/live_validation.json`. Model behavior can vary on later runs.
+Offline tests cover trigger timing, five-minute polling, threshold boundaries, missing/future data, model failures, read-only access, repeated alerts, tasks and startup behavior. A paid live replay validates all four generated queries and decision outcomes.

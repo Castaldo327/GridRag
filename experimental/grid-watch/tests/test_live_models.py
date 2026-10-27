@@ -7,20 +7,18 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from dataset import START
 from engine import Engine
 from live_models import guarded_query, validation_connection, validate_plan
-from rules import RULES, REVIEW_SQL
+from rules import RULES
 from gridrag.db import QueryRejected
 
 class FakeModel:
     decision_model='test-decision-model'
     plans={r.id:r.sql.replace('?', '$as_of') for r in RULES}
-    plans['review']=REVIEW_SQL.replace('?', '$as_of')
     def prepare(self):pass
     def usage(self):return {'calls':1,'decision_model':self.decision_model}
     def decide(self,evidence):
         # Deliberately disagree with the SQL matched flag, proving the live model
         # (rather than that flag) selects the alert result.
         return {rid:{'result':'match' if rid=='reserves' else 'clear','probabilities':[]} for rid in evidence['readings']}
-    def review(self,at,events,alerts):return {'as_of':at,'summary':'Test summary','model':'test'}
 
 class LivePathTests(unittest.TestCase):
     def test_sql_guard_blocks_writes_files_extra_statements_and_other_tables(self):
@@ -34,12 +32,13 @@ class LivePathTests(unittest.TestCase):
     def test_sql_requires_bound_time_and_checks_future_leakage(self):
         c=validation_connection()
         try:
-            with self.assertRaises(ValueError):guarded_query(c,'SELECT * FROM source_events',START)
-            with self.assertRaises(ValueError):validate_plan(c,'review',"SELECT * FROM source_events WHERE ts >= CAST($as_of AS TIMESTAMP) ORDER BY ts")
-            validate_plan(c,'review',REVIEW_SQL.replace('?', '$as_of'))
+            with self.assertRaises(ValueError):guarded_query(c,'SELECT * FROM load_readings',START)
+            sql="SELECT ts, actual_mw, forecast_mw, round(100.0*(actual_mw/forecast_mw-1),2) AS above_forecast_pct FROM load_readings WHERE zone='Dominion' AND ts=$as_of"
+            with self.assertRaises(ValueError):validate_plan(c,'forecast_gap',sql.replace('ts=$as_of','ts>=$as_of'))
+            validate_plan(c,'forecast_gap',sql)
         finally:c.close()
 
-    def test_live_decision_controls_result_and_review_is_model_backed(self):
+    def test_live_decision_controls_result(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as tmp:
             e=Engine(tmp,model=FakeModel())
             try:
@@ -47,7 +46,6 @@ class LivePathTests(unittest.TestCase):
                 self.assertFalse(e.states['reserves']['evidence']['matched'])
                 self.assertEqual(e.snapshot()['mode'],'live')
                 self.assertEqual(e.states['reserves']['decision_source'],'test-decision-model')
-                self.assertEqual(e.generate_review()['summary'],'Test summary')
             finally:e.close()
 
     def test_model_failure_is_unknown_and_pauses_without_scripted_fallback(self):

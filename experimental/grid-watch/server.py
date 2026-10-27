@@ -72,8 +72,6 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path=='/api/tasks':
                 task=engine.create_task(body.get('alert_id'))
                 return self.send(200,{'task':task})
-            elif self.path=='/api/review':
-                return self.send(200,engine.generate_review())
             elif self.path=='/api/schema': return self.send(200,engine.validate_schema())
             else: return self.send(404,{'error':'Not found'})
             return self.send(200,engine.snapshot())
@@ -91,12 +89,20 @@ def main():
     parser.add_argument('--play',action='store_true',help='Start the replay immediately.')
     parser.add_argument('--offline',action='store_true',help='Use scripted SQL and decisions without API calls.')
     args=parser.parse_args()
-    model=None
-    if not args.offline:
-        from live_models import LiveModels
-        model=LiveModels()
-    engine=Engine(model=model)
-    server=Server(('127.0.0.1',args.port),Handler)
+    # Reserve the listening port before any model call or runtime-data rebuild.
+    try:
+        server=Server(('127.0.0.1',args.port),Handler)
+    except OSError as exc:
+        raise SystemExit(f'Cannot listen on port {args.port}: {exc}. Existing demo data was not changed.') from None
+    try:
+        model=None
+        if not args.offline:
+            from live_models import LiveModels
+            model=LiveModels()
+        engine=Engine(model=model)
+    except BaseException:
+        server.server_close()
+        raise
     server.engine=engine
     if args.play: engine.control('play')
     worker=threading.Thread(target=engine.loop,daemon=True)
