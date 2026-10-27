@@ -44,7 +44,8 @@ def case_info(case: Case) -> dict:
     """Public case description and reference value, independent of model output."""
     return {"id": case.id, "label": case.label or case.id.replace("_", " ").title(),
             "question": case.question, "expected_state": case.state,
-            "expected": reference_value(case) if case.sql else None, "unit": case.unit}
+            "expected": reference_value(case) if case.sql else None, "unit": case.unit,
+            "verification": case.verification}
 
 
 def assess(case: Case, result: dict) -> dict:

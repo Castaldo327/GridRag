@@ -63,6 +63,9 @@ class AppTests(unittest.TestCase):
         self.assertEqual([c["id"] for c in meta["evaluation_cases"]], [case.id for case in CASES])
         self.assertEqual(meta["evaluation_cases"][0]["expected_state"], "answered")
         self.assertIsInstance(meta["evaluation_cases"][0]["expected"], float)
+        hard = next(c for c in meta["evaluation_cases"] if c["id"] == "spread_forecast_error")
+        self.assertAlmostEqual(hard["expected"], -418.53)
+        self.assertIn("09:00 UTC", hard["verification"])
         self.assertIsNone(meta["evaluation_cases"][-1]["expected"])
         self.assertNotIn("sql", meta["evaluation_cases"][0])
 

@@ -188,6 +188,7 @@ h1 { font-size: clamp(34px, 3vw, 44px); letter-spacing: -.04em; font-weight: 650
 .evaluation-case-head > div { flex: 1; min-width: 0; }
 .evaluation-case-head strong { font-size: 14px; }
 .evaluation-case-head p { margin: 5px 0; color: #4f5d54; font-size: 12px; line-height: 1.5; }
+.evaluation-case-head .evaluation-verification { margin-top: 9px; color: #315e3e; }
 .evaluation-case-head small { color: #7a857d; font-size: 11px; }
 .badge.active { background: #e6f2e9; color: #2d7950; }
 .evaluation-result { margin: 14px 0 0 45px; padding-top: 12px; border-top: 1px solid #e3e8e4; }

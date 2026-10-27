@@ -248,7 +248,8 @@ function paintEvaluation() {
     const calls = result?.tool_calls || [];
     return `<article class="evaluation-case ${statusClass}">
       <div class="evaluation-case-head"><span class="case-index">${String(i + 1).padStart(2, "0")}</span>
-        <div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>Expected: ${expected}</small></div>
+        <div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>Expected: ${expected}</small>
+          ${c.verification ? `<p class="evaluation-verification"><b>Warehouse verification:</b> ${esc(c.verification)}</p>` : ""}</div>
         <span class="badge ${statusClass}">${status}</span></div>
       ${entry?.error ? `<p class="error">${esc(entry.error)}</p>` : ""}
       ${assessment ? `<details class="evaluation-result" data-case-id="${esc(c.id)}" ${expanded.has(c.id) ? "open" : ""}>
