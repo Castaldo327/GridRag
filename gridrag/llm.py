@@ -84,9 +84,19 @@ def call_cost(kind: str, usage: dict) -> float:
 class LLM:
     """One question's model calls, each recorded with the stage that made it."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, api_key: str | None = None) -> None:
         self.calls: list[ModelCall] = []
         self._lock = threading.Lock()  # protect per-request usage if callers share an LLM
+        # Visitor credentials belong to this request, never the shared process client.
+        self._provider = (OpenAI(api_key=api_key, timeout=config.settings.call_timeout_s,
+                                 max_retries=config.settings.api_max_retries) if api_key else None)
+
+    def close(self) -> None:
+        if self._provider is not None:
+            self._provider.close()
+
+    def _client(self) -> OpenAI:
+        return self._provider if self._provider is not None else client()
 
     def _record(self, call: ModelCall) -> None:
         with self._lock:
@@ -118,7 +128,7 @@ class LLM:
     def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]:
         """One Decisions request; answers keyed by question name (a refused question is absent)."""
         resp = self._request(
-            "decisions", stage, client().decisions.create,
+            "decisions", stage, self._client().decisions.create,
             model=config.settings.decisions_model, input=input_text, questions=questions,
         )
         return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
@@ -127,7 +137,7 @@ class LLM:
                 on_text: Callable[[str], None] | None = None, **kwargs: Any) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
         settings = config.settings
-        responses = client().responses
+        responses = self._client().responses
 
         def stream_response(**options):
             # The SDK assembles tool calls and final usage while text deltas reach the UI.

@@ -3,56 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ask the grid · GridRag</title>
-  <link rel="icon" href="/static/logo-mark.png">
-  <link rel="stylesheet" href="/static/app.css?v=demo-15">
+  <meta name="theme-color" content="#163c3a">
+  <meta name="description" content="Explore energy markets, ask questions, and inspect the evidence in a single workspace.">
+  <title>Ask the grid · Energy workspace</title>
+  <link rel="icon" type="image/svg+xml" href="/static/energy-mark.svg">
+  <link rel="stylesheet" href="/static/app.css?v=workspace-2">
 </head>
 <body>
-  <header class="topbar" aria-label="Grid status navigation">
-    <div class="topbar-brand"><img src="/static/logo-mark.png" alt=""><strong>Grid Status</strong></div>
-    <span class="topbar-divider" aria-hidden="true">/</span>
-    <span class="topbar-current">All</span>
-    <div class="topbar-regions" aria-hidden="true"><span>ERCOT</span><span>PJM</span><span>CAISO</span><span>SPP</span><span>MISO</span><span>NYISO</span><span>ISONE</span><span>IESO</span></div>
-  </header>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Preview navigation">
-      <div class="sidebar-account"><span class="account-avatar" aria-hidden="true">●</span>Personal account <span class="account-chevron">‹</span></div>
-      <div class="sidebar-group">
-        <div class="sidebar-item"><span class="nav-icon">ϟ</span>Live <span class="nav-chevron">›</span></div>
-        <div class="sidebar-item"><span class="nav-icon">▤</span>Insights</div>
-        <div class="sidebar-item"><span class="nav-icon">◇</span>Maps <span class="nav-chevron">›</span></div>
-        <div class="sidebar-item"><span class="nav-icon">▦</span>Charts &amp; Dashboards</div>
-      </div>
-      <div class="sidebar-group">
-        <div class="sidebar-item"><span class="nav-icon">◎</span>Nodal Analysis</div>
-        <div class="sidebar-item"><span class="nav-icon">◴</span>Forecast Analysis</div>
-        <div class="sidebar-item"><span class="nav-icon">⌁</span>Interconnection</div>
-      </div>
-      <div class="sidebar-group">
-        <div class="sidebar-item"><span class="nav-icon">↗</span>Trends</div>
-        <div class="sidebar-item"><span class="nav-icon">♜</span>Record Tracker</div>
-        <div class="sidebar-item"><span class="nav-icon">♧</span>Alerts</div>
-        <div class="sidebar-item"><span class="nav-icon">⚑</span>EIA Browser</div>
-      </div>
-      <div class="sidebar-group">
-        <div class="sidebar-item"><span class="nav-icon">▣</span>Data Catalog</div>
-        <div class="sidebar-item"><span class="nav-icon">▤</span>Export Data</div>
-      </div>
-      <div class="sidebar-group sidebar-service">
-        <span class="sidebar-caption">GRIDRAG SERVICE</span>
-        <a class="sidebar-item selected" data-view-link="ask" href="#ask" aria-current="page"><span class="nav-icon">✧</span>Ask the grid <span class="nav-chevron">›</span></a>
-        <a class="sidebar-item" data-view-link="evaluation" href="#evaluation"><span class="nav-icon">▤</span>Evaluation <span class="nav-chevron">›</span></a>
-      </div>
-      <div class="sidebar-bottom">
-        <div class="contact-preview">Contact Us</div>
-        <div class="sidebar-item jump-preview"><span class="nav-icon">⌕</span>Jump to <small>⌘+K</small></div>
-        <div class="sidebar-item"><span class="nav-icon">⊞</span>All Apps</div>
-        <div class="sidebar-item"><span class="nav-icon">▤</span>Resources</div>
-        <div class="sidebar-item"><span class="nav-icon">⚙</span>Settings</div>
-      </div>
+    <aside class="sidebar" aria-label="Workspace navigation">
+      <a class="brand" href="#ask" aria-label="Energy workspace home">
+        <img src="/static/energy-mark.svg" width="38" height="38" alt="">
+        <span>Energy<span class="brand-subtitle">INTELLIGENCE WORKSPACE</span></span>
+      </a>
+      <div class="sidebar-account"><span class="account-avatar" aria-hidden="true">S</span><div>Sunairio<small>Demo workspace</small></div><span class="workspace-dot" aria-hidden="true"></span></div>
+      <nav class="sidebar-service" aria-label="Analysis tools">
+        <span class="sidebar-caption">EXPLORE</span>
+        <a class="sidebar-item selected" data-view-link="ask" href="#ask" aria-current="page"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 9.5 3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5Z"/></svg>Ask the grid<span class="nav-chevron" aria-hidden="true">↗</span></a>
+        <a class="sidebar-item" data-view-link="evaluation" href="#evaluation"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H5v16h14V5h-4M9 3h6v4H9zM8 12l2 2 5-5M8 18h8"/></svg>Evaluation<span class="nav-chevron" aria-hidden="true">↗</span></a>
+      </nav>
+      <div class="sidebar-note"><span class="sidebar-caption">FROM QUESTION TO INSIGHT</span><p>Explore the data.<br>Understand the answer.<br>See the evidence.</p><div class="mini-flow" aria-hidden="true"><span>Ask</span><i></i><span>Query</span><i></i><span>Discover</span></div></div>
+      <div class="sidebar-bottom"><span class="workspace-dot" aria-hidden="true"></span><div>Synthetic data environment<small>For exploration and demonstration</small></div></div>
     </aside>
-    <main class="content-area"><div class="content-heading"><span>GRIDRAG / ANALYSIS</span><strong id="view-title">Ask the grid</strong><nav class="view-tabs" aria-label="GridRag views"><a data-view-link="ask" href="#ask" aria-current="page">Ask the grid</a><a data-view-link="evaluation" href="#evaluation">Evaluation</a></nav><span class="content-heading-end">Synthetic warehouse <i></i> Ready</span></div><div id="main" class="main"></div></main>
+    <main class="content-area">
+      <header class="content-heading"><div class="breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong id="view-title">Ask the grid</strong></div><span class="environment-badge"><i aria-hidden="true"></i>Demo environment</span></header>
+      <nav class="view-tabs" aria-label="Analysis tools"><a data-view-link="ask" href="#ask" aria-current="page">Ask the grid</a><a data-view-link="evaluation" href="#evaluation">Evaluation</a></nav>
+      <div id="main" class="main" tabindex="-1"></div>
+      <footer class="workspace-footer"><span>Energy intelligence, grounded in data.</span><span>Sunairio · Demo workspace</span></footer>
+    </main>
   </div>
-  <script src="/static/app.js?v=demo-15"></script>
+  <script src="/static/app.js?v=workspace-2"></script>
 </body>
 </html>

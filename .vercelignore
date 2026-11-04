@@ -1,0 +1,14 @@
+.git
+.venv
+.env
+.env.*
+.aws
+.agents
+.codex
+.mypy_cache
+.interview-build
+experimental
+output
+public
+data
+**/__pycache__

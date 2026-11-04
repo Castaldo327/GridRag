@@ -31,10 +31,11 @@ def send(head, body=b""):
                                   if b"application/x-ndjson" in headers else json.loads(result))
 
 
-def post(payload, origin="http://localhost:8000", stream=False):
+def post(payload, origin="http://localhost:8000", stream=False, api_key=None):
     body = json.dumps(payload).encode()
     accept = "application/x-ndjson" if stream else "application/json"
-    return send(f"POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\nAccept: {accept}\r\n"
+    auth = f"Authorization: Bearer {api_key}\r\n" if api_key is not None else ""
+    return send(f"POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\nAccept: {accept}\r\n{auth}"
                 f"Content-Type: application/json\r\nContent-Length: {len(body)}", body)
 
 
@@ -124,5 +125,70 @@ class AppTests(unittest.TestCase):
         with patch("app.__main__.answer") as model:
             self.assertEqual(post_evaluation("https://unrelated.example")[0], 403)
             with patch.object(config, "settings", replace(config.settings, openai_api_key="")):
-                self.assertEqual(post_evaluation()[0], 503)
+                self.assertEqual(post_evaluation()[0], 401)
             model.assert_not_called()
+
+    def test_hosted_requests_require_a_visitor_key_even_with_an_owner_key(self):
+        with (patch.object(Handler, "require_visitor_key", True),
+              patch.object(config, "settings", replace(config.settings, openai_api_key="owner-secret")),
+              patch("app.__main__.answer") as model):
+            status, meta = send("GET /api/meta HTTP/1.1\r\nHost: localhost:8000")
+            self.assertEqual(status, 200)
+            self.assertFalse(meta["model_ready"])
+            self.assertTrue(meta["requires_api_key"])
+            self.assertNotIn("owner-secret", json.dumps(meta))
+            self.assertEqual(post({"question": "demand?"}, "https://localhost:8000")[0], 401)
+            self.assertEqual(post_evaluation("https://localhost:8000")[0], 401)
+            model.assert_not_called()
+
+    def test_visitor_credentials_are_request_scoped_and_clients_are_closed(self):
+        with (patch.object(Handler, "require_visitor_key", True),
+              patch("app.__main__.LLM") as factory,
+              patch("app.__main__.answer", return_value={"state": "answered", "answer": "example"}) as model):
+            for key in ("sk-first-visitor-key", "sk-second-visitor-key"):
+                status, _ = post({"question": "demand?"}, "https://localhost:8000", api_key=key)
+                self.assertEqual(status, 200)
+                factory.assert_called_with(api_key=key)
+                self.assertIs(model.call_args.kwargs["llm"], factory.return_value)
+            self.assertEqual(factory.return_value.close.call_count, 2)
+            self.assertEqual(post({"question": "demand?"}, "https://localhost:8000")[0], 401)
+            self.assertEqual(model.call_count, 2)
+
+    def test_invalid_keys_and_cross_origin_requests_do_not_reach_the_model(self):
+        with patch("app.__main__.answer") as model:
+            for key in ("bad", "sk-", "sk-" + "x" * 501, "sk-with spaces in it"):
+                self.assertEqual(post({"question": "demand?"}, api_key=key)[0], 401)
+            self.assertEqual(post({"question": "demand?"}, "https://elsewhere.example",
+                                  api_key="sk-valid-shaped-test-key")[0], 403)
+            model.assert_not_called()
+
+    def test_one_evaluation_case_streams_using_the_visitor_key(self):
+        body = json.dumps({"id": CASES[0].id}).encode()
+        headers = ("POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
+                   "Origin: https://localhost:8000\r\nAuthorization: Bearer sk-visitor-test-key\r\n"
+                   "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
+                   f"Content-Length: {len(body)}")
+        def fake_answer(question, llm, on_progress):
+            self.assertEqual(question, CASES[0].question)
+            on_progress({"stage": "gate"})
+            return {"usage": {"cost_usd": 0.01}}
+        with (patch.object(Handler, "require_visitor_key", True),
+              patch("app.__main__.LLM") as factory,
+              patch("app.__main__.answer", side_effect=fake_answer),
+              patch("app.__main__.assess", return_value={"id": CASES[0].id, "passed": True})):
+            status, events = send(headers, body)
+            self.assertEqual(status, 200)
+            self.assertEqual(events[-1]["summary"]["total"], 1)
+            self.assertEqual(events[-1]["summary"]["passed"], 1)
+            factory.assert_called_once_with(api_key="sk-visitor-test-key")
+            factory.return_value.close.assert_called_once()
+
+    def test_bad_evaluation_case_is_rejected_before_model_calls(self):
+        for payload in ({"id": "missing"}, [], {}):
+            body = json.dumps(payload).encode()
+            with patch("app.__main__.answer") as model:
+                status, _ = send("POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
+                                 "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
+                                 f"Content-Length: {len(body)}", body)
+                self.assertEqual(status, 400)
+                model.assert_not_called()

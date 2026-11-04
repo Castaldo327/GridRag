@@ -3,8 +3,12 @@ data/
 
 # python
 .venv/
-.env
+.env*
 __pycache__/
 
 # macOS metadata
 .DS_Store
+
+# hosting output and local Vercel project credentials
+.vercel/
+public/

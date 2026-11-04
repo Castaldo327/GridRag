@@ -1,4 +1,4 @@
-const state = { meta: null, result: null, running: false, error: "", progress: {}, runs: new Map(),
+const state = { apiKey: "", keyMessage: "", meta: null, result: null, running: false, error: "", progress: {}, runs: new Map(),
   evaluation: { running: false, active: null, stage: null, results: new Map(), summary: null, error: "" } };
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -7,19 +7,41 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
 const md = (value) => esc(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 const number = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const seconds = value => value == null ? "—" : `${Number(value).toFixed(2)} s`;
+const modelReady = () => Boolean(state.apiKey || state.meta?.model_ready);
+const requestHeaders = () => ({ "Content-Type": "application/json", "Accept": "application/x-ndjson",
+  ...(state.apiKey ? { "Authorization": `Bearer ${state.apiKey}` } : {}) });
 const preset = () => state.meta.presets.find(p => p.question === $("#question").value.trim());
 
 function render() {
   $("#main").innerHTML = `
+    <section class="api-access panel" aria-labelledby="api-key-heading">
+      <div class="api-access-intro"><span class="eyebrow">TRY IT YOURSELF</span><h2 id="api-key-heading">Bring your own OpenAI key.</h2>
+        <p>Your key stays in this tab’s memory and is sent securely to this app’s server to call OpenAI. It is never saved. API usage is billed to your OpenAI account.</p>
+        <small>Models: ${esc(state.meta.models?.decisions || "configured decision model")} · ${esc(state.meta.models?.answer || "configured answer model")} · Requires Decisions and Responses API access.</small></div>
+      <form id="api-key-form" class="api-key-form" autocomplete="off">
+        <label for="api-key">OpenAI API key</label><div class="api-key-controls"><input id="api-key" type="password" name="visitor-api-key" maxlength="503" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="api-key-status"><button id="save-key" type="submit">Use key</button><button id="clear-key" type="button" hidden>Remove</button></div>
+        <span id="api-key-status" role="status"></span>
+        <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
+      </form>
+    </section>
     <div id="ask-view">
     <section class="hero panel">
-      <span class="eyebrow">SYNTHETIC DATA</span>
-      <h1>Ask the grid.</h1>
-      <p>Explore demand, generation, prices, and projects. Follow a question from schema selection to SQL and an answer backed by data.</p>
+      <span class="eyebrow">ENERGY INTELLIGENCE · SYNTHETIC DATA</span>
+      <h1>A clearer view of the grid.</h1>
+      <p>Explore demand, generation, prices, and projects. Ask in plain language and get an answer you can trace back to the data.</p>
+      <div class="market-strip" aria-label="Available energy markets">${state.meta.isos.map(iso => `<span>${esc(iso)}</span>`).join("")}<small>${state.meta.catalog_tables} tables · ${state.meta.isos.length} markets</small></div>
       <aside class="data-window" id="data-window" aria-label="Synthetic data coverage">
         <strong>Data ends October 21, 2026 · This is a fixed snapshot, not live data.</strong>
         <span>Start with a region, a measure, and a date in the ranges below. Use specific dates rather than “today.”</span>
       </aside>
+      <form id="ask-form" class="ask-form">
+        <label class="sr-only" for="question">Your question</label>
+        <textarea id="question" aria-describedby="data-window" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Try: What was ERCOT’s peak demand on October 19, 2026?"></textarea>
+        <button id="ask-button" type="submit">Ask the grid →</button>
+      </form>
+      <p class="preset-hint">A place to start. Choose a question, then make it yours.</p>
+      <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
+        <button type="button" data-preset="${i}" title="${esc(p.question)}" aria-label="${esc(p.label)}: ${esc(p.question)}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("")}</div>
       <details class="question-guide">
         <summary>What can I ask?</summary>
         <div class="guide-grid">
@@ -31,16 +53,8 @@ function render() {
         <p class="guide-regions"><strong>Region names:</strong> ${state.meta.isos.map(esc).join(" · ")}. CAISO is California; ERCOT is Texas. Dates use each region’s local time unless you ask for UTC.</p>
         <button class="guide-example" type="button" data-question="What was CAISO's highest hourly solar generation in MW on October 19, 2026?">Try: CAISO’s highest hourly solar generation on October 19, 2026 →</button>
       </details>
-      <p class="preset-hint">Choose a question to edit, then select <strong>Ask the grid</strong>.</p>
-      <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
-        <button type="button" data-preset="${i}"><b>${esc(p.label)}</b><span>${esc(p.question)}</span></button>`).join("")}</div>
-      <form id="ask-form" class="ask-form">
-        <label class="sr-only" for="question">Your question</label>
-        <textarea id="question" aria-describedby="data-window" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Try: What was ERCOT’s peak demand on October 19, 2026?"></textarea>
-        <button id="ask-button" type="submit">Ask the grid →</button>
-      </form>
       <p class="coverage">${state.meta.catalog_tables} catalog tables · ${state.meta.isos.length} ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
-      ${state.meta.model_ready ? "" : '<p class="error">Model not configured. Add OPENAI_API_KEY to .env to ask questions or run evaluations.</p>'}
+
     </section>
     <div class="workspace">
       <section class="panel flow-panel">
@@ -64,11 +78,27 @@ function render() {
       <div class="evaluation-intro"><div><span class="eyebrow">FULL SUITE</span><h1>Evaluation</h1>
         <p>Run all ${state.meta.evaluation_cases?.length || 0} shared questions, including answer, clarification, and decline cases. Each case checks its state, routing, SQL, numeric evidence, and final answer where applicable.</p></div>
         <div class="evaluation-action"><button id="evaluation-run" type="button">Run all evaluations →</button>
-          <small>${state.meta.model_ready ? "Uses the configured model API and may incur charges." : "Add OPENAI_API_KEY to .env to run the suite."}</small></div></div>
+          <small>Runs each case with your active API key. API usage may incur charges.</small></div></div>
       <div id="evaluation-summary" class="evaluation-summary" role="status"></div>
       <div id="evaluation-cases" class="evaluation-cases"></div>
       <p class="footnote">A pass confirms these checks. Inspect the SQL and answer before treating a response as correct.</p>
     </section>`;
+  $("#api-key-form").onsubmit = event => {
+    event.preventDefault();
+    if (state.running || state.evaluation.running) return;
+    const key = $("#api-key").value.trim();
+    if (!/^sk-[A-Za-z0-9_-]{10,500}$/.test(key)) {
+      state.keyMessage = "Enter a valid OpenAI API key beginning with sk-.";
+      paintKey(); return;
+    }
+    state.apiKey = key; state.keyMessage = ""; $("#api-key").value = "";
+    paint(); paintEvaluation();
+  };
+  $("#clear-key").onclick = () => {
+    if (state.running || state.evaluation.running) return;
+    state.apiKey = ""; state.keyMessage = ""; $("#api-key").value = "";
+    paint(); paintEvaluation();
+  };
   $("#ask-form").onsubmit = e => { e.preventDefault(); ask(); };
   $("#question").oninput = () => { state.result = null; state.error = ""; state.progress = {}; paintPresets(); paint(); };
   document.querySelectorAll("[data-preset]").forEach(button => {
@@ -100,7 +130,7 @@ function showView() {
   $("#ask-view").hidden = view !== "ask";
   $("#evaluation-view").hidden = view !== "evaluation";
   $("#view-title").textContent = view === "ask" ? "Ask the grid" : "Evaluation";
-  document.title = `${view === "ask" ? "Ask the grid" : "Evaluation"} · GridRag`;
+  document.title = `${view === "ask" ? "Ask the grid" : "Evaluation"} · Energy workspace`;
   document.querySelectorAll("[data-view-link]").forEach(link => {
     const selected = link.dataset.viewLink === view;
     link.classList.toggle("selected", selected);
@@ -117,7 +147,20 @@ function paintPresets() {
   });
 }
 
+function paintKey() {
+  const busy = state.running || state.evaluation.running;
+  $("#api-key").disabled = busy;
+  $("#save-key").disabled = busy;
+  $("#save-key").textContent = state.apiKey ? "Replace key" : "Use key";
+  $("#clear-key").hidden = !state.apiKey;
+  $("#clear-key").disabled = busy;
+  $("#api-key").placeholder = state.apiKey ? "Key added for this tab" : "sk-…";
+  $("#api-key-status").textContent = state.keyMessage || (state.apiKey ? "Key added for this tab. Reloading or closing this tab removes it." : state.meta.model_ready ? "Using the local server’s configured key. You can use your own instead." : "Add your key above to ask a question or run evaluations.");
+  $("#api-key-status").classList.toggle("error", Boolean(state.keyMessage));
+}
+
 function paint() {
+  paintKey();
   const r = state.result, route = r?.route || state.progress.route, gate = r?.gate || state.progress.gate;
   const calls = r?.tool_calls || state.progress.tool_calls || [];
   const active = state.running ? state.progress.stage : null;
@@ -148,7 +191,7 @@ function paint() {
     `<div class="answer-text">${md(r.answer)}</div>` : state.running && state.progress.answer_text ?
     `<div class="answer-text">${md(state.progress.answer_text)}</div>` : state.running ?
     `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
-    '<p class="empty">Choose a preset or write a question, then ask the grid.</p>';
+    '<div class="empty"><span class="empty-symbol" aria-hidden="true">✧</span><strong>Your next insight starts here.</strong><span>Choose a question or write your own. Your answer and supporting evidence will appear here.</span></div>';
   $("#details-panel").hidden = !calls.length;
   $("#details").innerHTML = calls.map((call, i) => `<details class="evidence-item" ${i === calls.length - 1 ? "open" : ""}>
     <summary>Query ${i + 1} · ${call.error ? "error" : `${call.rows} result rows`}</summary>
@@ -168,7 +211,7 @@ function paint() {
       ${calls.map((call, i) => call.execution_seconds == null ? "" : `<span>Database query ${i + 1} <b>${seconds(call.execution_seconds)}</b></span>`).join("")}</div>
       <p class="footnote">Model times include network waits and SDK retries. Database times include SQL checks and result formatting.</p>
     </details>`;
-  $("#ask-button").disabled = state.running || state.evaluation.running || !state.meta.model_ready;
+  $("#ask-button").disabled = state.running || state.evaluation.running || !modelReady();
   $("#ask-button").textContent = state.running ? "Running…" : "Ask the grid →";
   $("#question").disabled = state.running || state.evaluation.running;
   document.querySelectorAll("[data-preset], [data-question]").forEach(b => { b.disabled = state.running || state.evaluation.running; });
@@ -176,12 +219,12 @@ function paint() {
 
 async function ask() {
   const question = $("#question").value.trim();
-  if (!question || state.running || state.evaluation.running) return;
+  if (!question || state.running || state.evaluation.running || !modelReady()) return;
   const p = preset();
   state.running = true; state.result = null; state.error = ""; state.progress = {}; paint(); paintEvaluation();
   try {
     const response = await fetch("/api/ask", {
-      method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson" }, body: JSON.stringify({ question }),
+      method: "POST", headers: requestHeaders(), body: JSON.stringify({ question }),
     });
     if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
     const reader = response.body.getReader(), decoder = new TextDecoder();
@@ -225,7 +268,7 @@ function paintEvaluation() {
   const completed = e.results.size;
   const passed = [...e.results.values()].filter(item => item.assessment?.passed).length;
   const stageNames = { gate: "Checking request", route: "Selecting schema", sql: "Running SQL", answer: "Answering" };
-  $("#evaluation-run").disabled = e.running || state.running || !state.meta.model_ready || !cases.length;
+  $("#evaluation-run").disabled = e.running || state.running || !modelReady() || !cases.length;
   $("#evaluation-run").textContent = e.running ? "Evaluation running…" : `Run all ${cases.length} evaluations →`;
   $("#evaluation-summary").innerHTML = e.error ? `<span class="error">${esc(e.error)}</span>` :
     e.summary ? `<strong>${e.summary.passed} of ${e.summary.total} passed</strong><span>${seconds(e.summary.seconds)} total · Estimated $${Number(e.summary.cost_usd).toFixed(5)} model cost</span>` :
@@ -262,36 +305,45 @@ function paintEvaluation() {
 }
 
 async function runEvaluation() {
-  const e = state.evaluation;
-  if (e.running || state.running || !state.meta.model_ready || !state.meta.evaluation_cases?.length) return;
+  const e = state.evaluation, cases = state.meta.evaluation_cases || [];
+  if (e.running || state.running || !modelReady() || !cases.length) return;
   e.running = true; e.active = null; e.stage = null; e.results.clear(); e.summary = null; e.error = "";
   paintEvaluation(); paint();
+  const started = performance.now();
+  let passed = 0, cost = 0;
   try {
-    const response = await fetch("/api/evaluate", { method: "POST", headers: { "Accept": "application/x-ndjson" } });
-    if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
-    const reader = response.body.getReader(), decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line);
-          if (event.type === "error") throw new Error(event.error);
-          if (event.type === "case_start") { e.active = event.id; e.stage = null; }
-          if (event.type === "case_progress") e.stage = event.stage;
-          if (event.type === "case_done") { e.results.set(event.assessment.id, event); e.active = null; e.stage = null; }
-          if (event.type === "case_error") { e.results.set(event.id, event); e.active = null; e.stage = null; }
-          if (event.type === "done") e.summary = event.summary;
-          paintEvaluation();
+    // One bounded request per case keeps the full suite within hosting time limits.
+    for (const c of cases) {
+      const response = await fetch("/api/evaluate-case", {
+        method: "POST", headers: requestHeaders(), body: JSON.stringify({ id: c.id }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      let buffer = "", summary = null;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line);
+            if (event.type === "error") throw new Error(event.error);
+            if (event.type === "case_start") { e.active = event.id; e.stage = null; }
+            if (event.type === "case_progress") e.stage = event.stage;
+            if (event.type === "case_done") { e.results.set(event.assessment.id, event); e.active = null; e.stage = null; }
+            if (event.type === "case_error") { e.results.set(event.id, event); e.active = null; e.stage = null; }
+            if (event.type === "done") summary = event.summary;
+            paintEvaluation();
+          }
+          if (done || summary) break;
         }
-        if (done || e.summary) break;
-      }
-      if (!e.summary) throw new Error("The evaluation connection ended early. Completed cases remain below; retry to run the full suite.");
-    } finally { await reader.cancel(); }
+        if (!summary) throw new Error("The evaluation connection ended early. Completed cases remain below; retry to run the full suite.");
+        passed += summary.passed; cost += summary.cost_usd;
+      } finally { await reader.cancel(); }
+    }
+    e.summary = { passed, total: cases.length, cost_usd: cost, seconds: (performance.now() - started) / 1000 };
   } catch (error) {
     e.error = error.message || "Could not run the evaluation. Please retry.";
   } finally {

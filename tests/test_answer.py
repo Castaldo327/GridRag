@@ -1,6 +1,7 @@
 """A failing stage becomes a failed record, never a crash or a silent fallback. No provider calls."""
 
 import unittest
+from openai import AuthenticationError
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -18,6 +19,18 @@ def model(**methods):
 
 
 class FailureTests(unittest.TestCase):
+    def test_provider_auth_errors_never_expose_the_key_in_logs_or_answers(self):
+        key = "sk-private-visitor-test-key"
+        response = SimpleNamespace(status_code=401, request=SimpleNamespace(), headers={})
+        error = AuthenticationError(f"Incorrect API key provided: {key}", response=response, body={"key": key})
+        with (patch.object(answer, "gate", side_effect=error),
+              self.assertLogs("gridrag.answer", level="ERROR") as logs):
+            result = answer.answer("What was ERCOT demand?")
+        self.assertEqual(result["state"], State.FAILED)
+        self.assertIn("not accepted", result["answer"])
+        self.assertNotIn(key, str(result))
+        self.assertNotIn(key, "\n".join(logs.output))
+
     def test_gate_outage_is_a_failure_not_a_refusal_and_hides_details(self):
         with (patch.object(answer, "gate", side_effect=RuntimeError("secret diagnostic")),
               self.assertLogs("gridrag.answer", level="ERROR") as logs):

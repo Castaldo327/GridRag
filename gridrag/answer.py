@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from openai import APIError, AuthenticationError, PermissionDeniedError, RateLimitError
+
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.gate import gate
@@ -76,8 +78,19 @@ def answer(question: str, llm: Model | None = None, on_progress: Callable[[Progr
     except (BrokenPipeError, ConnectionResetError):
         raise
     except Exception as exc:
-        logger.exception("Question failed during %s", trace.stage)
-        record = trace.record(State.FAILED, "The question could not be completed. Please try again.")
+        message = "The question could not be completed. Please try again."
+        if isinstance(exc, APIError):
+            # Provider exception bodies can contain credentials. Do not log them.
+            logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
+            if isinstance(exc, AuthenticationError):
+                message = "Your API key was not accepted. Replace it and try again."
+            elif isinstance(exc, PermissionDeniedError):
+                message = "Your API key does not have access to the configured model or API. Check your project permissions."
+            elif isinstance(exc, RateLimitError):
+                message = "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
+        else:
+            logger.exception("Question failed during %s", trace.stage)
+        record = trace.record(State.FAILED, message)
         record["error"] = type(exc).__name__
         if trace.stage is not None:
             record["stage"] = trace.stage

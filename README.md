@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/static/logo-mark.png" alt="Grid Status logo" width="96" height="96">
+  <img src="app/static/energy-mark.svg" alt="Energy workspace icon" width="96" height="96">
 </p>
 <h1 align="center">GridRag</h1>
 <p align="center"><strong>Ask the grid.</strong><br>
@@ -70,8 +70,9 @@ uv run python -m gridrag.warehouse.build
 uv run python -m app
 ```
 
-Open **http://127.0.0.1:8000**. Add `OPENAI_API_KEY=your-key` to a local `.env`
-to run model questions. The database build is deterministic and requires no API
+Open **http://127.0.0.1:8000**. Paste your OpenAI API key into the **Bring your own
+OpenAI key** field and select **Use key**. Alternatively, set `OPENAI_API_KEY=your-key`
+in a local `.env` for local development. The database build is deterministic and requires no API
 key or external download. Stop the app before rebuilding it. The configured
 model must support the Decisions and Responses APIs.
 
@@ -86,6 +87,34 @@ uv run python -m gridrag "What was ERCOT's highest hourly demand on October 19, 
 
 Add `--verbose` for routing scores and model-call diagnostics. Provider requests
 include the question, relevant schema definitions, and returned query rows.
+
+## Hosted demo and visitor API keys
+
+The web app accepts a visitor's own OpenAI API key for questions and evaluations.
+The password field is cleared after **Use key**; the active key lives only in the
+current tab's memory and disappears on reload. It is sent in an Authorization
+header over HTTPS to the app's backend, which creates a separate OpenAI client
+for that request and closes it afterward. The app does not persist visitor keys
+or log provider error bodies. API usage is billed to the visitor's OpenAI project.
+The configured models require access to both the Decisions and Responses APIs.
+
+On Vercel, a visitor key is always required. Any server-configured owner key is
+ignored by the public endpoints. The browser uses one streaming request per
+evaluation case so the complete suite can run without a single long invocation.
+
+Deploy from this repository after signing in to Vercel:
+
+```sh
+npx vercel login
+npx vercel --prod
+```
+
+`vercel.json` runs `scripts/vercel_build.py` to generate the deterministic warehouse
+and prepare static assets in `public/`. The Python function bundles the warehouse
+and reuses the local server's analysis and evaluation pipeline. Each request has
+a 300-second function limit. `.vercelignore` excludes local environment files,
+credentials, experiments, and generated data from uploads; the warehouse is built
+afresh on Vercel. No owner OpenAI key is needed in the Vercel environment.
 
 ## Warehouse and schema
 
