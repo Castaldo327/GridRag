@@ -1,4 +1,5 @@
 const state = { demo: { index: 0, running: false, progress: {}, result: null, error: "", timer: null, runId: 0, stopped: false }, scoreScope: "all", recordedTrials: new Map(), benchmark: null, apiKey: "", keyMessage: "", meta: null, result: null, running: false, error: "", progress: {}, runs: new Map() };
+let modelMetaRequest = null;
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -47,6 +48,39 @@ function runWorkspace(prefix = "") {
       <div id="${prefix}details"></div>
     </section>
 `;
+}
+
+function architectureView() {
+  const stages = [
+    ["Check the request", "Check domain relevance and misuse before retrieving schema. Decline requests that fail the gate."],
+    ["Score the tables", "Evaluate every documented table independently against the question. Keep relevant candidates instead of filling a fixed top-k."],
+    ["Preserve the context", "Expand foreign-key references. Score columns in parallel while retaining the structural fields needed for joins and time filters."],
+    ["Compute with SQL", "Give the SQL model the selected schema. Validate each query independently, execute read-only, and allow bounded repairs."],
+    ["Show the evidence", "Answer from returned rows. Expose the selected schema, executed SQL, results, timings, and model use for inspection."],
+  ];
+  return `<section id="architecture-view" hidden>
+    <div class="page-intro architecture-intro"><span class="eyebrow">THE ARCHITECTURE</span><h1>Retrieve the schema.<br>Compute the answer.</h1><p>Energy questions depend on the right region, units, time interval, and joins. GridRag selects the database context for a question, then lets SQL perform the calculation.</p></div>
+    <section class="panel architecture-pipeline" aria-labelledby="architecture-flow-heading">
+      <div class="panel-head"><div><span class="eyebrow">QUESTION → SCHEMA → SQL → EVIDENCE</span><h2 id="architecture-flow-heading">A path you can inspect.</h2></div><span class="badge">65 tables · 7 regions</span></div>
+      <ol class="architecture-flow">${stages.map(([title,description],i) => `<li><span class="architecture-step" aria-hidden="true">0${i+1}</span><h3>${title}</h3><p>${description}</p></li>`).join("")}</ol>
+      <p class="architecture-boundary"><strong>The execution boundary is code.</strong> The SQL guard restricts statements, table access, functions, and resources. Questions that exceed the table budget ask for clarification. The model’s instructions and relevance scores are not access controls.</p>
+    </section>
+    <section class="architecture-section" aria-labelledby="architecture-design-heading"><span class="eyebrow">THE DESIGN CHOICE</span><h2 id="architecture-design-heading">Preserve the context a calculation needs.</h2>
+      <div class="architecture-principles">
+        <article><h3>Relevance without a fixed quota</h3><p>A comparison can need several products and a denominator. Independent table scores can keep several useful candidates without forcing every question into the same retrieval count.</p><small>Scores are model judgments, not calibrated guarantees. Too much uncertainty fails explicitly.</small></article>
+        <article><h3>Keep the relationships intact</h3><p>Relevant columns alone are not enough. Referenced tables and structural fields remain available so the model can join regions, align timestamps, and preserve the documented grain.</p><small>Column selection reduces the schema sent to the SQL model. Scoring that schema adds work and cost.</small></article>
+        <article><h3>Calculate from rows</h3><p>A five-minute solar reading and an hourly average can sound similar. Their table definitions distinguish them; SQL selects the interval and calculates the result. The answer stays connected to its query.</p><small>Visible evidence supports review. It does not prove that every generated query is correct.</small></article>
+      </div>
+    </section>
+    <section class="panel architecture-comparison" aria-labelledby="architecture-comparison-heading"><span class="eyebrow">ONE CONTROLLED DIFFERENCE</span><h2 id="architecture-comparison-heading">Change the retrieval. Keep the SQL pipeline.</h2><p>The recorded experiment uses the same request gate, SQL model, repair budget, and query guard for all three approaches.</p>
+      <div class="architecture-paths"><div><span class="badge good">GridRag</span><h3>Score → expand → select</h3><p>Independent table relevance → referenced tables → relevant columns plus structural fields → SQL model.</p></div><div><span class="badge">Qdrant · top 4 / top 6</span><h3>Embed → rank → expand</h3><p>Embed the question and documented tables → retrieve top-k → referenced tables with every column → the same SQL model.</p></div></div>
+      <p class="architecture-tradeoff"><strong>The recorded tradeoff:</strong> routed schema achieved higher answer accuracy on this synthetic suite, with higher median latency and estimated model cost. The extra selection work has a price.</p>
+      <a class="artifact-link" href="#evaluation">Compare every recorded answer, timing, and cost →</a>
+      <p class="footnote">17 displayed questions, three trials per approach. This small synthetic experiment compares these retrieval implementations; broader testing is needed to establish production accuracy.</p>
+    </section>
+    <section class="architecture-section architecture-deployment" aria-labelledby="architecture-hosting-heading"><div><span class="eyebrow">WHAT RUNS WHERE</span><h2 id="architecture-hosting-heading">A public demo with a clear boundary.</h2></div><dl><div><dt>In your browser</dt><dd>The key-free demo replays prepared answers. Evaluation displays recorded runs. Neither makes model calls.</dd></div><div><dt>On Vercel</dt><dd>The live playground sends your question through a Python API to the model and a read-only, fictional DuckDB warehouse. Your API key is held in tab memory and used by a separate backend client for your request.</dd></div><div><dt>In the local experiment</dt><dd>Qdrant and BGE-small embeddings generated the recorded comparison. Qdrant is not a live service in this deployment.</dd></div></dl><p class="footnote">An independent demonstration using fictional data. Real organizational data needs authentication, tenant authorization, stronger execution isolation, and operational monitoring.</p></section>
+    <div class="demo-toolbar"><a class="primary-link" href="#demo">Try the key-free demo →</a><a class="artifact-link" href="https://github.com/Castaldo327/GridRag" target="_blank" rel="noopener noreferrer">Inspect the implementation ↗</a></div>
+  </section>`;
 }
 
 function render() {
@@ -105,7 +139,8 @@ function render() {
         <div><strong>Fairness and limits</strong><p>Fixed settings, shuffled method order, repeated trials, and failures included. This small synthetic benchmark does not establish production accuracy. Token costs exclude embedding compute and hosting.</p></div>
       </div></details>
 
-    </section>`;
+    </section>
+    ${architectureView()}`;
   $(".skip-link").onclick = event => { event.preventDefault(); $("#main").focus(); $("#main").scrollIntoView({block: "start"}); };
   $("#api-key-form").onsubmit = event => {
     event.preventDefault();
@@ -162,12 +197,14 @@ function render() {
 
 function showView(event) {
   const requested = location.hash.slice(1);
-  const view = ["playground", "evaluation"].includes(requested) ? requested : requested === "ask" ? "playground" : "demo";
+  const view = ["playground", "evaluation", "architecture"].includes(requested) ? requested : requested === "ask" ? "playground" : "demo";
   if (view !== "demo" && state.demo.running) stopDemo();
   $("#demo-view").hidden = view !== "demo";
   $("#ask-view").hidden = view !== "playground";
   $("#evaluation-view").hidden = view !== "evaluation";
-  const title = {demo: "Demo", playground: "Playground", evaluation: "Evaluation"}[view];
+  $("#architecture-view").hidden = view !== "architecture";
+  if (view === "playground") loadModelMeta();
+  const title = {demo: "Demo", playground: "Playground", evaluation: "Evaluation", architecture: "Architecture"}[view];
   document.title = `${title} · GridRag`;
   document.querySelectorAll("[data-view-link]").forEach(link => {
     const selected = link.dataset.viewLink === view;
@@ -200,7 +237,7 @@ function paintDemo() {
       <div class="demo-replay-note" id="demo-note"><span class="badge">Prepared replay</span><p>Verified SQL and prepared answers on fictional data. The stages and text playback are illustrative; no OpenAI calls or charges.</p></div>
       <p class="preset-hint">Choose a question to try</p><div class="examples" role="group" aria-label="Demo questions">${options(demos.slice(0, 3))}</div>
       <details class="more-examples"><summary>More examples: prices, forecasts, and storage</summary><div class="examples">${options(demos.slice(3), 3)}</div></details>
-      <div class="demo-toolbar"><a class="artifact-link" href="#playground">Ask a custom question in the playground ↗</a></div>
+      <div class="demo-toolbar"><a class="artifact-link" href="#playground">Ask a custom question in the playground ↗</a><a class="artifact-link" href="#architecture">How GridRag works →</a></div>
     </section>
     ${runWorkspace("demo-")}
     <section class="panel metrics-panel" id="demo-summary" hidden><div class="panel-head"><div><span class="eyebrow">REFERENCE RESULT</span><h2>What this example used</h2></div><span class="badge">Prepared replay</span></div><div id="demo-summary-content"></div><div class="demo-toolbar"><button id="demo-replay" class="text-button" type="button">Replay this answer ↺</button><button id="demo-choose" class="text-button" type="button">Try another question ↑</button></div></section>`;
@@ -373,8 +410,8 @@ function paintRun(session, prefix = "", isDemo = false) {
   q("live-status").className = `live ${session.running ? "running" : ""}`;
   const steps = [
     ["Request gate", gate ? gate.reason : "Check relevance and instruction safety.", Boolean(gate)],
-    ["Select schema", route ? `${selected.length} of ${total} tables selected. ${isDemo ? "Tables used by the verified reference query." : "Full columns and referenced tables retained."}` :
-      "Select relevant tables from the documented catalog.", Boolean(route)],
+    ["Select schema", route ? `${selected.length} of ${total} tables selected. ${isDemo ? "Tables used by the verified reference query." : "Relevant columns, structural fields, and referenced tables retained."}` :
+      "Select relevant tables and columns from the documented catalog.", Boolean(route)],
     ["Query the warehouse", calls.length ? `${calls.length} ${calls.length === 1 ? "query" : "queries"} · ${calls.filter(c => !c.error).length} successful` :
       r ? "No queries executed." : "Generate read-only SQL; repair errors if needed.", calls.length > 0],
     ["Answer from results", r ? r.state.replaceAll("_", " ") : "Use query evidence to answer the question.", r?.state === "answered"],
@@ -385,8 +422,7 @@ function paintRun(session, prefix = "", isDemo = false) {
     return `
     <div class="flow-step ${isActive ? "active" : done ? "complete" : ""}" ${isActive ? 'aria-current="step"' : ""}><span class="step-number">${isActive ? '<span class="stage-spinner" aria-hidden="true"></span>' : done ? "✓" : `0${i + 1}`}</span>
       <div><strong>${title}</strong>${isActive ? '<span class="active-label">Active</span>' : ""}<p>${esc(description)}</p>
-      ${i === 1 && route ? `<div class="schema-meter" role="img" aria-label="${selected.length} of ${total} catalog tables selected">
-        <span style="width:${100 * selected.length / total}%"></span></div>
+      ${i === 1 && route ? `<meter class="schema-meter" min="0" max="${total}" value="${selected.length}" aria-label="${selected.length} of ${total} catalog tables selected">${selected.length} of ${total}</meter>
         <details class="schema-list" ${openSchema ? "open" : ""}><summary>Selected tables${route.fallback ? " · includes uncertain matches" : ""}</summary>
           ${selected.map(t => `<code>${esc(t)}${route.columns?.[t] ? ` · ${esc(route.columns[t].join(", "))}` : ""}</code>`).join("") || "None"}</details>` : ""}</div></div>`;
   }).join("");
@@ -447,7 +483,11 @@ async function ask() {
     const response = await fetch("/api/ask", {
       method: "POST", headers: requestHeaders(), body: JSON.stringify({ question }),
     });
-    if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const fallback = response.status === 429 ? "Too many requests. Please wait a minute and try again." : `Request failed (HTTP ${response.status}). Please try again.`;
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || fallback);
+    }
     const reader = response.body.getReader(), decoder = new TextDecoder();
     let buffer = "";
     try {
@@ -484,6 +524,21 @@ async function ask() {
   } finally { state.running = false; paint(); }
 }
 
+function loadModelMeta() {
+  if (modelMetaRequest) return;
+  modelMetaRequest = fetch("/api/meta").then(response => {
+    if (!response.ok) throw new Error("Live settings unavailable");
+    return response.json();
+  }).then(meta => {
+    state.meta = {...state.meta, ...meta};
+    $("#model-access-note").textContent = `Models: ${meta.models.decisions} · ${meta.models.answer}. Requires Decisions and Responses API access.`;
+    paintKey(); paint();
+  }).catch(() => {
+    modelMetaRequest = null;
+    $("#model-access-note").textContent = "Live model settings could not be checked. Reload to retry.";
+  });
+}
+
 async function boot() {
   try {
     // The default demo and recorded comparison are static and require no provider key.
@@ -492,12 +547,6 @@ async function boot() {
     state.meta = await response.json();
     render();
     fetch("/static/benchmark.json").then(r => r.ok ? r.json() : null).then(data => { state.benchmark = data; paintBenchmark(); }).catch(() => {});
-    fetch("/api/meta").then(r => r.ok ? r.json() : null).then(meta => {
-      if (!meta) return;
-      state.meta = {...state.meta, ...meta};
-      $("#model-access-note").textContent = `Models: ${meta.models.decisions} · ${meta.models.answer}. Requires Decisions and Responses API access.`;
-      paintKey(); paint();
-    }).catch(() => {});
   } catch (error) {
     $("#main").innerHTML = `<section class="panel boot-error"><h1>Could not load the demo</h1><p>${esc(error.message)}</p><button id="retry" type="button">Retry</button></section>`;
     $("#retry").onclick = boot;

@@ -12,7 +12,10 @@ __pycache__/
 .interview-build/
 .aws/
 .Vercel
-.github
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/checks.yml
 .cache/embeddings
 .agents/
 .codex/

@@ -48,6 +48,26 @@ def post_evaluation(origin="http://localhost:8000"):
 
 
 class AppTests(unittest.TestCase):
+    def test_invalid_http_framing_and_nested_json_never_reach_model(self):
+        body = b'{"question":"demand?"}'
+        base = "POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nContent-Type: application/json\r\n"
+        requests = [
+            ("Content-Length: -1", body),
+            ("Content-Length: 999999", body),
+            ("Content-Length: nope", body),
+            (f"Content-Length: {len(body)+1}", body),
+            (f"Content-Length: {len(body)}\r\nContent-Length: {len(body)}", body),
+            (f"Content-Length: {len(body)}\r\nTransfer-Encoding: chunked", body),
+            ("", body),
+        ]
+        nested = b'{"question":' + b'[' * 1500 + b'0' + b']' * 1500 + b'}'
+        requests.append((f"Content-Length: {len(nested)}", nested))
+        with patch("app.__main__.answer") as model:
+            for headers, payload in requests:
+                with self.subTest(headers=headers):
+                    self.assertEqual(send(base + headers, payload)[0], 400)
+            model.assert_not_called()
+
     def test_missing_optional_report_returns_a_clean_404(self):
         with tempfile.TemporaryDirectory() as directory, patch("app.__main__.STATIC", Path(directory)):
             self.assertEqual(send("GET /static/benchmark.json HTTP/1.1\r\nHost: localhost:8000")[0], 404)

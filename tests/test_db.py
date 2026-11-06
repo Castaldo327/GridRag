@@ -14,6 +14,21 @@ def limits(**changes):
 
 
 class GuardTests(unittest.TestCase):
+    def test_configuration_and_side_effect_functions_are_rejected_in_subqueries(self):
+        for sql in ("SELECT write_log('untrusted text')", "SELECT sleep_ms(1)",
+                    "SELECT current_setting('temp_directory')",
+                    "SELECT * FROM (SELECT setseed(0.5)) nested",
+                    "WITH x AS (SELECT getvariable('example')) SELECT * FROM x"):
+            with self.subTest(sql=sql):
+                self.assertIn("not allowed", db.run_model_sql(sql, 1)["error"])
+        self.assertEqual(db.run_model_sql("SELECT round(1.234, 2) AS n", 1)["csv"], "n\n1.23\n")
+
+    def test_engine_cannot_reenable_external_access_or_load_extensions(self):
+        for sql in ("SET enable_external_access = true", "SET lock_configuration = false",
+                    "INSTALL httpfs", "LOAD httpfs"):
+            with self.subTest(sql=sql), self.assertRaises(duckdb.Error):
+                db._database().cursor().execute(sql)
+
     def test_rejects_anything_but_one_select_over_catalog_tables(self):
         for sql in [
             "DELETE FROM core.dim_iso",

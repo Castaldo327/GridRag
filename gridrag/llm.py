@@ -1,7 +1,7 @@
 """OpenAI Decisions and Responses calls with per-call usage, cost and timing.
 
-One OpenAI client per process, so every question reuses pooled HTTPS connections. An LLM object records
-one question's calls, each tagged with the stage (gate, route, sql) that made it.
+A local CLI client reuses pooled HTTPS connections. Hosted visitors use separate
+request-scoped clients. An LLM object records one question's calls by stage.
 """
 
 import threading

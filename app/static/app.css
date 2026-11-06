@@ -138,8 +138,10 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
 .flow-step.active .step-number { background: var(--accent); color: #fff; }
 .flow-step.complete .step-number { background: #dfeddf; color: #2e6d45; }
 .active-label { float: right; color: var(--accent); font-size: 10px; }
-.schema-meter { height: 4px; margin-top: 12px; border-radius: 8px; background: #e0e8dc; overflow: hidden; }
-.schema-meter span { display: block; height: 100%; background: var(--accent); }
+.schema-meter { display: block; appearance: none; width: 100%; height: 5px; margin-top: 12px; border: 0; border-radius: 8px; background: #e0e8dc; }
+.schema-meter::-webkit-meter-bar { height: 5px; border: 0; border-radius: 8px; background: #e0e8dc; }
+.schema-meter::-webkit-meter-optimum-value { background: var(--accent); }
+.schema-meter::-moz-meter-bar { background: var(--accent); }
 .schema-list { margin-top: 10px; color: var(--muted); font-size: 12px; }
 .schema-list code { display: block; margin-top: 7px; overflow-wrap: anywhere; }
 .answer { min-height: 230px; color: var(--ink); font-size: 16px; line-height: 1.9; overflow-wrap: anywhere; }
@@ -266,3 +268,39 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
 .recorded-query pre { font-size: 11px; }
 @media (max-width: 900px) { .recorded-answer-grid { grid-template-columns: 1fr; } .recorded-answer { min-height: 0; } }
 @media (max-width: 440px) { .recorded-question { padding: 20px 16px; } .recorded-question-head > div:first-child { min-width: 0; flex-basis: 100%; } .recorded-question h3 { font-size: 18px; } }
+
+/* Architecture: the explanation follows the implemented retrieval and execution path. */
+.architecture-intro { padding: 12px 0 8px; }
+.architecture-intro > p { max-width: 740px; }
+.architecture-pipeline, .architecture-comparison { padding: 28px; }
+.architecture-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; padding: 0; margin: 28px 0; list-style: none; }
+.architecture-flow li { min-width: 0; padding: 0 18px; border-left: 1px solid var(--line); }
+.architecture-flow li:first-child { padding-left: 0; border: 0; }
+.architecture-flow li:last-child { padding-right: 0; }
+.architecture-step { color: var(--accent); font: 12px/1.6 var(--mono); }
+.architecture-flow h3 { margin: 14px 0 10px; font-size: 16px; text-wrap: pretty; }
+.architecture-flow p, .architecture-principles p, .architecture-paths p { font-size: 13px; color: var(--muted); line-height: 1.85; }
+.architecture-boundary { padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.architecture-boundary strong { color: var(--ink); }
+.architecture-section { margin: 38px 0; }
+.architecture-section h2, .architecture-comparison h2 { margin: 8px 0 16px; }
+.architecture-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 26px; }
+.architecture-principles h3, .architecture-paths h3 { font-size: 18px; margin-bottom: 12px; }
+.architecture-principles small { display: block; margin-top: 16px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.architecture-comparison > p { max-width: 810px; font-size: 14px; color: var(--muted); }
+.architecture-paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 26px 0; }
+.architecture-paths > div { border: 1px solid var(--line); border-radius: 10px; padding: 22px; }
+.architecture-paths > div:first-child { background: var(--accent-soft); border-color: #b9ceb6; }
+.architecture-paths h3 { margin-top: 16px; }
+.architecture-tradeoff strong { color: var(--ink); }
+.architecture-comparison .artifact-link { margin: 16px 0 12px; }
+.architecture-comparison > .footnote { font-size: 11px; }
+.architecture-deployment { display: grid; grid-template-columns: 1fr 2fr; gap: 16px 40px; }
+.architecture-deployment dl { margin: 0; }
+.architecture-deployment dl > div + div { margin-top: 18px; }
+.architecture-deployment dt { font-size: 14px; font-weight: 600; }
+.architecture-deployment dd { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.85; }
+.architecture-deployment > .footnote { grid-column: 1 / -1; }
+@media (max-width: 960px) { .architecture-flow { grid-template-columns: 1fr; gap: 22px; } .architecture-flow li, .architecture-flow li:first-child { padding: 0 0 0 20px; border-left: 2px solid var(--line); } .architecture-flow h3 { margin: 5px 0; } }
+@media (max-width: 720px) { .architecture-principles, .architecture-paths, .architecture-deployment { grid-template-columns: 1fr; } .view-tabs { gap: 22px; } }
+@media (max-width: 440px) { .architecture-pipeline, .architecture-comparison { padding: 22px 18px; } .architecture-paths > div { padding: 18px; } .view-tabs { gap: 19px; } .view-tabs a { font-size: 13px; } }

@@ -16,20 +16,22 @@ operational data, and makes no claim of affiliation with an energy company.
 
 ## Try it
 
-The app has three pages:
+The app has four pages:
 
 | Page | What it shows | Key required? |
 | --- | --- | --- |
 | **Demo** | The playground flow with seven prepared questions, staged progress, streamed answers, and verified SQL evidence | No |
 | **Playground** | Live questions, streaming answers, SQL evidence, data coverage and searchable table definitions | Yes, for hosted questions |
 | **Evaluation** | Actual recorded answers from GridRag and Qdrant, with trial selection, SQL evidence, latency, and cost | No |
+| **Architecture** | The retrieval and execution diagram, design choices, measured tradeoffs, and hosting boundaries | No |
 
 The demo replays prepared answers and verified reference queries entirely in the
 browser. Its stage transitions and text reveal are illustrative; no model runs,
 API charges, or measured performance statistics are involved. Choose an example,
 select **Ask the grid**, and inspect the answer, selected tables, SQL, and returned data.
 The evaluation page is read-only. Browse the recorded answers and evidence without
-a key or running model calls.
+a key or running model calls. Demo, Evaluation, and Architecture load static assets;
+the browser only requests live API metadata when you open Playground.
 
 Requires Python **3.11–3.13** and [uv](https://docs.astral.sh/uv/).
 
@@ -69,6 +71,12 @@ The main pipeline:
 4. Preserve structural keys and time fields in the reduced schema.
 5. Generate SQL, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
+
+The [architecture page](https://sunairio-energy-demo.vercel.app/#architecture)
+explains this design with an accessible, responsive flow diagram. Its distinguishing
+choice is independent relevance scoring followed by reference expansion and column
+selection. It makes an inspectable schema selection for SQL, with a measured
+accuracy/cost tradeoff; it does not establish a claim of research novelty.
 
 The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant**: one
 embedded document per table, top-4 or top-6 retrieval, foreign-key expansion and

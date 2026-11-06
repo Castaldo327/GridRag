@@ -59,9 +59,30 @@ class Handler(BaseHTTPRequestHandler):
                 return False
             self.visitor_key = match[1]
         if not self.visitor_key and (self.require_visitor_key or not config.settings.openai_api_key):
-            self.send(401, {"error": "Add your OpenAI API key to run the demo."})
+            self.send(401, {"error": "Add your OpenAI API key to ask a live question."})
             return False
         return True
+
+    def read_json(self):
+        """Accept one bounded, complete JSON body with unambiguous HTTP framing."""
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) != 1:
+            raise ValueError("Expected one Content-Length")
+        if not re.fullmatch(r"[0-9]{1,6}", lengths[0]):
+            raise ValueError("Invalid Content-Length")
+        size = int(lengths[0])
+        if not 0 < size <= MAX_BODY_BYTES:
+            raise ValueError("Body too large")
+        body = self.rfile.read(size)
+        if len(body) != size:
+            raise ValueError("Incomplete body")
+        try:
+            payload = json.loads(body)
+        except RecursionError as exc:
+            raise ValueError("JSON nesting too deep") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("Expected a JSON object")
+        return payload
 
     def run_answer(self, question, on_progress=None):
         if not self.visitor_key:
@@ -118,10 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
             return self.send(415, {"error": "Expected application/json"})
         try:
-            size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= MAX_BODY_BYTES:
-                raise ValueError()
-            question = clean_question(json.loads(self.rfile.read(size)).get("question"))
+            question = clean_question(self.read_json().get("question"))
         except (ValueError, AttributeError, UnicodeDecodeError):
             return self.send(400, {"error": f"Enter a question of 1–{config.settings.max_question_chars} characters"})
         if not self.authorize_model():
@@ -158,7 +176,10 @@ class Handler(BaseHTTPRequestHandler):
             logging.error("Demo request failed")
             error = "Could not complete the question. See the server log for details."
             if stream_started:
-                emit({"type": "error", "error": error})
+                try:
+                    emit({"type": "error", "error": error})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
             else:
                 self.send(500, {"error": error})
         finally:
@@ -175,10 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
                 return self.send(415, {"error": "Expected application/json"})
             try:
-                size = int(self.headers.get("Content-Length", "0"))
-                if not 0 < size <= MAX_BODY_BYTES:
-                    raise ValueError()
-                case_id = json.loads(self.rfile.read(size)).get("id")
+                case_id = self.read_json().get("id")
                 cases = tuple(case for case in CASES if case.id == case_id)
                 if not cases:
                     raise ValueError()

@@ -20,6 +20,10 @@ from gridrag.catalog import demo_catalog
 from gridrag.records import QueryResult
 
 SAFE_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
+# These have no role in warehouse analytics. In particular write_log could place
+# attacker-controlled text in infrastructure logs, and sleep_ms needlessly holds a worker.
+BLOCKED_FUNCTIONS = frozenset({"write_log", "sleep_ms", "nextval", "currval", "setval", "setseed",
+                               "getenv", "getvariable", "current_setting"})
 ONE_SELECT = "only a single SELECT (or WITH ... SELECT) query is allowed"
 
 _db: duckdb.DuckDBPyConnection | None = None
@@ -42,6 +46,9 @@ def _database() -> duckdb.DuckDBPyConnection:
             })
             try:
                 # Configure resources before locking external access and settings.
+                connection.execute("SET allow_persistent_secrets = false")
+                connection.execute("SET autoinstall_known_extensions = false")
+                connection.execute("SET autoload_known_extensions = false")
                 connection.execute("SET enable_external_access = false")
                 connection.execute("SET lock_configuration = true")
             except Exception:
@@ -55,6 +62,8 @@ def _references(node, tables: set, functions: set, ctes: set) -> None:
     """Collects schema.table references, table functions and CTE names from a parsed query tree. Names are
     lower-cased, as DuckDB resolves them case-insensitively."""
     if isinstance(node, dict):
+        if (node.get("function_name") or "").lower() in BLOCKED_FUNCTIONS:
+            raise QueryRejected("functions that expose configuration or change process state are not allowed")
         ctes = ctes | {entry["key"].lower() for entry in (node.get("cte_map") or {}).get("map", [])}
         if node.get("type") == "BASE_TABLE":
             schema, name = (node.get("schema_name") or "").lower(), node["table_name"].lower()
@@ -105,7 +114,7 @@ def _timed_cursor(seconds: float) -> Iterator[duckdb.DuckDBPyConnection]:
         yield cur
     finally:
         timer.cancel()
-        timer.join()  
+        timer.join()
         cur.close()
 
 
