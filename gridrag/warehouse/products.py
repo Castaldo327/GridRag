@@ -87,7 +87,7 @@ def _load_forecast(inputs: Inputs) -> pd.DataFrame:
     keys = inputs.hourly.keys
     return pd.concat([
         keys.assign(
-            publish_time_utc=keys.interval_start_utc - pd.Timedelta(hours=hours_before),
+            publish_time_utc=keys.interval_start_utc - np.timedelta64(hours_before, "h"),
             forecast_mw=np.round(inputs.hourly.demand * (1 + bias) + inputs.iso_id * 3, 2),
         )
         for hours_before, bias in ((30, 0.04), (18, 0.018), (6, -0.012), (-1, 0.001))

@@ -11,5 +11,10 @@ dependencies = [
     "duckdb>=2.0.0",
 ]
 
+[project.optional-dependencies]
+eval = [
+    "qdrant-client[fastembed]>=1.16,<1.18",
+]
+
 [tool.uv]
 package = false

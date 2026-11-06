@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1530" viewBox="0 0 1800 1530" role="img" aria-labelledby="title desc">
+<title id="title">GridRag intelligent notifications — proposed architecture</title>
+<desc id="desc">Save a customer’s alert query, run it on a schedule, check the results, and send an alert or take an approved action. MCP is optional. Check for database changes daily.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10" fill="#617589"/></marker><marker id="purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10" fill="#8264cc"/></marker></defs>
+<rect width="1800" height="1530" fill="#f5f7fa"/>
+
+<text x="56" y="49" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#087f84">GRIDRAG / INTELLIGENT ALERTS</text>
+<text x="56" y="105" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" fill="#142c40">Tell us what to watch. We’ll keep an eye on it.</text>
+<text x="56" y="144" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="400" fill="#516579">Create a query. Check the grid. Alert or act.</text>
+<rect x="1470" y="37" width="272" height="33" rx="16" fill="#e4e9f2" stroke="none"/>
+<text x="1490" y="59" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#52697e">CONCEPT</text>
+<rect x="56" y="174" width="1688" height="66" rx="14" fill="#142c40" stroke="none"/>
+<svg x="77" y="191" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#79e0cf" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M10.268 21a2 2 0 0 0 3.464 0" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M22 8c0-2.3-.8-4.3-2-6" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M4 2C2.8 3.7 2 5.7 2 8" />
+</svg>
+<text x="125" y="202" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#ffffff">“Notify me when ERCOT prices exceed $200/MWh for 15 minutes while wind output falls.”</text>
+<text x="125" y="225" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="400" fill="#a9c1d3">Example customer request</text>
+<rect x="40" y="262" width="1720" height="278" rx="22" fill="#edf2f7" stroke="#dde5ee"/>
+<text x="64" y="296" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#087f84">01</text>
+<text x="100" y="296" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#162c40">SET UP THE ALERT</text>
+<text x="100" y="322" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Set up once. Update when the rule or database changes.</text>
+<rect x="64" y="346" width="370" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="82" y="364" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="91" y="373" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M7 11h10" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M7 15h6" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M7 7h8" />
+</svg>
+
+<text x="84" y="440" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Describe the condition</text>
+<text x="84" y="470" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">What to watch and who to notify</text>
+<text x="84" y="493" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">How often to check</text>
+<rect x="498" y="346" width="370" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="516" y="364" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="525" y="373" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 13h4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 18h6a2 2 0 012 2v1" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 8h8" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 9a4.17 4.17 0 01-3 4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M16 8V5a2 2 0 012-2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6 18a4 4 0 01-2-7.465" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.004 5.125a4 4 0 00-2.526 5.77" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.294 6.294A3 3 0 1112 5v13a4 4 0 11-7.967-.518" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="16" cy="13" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="18" cy="3" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="21" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="8" r="0.5" fill="currentColor" />
+</svg>
+
+<text x="518" y="440" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Generate SQL</text>
+<text x="518" y="470" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Find the right tables and columns</text>
+<text x="518" y="493" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Write the ClickHouse query</text>
+<rect x="932" y="346" width="370" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="950" y="364" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="959" y="373" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="m9 12 2 2 4-4" />
+</svg>
+
+<text x="952" y="440" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Test the query</text>
+<text x="952" y="470" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Check safety and run time</text>
+<text x="952" y="493" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Preview results on past data</text>
+<rect x="1366" y="346" width="370" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="1384" y="364" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="1393" y="373" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:rect xmlns:ns0="http://www.w3.org/2000/svg" width="8" height="8" x="3" y="3" rx="2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M7 11v4a2 2 0 0 0 2 2h4" />
+  <ns0:rect xmlns:ns0="http://www.w3.org/2000/svg" width="8" height="8" x="13" y="13" rx="2" />
+</svg>
+
+<text x="1386" y="440" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Save the alert</text>
+<text x="1386" y="470" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Query, schedule and alert rules</text>
+<text x="1386" y="493" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Allowed actions</text>
+<path d="M434 432 H490" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M868 432 H924" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M1302 432 H1358" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<rect x="40" y="578" width="1720" height="280" rx="22" fill="#edf2f7" stroke="#dde5ee"/>
+<text x="64" y="612" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#087f84">02</text>
+<text x="100" y="612" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#162c40">CHECK THE GRID</text>
+<text x="100" y="638" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Repeat on the customer’s schedule—for example, every five minutes.</text>
+<rect x="64" y="663" width="312" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="82" y="681" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="91" y="690" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="12" cy="12" r="10" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 6v6h4" />
+</svg>
+
+<text x="84" y="757" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Run on a schedule</text>
+<text x="84" y="787" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Load the saved query</text>
+
+<rect x="404" y="663" width="312" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="422" y="681" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="431" y="690" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:ellipse xmlns:ns0="http://www.w3.org/2000/svg" cx="12" cy="5" rx="9" ry="3" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M3 5V19A9 3 0 0 0 21 19V5" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M3 12A9 3 0 0 0 21 12" />
+</svg>
+
+<text x="424" y="757" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">ClickHouse</text>
+<text x="424" y="787" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Query the latest grid data</text>
+<text x="424" y="810" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Return a short summary</text>
+<rect x="744" y="663" width="312" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="762" y="681" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="771" y="690" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="m9 12 2 2 4-4" />
+</svg>
+
+<text x="764" y="757" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Check the data</text>
+<text x="764" y="787" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Is it recent and complete?</text>
+<text x="764" y="810" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Flag missing or delayed data</text>
+<rect x="1084" y="663" width="312" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="1102" y="681" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="1111" y="690" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 13h4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 18h6a2 2 0 012 2v1" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 8h8" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 9a4.17 4.17 0 01-3 4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M16 8V5a2 2 0 012-2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6 18a4 4 0 01-2-7.465" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.004 5.125a4 4 0 00-2.526 5.77" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.294 6.294A3 3 0 1112 5v13a4 4 0 11-7.967-.518" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="16" cy="13" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="18" cy="3" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="21" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="8" r="0.5" fill="currentColor" />
+</svg>
+
+<text x="1104" y="757" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Decision model</text>
+<text x="1104" y="787" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Does the condition match?</text>
+<text x="1104" y="810" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Yes / no / not enough data</text>
+<rect x="1424" y="663" width="312" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="1442" y="681" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="1451" y="690" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:rect xmlns:ns0="http://www.w3.org/2000/svg" width="8" height="8" x="3" y="3" rx="2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M7 11v4a2 2 0 0 0 2 2h4" />
+  <ns0:rect xmlns:ns0="http://www.w3.org/2000/svg" width="8" height="8" x="13" y="13" rx="2" />
+</svg>
+
+<text x="1444" y="757" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Check alert rules</text>
+<text x="1444" y="787" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Avoid repeat alerts</text>
+<text x="1444" y="810" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Only allow approved actions</text>
+<path d="M376 747 H397" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M716 747 H737" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M1056 747 H1077" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M1396 747 H1417" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M1551 518 V558 H48 V644 H220 V654" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<text x="730" y="552" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#087f84">Reuse the saved query</text>
+<rect x="40" y="896" width="1720" height="278" rx="22" fill="#edf2f7" stroke="#dde5ee"/>
+<text x="64" y="930" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#087f84">03</text>
+<text x="100" y="930" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#162c40">NOTIFY OR TAKE ACTION</text>
+<text x="100" y="956" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">When the condition matches, send an alert or take an approved action.</text>
+<rect x="64" y="981" width="470" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="82" y="999" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="91" y="1008" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M10.268 21a2 2 0 0 0 3.464 0" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M22 8c0-2.3-.8-4.3-2-6" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M4 2C2.8 3.7 2 5.7 2 8" />
+</svg>
+
+<text x="84" y="1075" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Send an alert</text>
+<text x="84" y="1105" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Email, Slack or webhook</text>
+<text x="84" y="1128" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Include the results and why it fired</text>
+<rect x="650" y="981" width="480" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="668" y="999" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="677" y="1008" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" />
+</svg>
+
+<text x="670" y="1075" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Take action via API</text>
+<text x="670" y="1105" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Run an approved task</text>
+<text x="670" y="1128" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Ask the user first when required</text>
+<rect x="1246" y="981" width="490" height="172" rx="16" fill="white" stroke="#dbe3ec"/>
+<rect x="1264" y="999" width="48" height="48" rx="12" fill="#f0f5f8" stroke="none"/>
+<svg x="1273" y="1008" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8264cc" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 22v-5" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M15 8V2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M9 8V2" />
+</svg>
+
+<text x="1266" y="1075" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#162c40">Connect tools with MCP</text>
+<text x="1266" y="1105" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">Optional: use the customer’s tools</text>
+<text x="1266" y="1128" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">The same approval rules apply</text>
+<path d="M1580 835 V875 H1748 V967 H300 V975" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M890 967 V975" fill="none" stroke="#617589" stroke-width="2"  marker-end="url(#arrow)"/>
+<path d="M1490 967 V975" fill="none" stroke="#8264cc" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#purple)"/>
+<text x="710" y="869" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#516579">Condition met + action allowed</text>
+<rect x="40" y="1212" width="840" height="232" rx="22" fill="#e8f3f1" stroke="#cbdedb"/>
+<svg x="64" y="1235" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#087f84" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M21 3v5h-5" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M8 16H3v5" />
+</svg>
+<text x="110" y="1257" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#087f84">CHECK FOR DATABASE CHANGES</text>
+<text x="64" y="1297" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#162c40">Check tables and columns daily</text>
+<text x="64" y="1332" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" fill="#516579">If they change, update and retest the affected queries.</text>
+<text x="64" y="1362" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" fill="#516579">Also check when a query fails.</text>
+<text x="64" y="1405" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#087f84">Check data freshness on every run.</text>
+<rect x="908" y="1212" width="852" height="232" rx="22" fill="#eeeaf8" stroke="#ded5ee"/>
+<svg x="932" y="1235" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8264cc" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 13h4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 18h6a2 2 0 012 2v1" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 8h8" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M12 9a4.17 4.17 0 01-3 4" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M16 8V5a2 2 0 012-2" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6 18a4 4 0 01-2-7.465" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.004 5.125a4 4 0 00-2.526 5.77" />
+  <ns0:path xmlns:ns0="http://www.w3.org/2000/svg" d="M6.294 6.294A3 3 0 1112 5v13a4 4 0 11-7.967-.518" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="16" cy="13" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="18" cy="3" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="21" r="0.5" fill="currentColor" />
+  <ns0:circle xmlns:ns0="http://www.w3.org/2000/svg" cx="20" cy="8" r="0.5" fill="currentColor" />
+</svg>
+<text x="978" y="1257" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#7656ba">KEEP MODEL COSTS LOW</text>
+<rect x="932" y="1280" width="564" height="40" rx="8" fill="#d9cdef" stroke="none"/>
+<rect x="1502" y="1280" width="234" height="40" rx="8" fill="white" stroke="none"/>
+<text x="949" y="1306" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#523d7b">Reuse instructions and examples</text>
+<text x="1520" y="1306" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#523d7b">New results</text>
+<text x="932" y="1353" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" fill="#516579">Keep most of the prompt the same so it can be cached.</text>
+<text x="932" y="1383" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" fill="#516579">Actual savings depend on cache reuse.</text>
+<text x="932" y="1413" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#7656ba">Simple rules can skip the model.</text>
+<text x="56" y="1488" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">MCP is optional. Direct APIs work too.</text>
+<text x="1210" y="1488" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#516579">GridRag / Concept / October 2026</text>
+</svg>

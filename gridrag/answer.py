@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from openai import APIError, AuthenticationError, PermissionDeniedError, RateLimitError
+
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.gate import gate
@@ -62,29 +64,42 @@ class _Trace:
 
 
 def answer(question: str, llm: Model | None = None, on_progress: Callable[[Progress], None] | None = None, *,
-           catalog: Catalog | None = None) -> Answer:
+           catalog: Catalog | None = None,
+           retriever: Callable[[str, Model, Catalog], Selection] | None = None) -> Answer:
     """The answer record (gridrag.records.Answer). state is answered, abstained, write_failed, declined (gate),
     clarification (routing too broad) or failed, which adds error and stage. catalog is trusted schema
     documentation, the demo warehouse's by default; on_progress receives synchronous JSON-compatible updates.
+    retriever replaces schema selection for controlled comparisons; it receives no reference answers.
     Invalid questions raise ValueError. A disconnected progress consumer stops execution."""
     trace = _Trace(clean_question(question), LLM() if llm is None else llm, on_progress)
     try:
-        return _run(trace, demo_catalog() if catalog is None else catalog)
+        return _run(trace, demo_catalog() if catalog is None else catalog, route if retriever is None else retriever)
     except RoutingTooBroad as exc:
         trace.route = exc.selection
         return trace.record(State.CLARIFICATION, str(exc))
     except (BrokenPipeError, ConnectionResetError):
         raise
     except Exception as exc:
-        logger.exception("Question failed during %s", trace.stage)
-        record = trace.record(State.FAILED, "The question could not be completed. Please try again.")
+        message = "The question could not be completed. Please try again."
+        if isinstance(exc, APIError):
+            # Provider exception bodies can contain credentials. Do not log them.
+            logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
+            if isinstance(exc, AuthenticationError):
+                message = "Your API key was not accepted. Replace it and try again."
+            elif isinstance(exc, PermissionDeniedError):
+                message = "Your API key does not have access to the configured model or API. Check your project permissions."
+            elif isinstance(exc, RateLimitError):
+                message = "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
+        else:
+            logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
+        record = trace.record(State.FAILED, message)
         record["error"] = type(exc).__name__
         if trace.stage is not None:
             record["stage"] = trace.stage
         return record
 
 
-def _run(trace: _Trace, catalog: Catalog) -> Answer:
+def _run(trace: _Trace, catalog: Catalog, retriever: Callable[[str, Model, Catalog], Selection]) -> Answer:
     question, llm = trace.question, trace.llm
     with trace.timed(Stage.GATE):
         trace.gate = gate(question, llm)
@@ -92,7 +107,7 @@ def _run(trace: _Trace, catalog: Catalog) -> Answer:
         return trace.record(State.DECLINED, trace.gate["reason"])
 
     with trace.timed(Stage.ROUTE, {"gate": trace.gate}):
-        trace.route = route(question, llm, catalog)
+        trace.route = retriever(question, llm, catalog)
     tables = trace.route["tables"]
     if not tables:
         return trace.record(State.ABSTAINED, "No matching warehouse tables were found for this question.")

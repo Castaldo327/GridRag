@@ -25,6 +25,7 @@ class Case:
     avoid: tuple[str, ...] = ()  # text the model's queries must not contain
     label: str = ""  # UI preset button; empty for cases only the live tests ask
     concept: str = ""
+    verification: str = ""  # warehouse facts behind a challenging reference answer, shown in the UI
 
 
 CASES = (
@@ -104,6 +105,47 @@ CASES = (
         sql="SELECT sum(discharge_mw) / 12 AS discharge_mwh FROM core.caiso_storage_dispatch_5min "
             "WHERE interval_start_local::DATE = DATE '2026-10-21'",
         tables=("core.caiso_storage_dispatch_5min",),
+    ),
+    Case(
+        "spread_forecast_error", label="Hard: spread to forecast error",
+        concept="Rank aligned price grains, select a forecast vintage, then compare with actual demand",
+        unit="MW",
+        question="For CAISO on October 21, 2026 local time, find the hour with the highest signed "
+                 "real-time minus day-ahead hub LMP spread. Average the 12 five-minute real-time hub "
+                 "LMPs within each hour before subtracting that hour's day-ahead hub LMP; negative "
+                 "spreads are allowed. Break ties by the earliest UTC hour. For the winning hour, "
+                 "using the latest load forecast published at or before October 21, 2026 12:00 UTC, "
+                 "what is forecast MW minus actual hourly demand MW? Report the signed error in MW.",
+        sql="""WITH hourly_rt AS (
+    SELECT date_trunc('hour', interval_start_utc) AS delivery_utc, avg(lmp) AS rt_lmp
+    FROM core.caiso_lmp_rt_hub_5min
+    WHERE interval_start_local >= TIMESTAMP '2026-10-21 00:00'
+      AND interval_start_local < TIMESTAMP '2026-10-22 00:00'
+    GROUP BY 1 HAVING count(*) = 12
+), winning_hour AS (
+    SELECT rt.delivery_utc
+    FROM hourly_rt rt
+    JOIN core.caiso_lmp_da_hub_hourly da ON da.interval_start_utc = rt.delivery_utc
+    ORDER BY rt.rt_lmp - da.lmp DESC, rt.delivery_utc ASC
+    LIMIT 1
+), eligible_forecasts AS (
+    SELECT f.interval_start_utc, f.forecast_mw,
+           row_number() OVER (ORDER BY f.publish_time_utc DESC) AS vintage_rank
+    FROM core.caiso_load_forecast_hourly f
+    JOIN winning_hour w ON w.delivery_utc = f.interval_start_utc
+    WHERE f.publish_time_utc <= TIMESTAMP '2026-10-21 12:00'
+)
+SELECT f.forecast_mw - b.demand_mw AS signed_error_mw
+FROM eligible_forecasts f
+JOIN core.fact_balance_hourly b ON b.iso_id = 1 AND b.interval_start_utc = f.interval_start_utc
+WHERE f.vintage_rank = 1""",
+        tables=("core.caiso_lmp_rt_hub_5min", "core.caiso_lmp_da_hub_hourly",
+                "core.caiso_load_forecast_hourly", "core.fact_balance_hourly"),
+        excluded=("core.caiso_lmp_rt_bus_5min", "core.caiso_storage_dispatch_5min"),
+        avoid=("demand_forecast_mw",),  # lacks the publication time needed for this cutoff
+        verification="08:00 CAISO local (15:00 UTC) has the highest signed spread, −0.285 USD/MWh. "
+                     "The latest eligible forecast was published at 09:00 UTC: 34,708.94 MW versus "
+                     "35,127.47 MW actual demand.",
     ),
     Case(
         "too_broad", state=State.CLARIFICATION,

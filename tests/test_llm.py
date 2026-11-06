@@ -3,7 +3,7 @@
 import unittest
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gridrag import llm
 from gridrag.records import Stage
@@ -14,6 +14,27 @@ def reply(**payload):
 
 
 class UsageTests(unittest.TestCase):
+    def test_visitor_clients_never_use_or_replace_the_shared_client(self):
+        providers = [Mock(), Mock()]
+        for provider in providers:
+            provider.decisions.create.return_value = reply(answers=[], usage={})
+        shared = llm._client
+        with (patch.object(llm, "OpenAI", side_effect=providers) as create,
+              patch.object(llm, "client", side_effect=AssertionError("shared client used"))):
+            first = llm.LLM(api_key="sk-first-visitor")
+            second = llm.LLM(api_key="sk-second-visitor")
+            first.decide(Stage.GATE, "first", [])
+            second.decide(Stage.GATE, "second", [])
+            self.assertEqual([call.kwargs["api_key"] for call in create.call_args_list],
+                             ["sk-first-visitor", "sk-second-visitor"])
+            self.assertEqual(providers[0].decisions.create.call_args.kwargs["input"], "first")
+            self.assertEqual(providers[1].decisions.create.call_args.kwargs["input"], "second")
+            first.close()
+            second.close()
+        self.assertIs(llm._client, shared)
+        for provider in providers:
+            provider.close.assert_called_once()
+
     def test_provider_scores_are_strict_probabilities(self):
         for value in (None, True, "0.9", -1, 2, float("nan"), float("inf")):
             with self.subTest(value=value):
