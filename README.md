@@ -2,6 +2,7 @@
 <h1 align="center">GridRag</h1>
 <p align="center"><strong>Ask the grid. Follow the evidence.</strong><br>
 An independent exploration of schema retrieval for energy analytics.</p>
+<p align="center"><a href="https://sunairio-energy-demo.vercel.app/">Open the live GridRag demo ↗</a></p>
 <p align="center"><a href="#try-it">Try it</a> · <a href="#the-experiment">The experiment</a> · <a href="docs/evaluation.md">Evaluation</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
 
 Electricity questions are rarely just text lookups. A price spread requires aligned
@@ -15,6 +16,8 @@ This is a personal research project. It uses no employer, customer, or proprieta
 operational data, and makes no claim of affiliation with an energy company.
 
 ## Try it
+
+The live demo is available at **[GridRag on Vercel](https://sunairio-energy-demo.vercel.app/)**.
 
 The app has three pages:
 
@@ -152,6 +155,13 @@ Connect that GitHub repository to Vercel using the checked-in `vercel.json`. No 
 OpenAI key is needed. The public endpoints always require a visitor key, even if an
 owner key was configured accidentally.
 
+For the main GridRag app, set Vercel's **Root Directory** to the repository root
+(`.`), not `experimental/grid-watch`. Use **Other** as the Framework Preset and
+leave build/output overrides disabled so `vercel.json` supplies the build command
+(`uv run --locked python -m scripts.vercel_build`) and output directory (`public`).
+The experimental Grid Watch folder is a separate local app; running the main
+build command from that folder fails with `No module named 'scripts'`.
+
 The Vercel build generates the fictional warehouse and copies only approved frontend
 assets into `public/`. The DuckDB file is bundled privately with the Python function,
 opened read-only, and queried through the backend. Visitors need no database setup.
@@ -160,8 +170,9 @@ external data service. See [Vercel's Python file bundling documentation](https:/
 
 The recorded comparison is static. Qdrant runs locally for reproducible experiments;
 it is not part of the hosted function. Each live web request has a configured
-300-second limit. Deployment completion and cloud bundle size must be verified
-in the target Vercel project before announcing the URL.
+300-second limit.
+
+[Open the live GridRag demo](https://sunairio-energy-demo.vercel.app/).
 
 ## Production boundary
 
