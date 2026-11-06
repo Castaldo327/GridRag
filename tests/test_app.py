@@ -67,7 +67,14 @@ class AppTests(unittest.TestCase):
         with patch.object(config, "settings", replace(config.settings, openai_api_key=None)):
             status, data = send("GET /static/demo.json HTTP/1.1\r\nHost: localhost:8000")
         self.assertEqual(status, 200)
-        self.assertEqual(len(data["demos"]), 3)
+        self.assertEqual([demo["id"] for demo in data["demos"]], [case.id for case in CASES if case.label])
+        for demo in data["demos"]:
+            with self.subTest(example=demo["id"]):
+                self.assertTrue(demo["answer"])
+                self.assertIn(demo["unit"], demo["answer"])
+                self.assertTrue(demo["evidence"])
+                for table in demo["tables"]:
+                    self.assertIn(table, demo["sql"])
         self.assertEqual(len(data["catalog"]), 65)
         self.assertNotIn("api_key", data)
 

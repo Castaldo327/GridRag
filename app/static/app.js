@@ -1,4 +1,4 @@
-const state = { demoIndex: 0, demoStep: 0, scoreScope: "all", benchmark: null, apiKey: "", keyMessage: "", meta: null, result: null, running: false, error: "", progress: {}, runs: new Map(),
+const state = { demo: { index: 0, running: false, progress: {}, result: null, error: "", timer: null, runId: 0, stopped: false }, scoreScope: "all", benchmark: null, apiKey: "", keyMessage: "", meta: null, result: null, running: false, error: "", progress: {}, runs: new Map(),
   evaluation: { running: false, active: null, stage: null, results: new Map(), summary: null, error: "" } };
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -12,6 +12,24 @@ const requestHeaders = () => ({ "Content-Type": "application/json", "Accept": "a
   ...(state.apiKey ? { "Authorization": `Bearer ${state.apiKey}` } : {}) });
 const preset = () => state.meta.presets.find(p => p.question === $("#question").value.trim());
 const presetButtons = (items, offset = 0) => items.map((p, i) => `<button type="button" data-preset="${i + offset}" title="${esc(p.question)}" aria-label="${esc(p.label)}: ${esc(p.question)}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("");
+
+function runWorkspace(prefix = "") {
+  return `    <div class="workspace">
+      <section class="panel flow-panel">
+        <div class="panel-head"><div><span class="eyebrow">QUESTION → EVIDENCE</span><h2>The path to an answer</h2></div><div class="run-status"><span class="live" id="${prefix}live-status" role="status"></span>${prefix === "demo-" ? '<button id="demo-stop" class="text-button" type="button" hidden>Stop replay</button>' : ""}</div></div>
+        <div id="${prefix}flow" class="flow"></div>
+      </section>
+      <section class="panel answer-panel" aria-labelledby="${prefix}answer-heading">
+        <div class="panel-head"><div><span class="eyebrow">RESULT</span><h2 id="${prefix}answer-heading" tabindex="-1">Answer</h2></div><span id="${prefix}answer-state"></span></div>
+        <div id="${prefix}answer" class="answer" aria-live="polite"></div>
+      </section>
+    </div>
+    <section class="panel details-panel" id="${prefix}details-panel" hidden>
+      <div class="panel-head"><div><span class="eyebrow">EVIDENCE</span><h2>Inspect the SQL</h2></div></div>
+      <div id="${prefix}details"></div>
+    </section>
+`;
+}
 
 function render() {
   $("#main").innerHTML = `
@@ -54,20 +72,7 @@ function render() {
 
 
     </section>
-    <div class="workspace">
-      <section class="panel flow-panel">
-        <div class="panel-head"><div><span class="eyebrow">QUESTION → EVIDENCE</span><h2>The path to an answer</h2></div><span class="live" id="live-status" role="status"></span></div>
-        <div id="flow" class="flow"></div>
-      </section>
-      <section class="panel answer-panel" aria-labelledby="answer-heading">
-        <div class="panel-head"><div><span class="eyebrow">RESULT</span><h2 id="answer-heading" tabindex="-1">Answer</h2></div><span id="answer-state"></span></div>
-        <div id="answer" class="answer" aria-live="polite"></div>
-      </section>
-    </div>
-    <section class="panel details-panel" id="details-panel" hidden>
-      <div class="panel-head"><div><span class="eyebrow">EVIDENCE</span><h2>Inspect the SQL</h2></div></div>
-      <div id="details"></div>
-    </section>
+    ${runWorkspace()}
     <section class="panel metrics-panel" id="metrics-panel" hidden>
       <div class="panel-head"><div><span class="eyebrow">MEASURED RUN</span><h2>Time and model use</h2></div></div>
       <div id="metrics"></div>
@@ -147,6 +152,7 @@ function render() {
 function showView(event) {
   const requested = location.hash.slice(1);
   const view = ["playground", "evaluation"].includes(requested) ? requested : requested === "ask" ? "playground" : "demo";
+  if (view !== "demo" && state.demo.running) stopDemo();
   $("#demo-view").hidden = view !== "demo";
   $("#ask-view").hidden = view !== "playground";
   $("#evaluation-view").hidden = view !== "evaluation";
@@ -169,38 +175,108 @@ function paintCatalog() {
 }
 
 function paintDemo() {
-  const demos = state.meta.demos || [], d = demos[state.demoIndex];
+  const demos = state.meta.demos || [], demo = state.demo, d = demos[demo.index];
   if (!d) return;
-  const explanations = {
-    peak: ["Start with a region, a measure, and a date.", "Hourly demand lives in the balance table. The ISO dimension identifies ERCOT.", "Filter the region and local date, then take the highest hourly demand.", "The result is a measurement from this fictional dataset, with its SQL available for inspection."],
-    storage: ["Ask for energy, not just a power reading.", "Five-minute battery dispatch records charge and discharge separately.", "Sum gross discharge power and divide by 12 to convert five-minute MW readings into MWh.", "Keeping units and interval duration in the query makes the answer auditable."],
-    forecast: ["Specify both delivery time and what was known at the time.", "The forecast table includes publication time, unlike a simple demand estimate.", "Keep eligible publication times, then choose the latest forecast vintage.", "This avoids using a forecast that was published after the requested cutoff."]
-  };
-  const titles = ["Ask a precise question", "Find the relevant schema", "Calculate with SQL", "Inspect the evidence"];
-  const detail = [
-    `<blockquote>${esc(d.question)}</blockquote>`,
-    `<div class="demo-tables">${d.tables.map(t => `<code>${esc(t)}</code>`).join("")}</div><p class="footnote">Join dimensions are included where needed. Explore all 65 tables in the playground.</p>`,
-    `<pre>${esc(d.sql)}</pre>`,
-    `<div class="demo-answer"><strong>${number(d.value)}</strong><span>${esc(d.unit)}</span></div><pre>${esc(d.evidence)}</pre>`
-  ];
+  const options = (items, offset = 0) => items.map((item, i) => `<button type="button" data-demo="${i + offset}" aria-pressed="${i + offset === demo.index}" aria-label="${esc(item.label)}: ${esc(item.question)}"><b>${esc(item.label)}</b><span>${esc(item.concept)}</span></button>`).join("");
   $("#demo-view").innerHTML = `
-    <section class="demo-hero">
-      <div class="demo-hero-copy"><span class="eyebrow">ENERGY DATA, EXPLAINED</span><h1>Ask the grid.<br><span>Follow the evidence.</span></h1><p>Turn a plain-language question into a traceable answer. Explore how AI finds the right tables, writes SQL, and works from the data.</p><div class="demo-actions"><button id="explore-example" class="primary-link" type="button">Explore an example <span aria-hidden="true">↓</span></button><a href="#playground">Ask your own question <span aria-hidden="true">↗</span></a></div><span class="hero-caption">Start with the demo. No account or API key needed.</span></div>
-      <aside class="reference-card" aria-label="Prepared example result"><div class="reference-card-top"><span class="eyebrow">A QUESTION → AN ANSWER</span><span class="reference-check" aria-label="Verified reference query">✓</span></div><blockquote>${esc(d.question)}</blockquote><div class="reference-result"><span class="reference-label">${esc(d.label)}</span><div><strong>${number(d.value)}</strong><span>${esc(d.unit)}</span></div></div><div class="reference-card-bottom"><span>Verified SQL evidence</span><span>Prepared example</span></div></aside>
+    <section class="hero panel">
+      <div class="page-intro"><span class="eyebrow">THE DEMO · NO KEY NEEDED</span><h1>Your question. Real SQL.</h1><p>Try the playground experience. Choose a question and follow it from the first check to the answer.</p></div>
+      <div class="market-strip" aria-label="Available energy markets">${state.meta.isos.map(iso => `<span>${esc(iso)}</span>`).join("")}<small>${state.meta.catalog_tables} tables · ${state.meta.isos.length} markets</small></div>
+      <form id="demo-form" class="ask-form">
+        <label for="demo-question">What would you like to know?</label>
+        <div class="question-composer"><textarea id="demo-question" rows="3" readonly aria-describedby="demo-question-hint demo-note">${esc(d.question)}</textarea><div class="composer-bottom"><span id="demo-question-hint">Choose an example below · ⌘ / Ctrl + Enter to ask</span><button id="demo-ask-button" type="submit">Ask the grid →</button></div></div>
+      </form>
+      <div class="demo-replay-note" id="demo-note"><span class="badge">Prepared replay</span><p>Verified SQL and prepared answers on fictional data. The stages and text playback are illustrative; no OpenAI calls or charges.</p></div>
+      <p class="preset-hint">Choose a question to try</p><div class="examples" role="group" aria-label="Demo questions">${options(demos.slice(0, 3))}</div>
+      <details class="more-examples"><summary>More examples: prices, forecasts, and storage</summary><div class="examples">${options(demos.slice(3), 3)}</div></details>
+      <div class="demo-toolbar"><a class="artifact-link" href="#playground">Ask a custom question in the playground ↗</a></div>
     </section>
-    <div class="dataset-strip" aria-label="Dataset overview"><span><strong>${state.meta.catalog_tables}</strong> documented tables</span><span><strong>${state.meta.isos.length}</strong> US grid regions</span><span class="dataset-note"><span class="connection-dot" aria-hidden="true"></span>Entirely synthetic data</span></div>
-    <section id="walkthrough" class="panel walkthrough" aria-labelledby="walkthrough-heading"><div class="panel-head"><div><span class="eyebrow">FOLLOW THE PROCESS</span><h2 id="walkthrough-heading" tabindex="-1">One question. Every step.</h2></div><span class="badge">No key needed</span></div><p class="walkthrough-note">Choose an example and follow its question, schema, SQL, and result. These use verified reference queries, not live model responses.</p><div class="demo-options" role="group" aria-label="Walkthrough examples">${demos.map((item,i) => `<button type="button" data-demo="${i}" aria-pressed="${i === state.demoIndex}">${esc(item.label)}</button>`).join("")}</div><div class="walkthrough-grid"><div class="demo-steps" role="group" aria-label="Walkthrough steps">${titles.map((title,i) => `<button type="button" data-step="${i}" aria-pressed="${i === state.demoStep}"><span>${i < state.demoStep ? "✓" : `0${i+1}`}</span>${title}<b aria-hidden="true">→</b></button>`).join("")}</div><div class="demo-detail"><div class="demo-detail-content" aria-live="polite" aria-atomic="true"><span class="eyebrow">STEP ${state.demoStep + 1} OF 4</span><h3>${titles[state.demoStep]}</h3><p>${explanations[d.id][state.demoStep]}</p>${detail[state.demoStep]}</div><div class="demo-detail-actions"><button id="demo-next" class="primary-link" type="button">${state.demoStep < 3 ? "Next step →" : "Start again ↺"}</button><button id="try-demo-question" class="text-button" type="button">Try this question live ↗</button></div></div></div></section>
-    <section class="research-note"><div><span class="eyebrow">BEYOND THE DEMO</span><h2>Better context. Better answers?</h2><p>Compare routed schema with embedded retrieval across accuracy, response time, and estimated model cost.</p></div><a href="#evaluation">Explore the evaluation <span aria-hidden="true">→</span></a></section>`;
-  $("#explore-example").onclick = () => { $("#walkthrough-heading").focus({preventScroll: true}); $("#walkthrough").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"}); };
-  document.querySelectorAll("[data-demo]").forEach(b => b.onclick = () => { state.demoIndex = Number(b.dataset.demo); state.demoStep = 0; paintDemo(); document.querySelector(`[data-demo="${state.demoIndex}"]`).focus({preventScroll: true}); });
-  document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => { state.demoStep = Number(b.dataset.step); paintDemo(); document.querySelector(`[data-step="${state.demoStep}"]`).focus({preventScroll: true}); });
-  $("#demo-next").onclick = () => { state.demoStep = (state.demoStep + 1) % 4; paintDemo(); $("#demo-next").focus({preventScroll: true}); };
-  $("#try-demo-question").onclick = () => {
-    if (state.running || state.evaluation.running) return;
-    $("#question").value = d.question;
-    $("#question").dispatchEvent(new Event("input"));
-    location.hash = "playground";
+    ${runWorkspace("demo-")}
+    <section class="panel metrics-panel" id="demo-summary" hidden><div class="panel-head"><div><span class="eyebrow">REFERENCE RESULT</span><h2>What this example used</h2></div><span class="badge">Prepared replay</span></div><div id="demo-summary-content"></div><div class="demo-toolbar"><button id="demo-replay" class="text-button" type="button">Replay this answer ↺</button><button id="demo-choose" class="text-button" type="button">Try another question ↑</button></div></section>`;
+  $("#demo-form").onsubmit = event => { event.preventDefault(); runDemo(); };
+  $("#demo-question").onkeydown = event => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); $("#demo-form").requestSubmit(); }
   };
+  document.querySelectorAll("[data-demo]").forEach(button => button.onclick = () => {
+    const expanded = $("#demo-view .more-examples").open;
+    stopDemo(); demo.index = Number(button.dataset.demo); demo.progress = {}; demo.result = null; demo.stopped = false;
+    paintDemo();
+    $("#demo-view .more-examples").open = expanded;
+    document.querySelector(`[data-demo="${demo.index}"]`).focus({preventScroll: true});
+  });
+  $("#demo-stop").onclick = () => { stopDemo(); $("#demo-ask-button").focus({preventScroll: true}); };
+  $("#demo-replay").onclick = runDemo;
+  $("#demo-choose").onclick = () => { $("#demo-ask-button").focus(); };
+  paintDemoRun();
+}
+
+function paintDemoRun() {
+  const demo = state.demo, d = state.meta.demos[demo.index];
+  paintRun(demo, "demo-", true);
+  $("#demo-ask-button").disabled = demo.running;
+  $("#demo-ask-button").textContent = demo.running ? "Replaying…" : demo.result || demo.stopped ? "Replay answer ↺" : "Ask the grid →";
+  $("#demo-stop").hidden = !demo.running;
+  document.querySelectorAll("[data-demo]").forEach(button => { button.disabled = demo.running; });
+  $("#demo-summary").hidden = !demo.result;
+  if (demo.stopped) {
+    $("#demo-live-status").textContent = "Replay stopped";
+    $("#demo-answer").innerHTML = '<p class="footnote">Replay stopped. Select Replay answer to start again.</p>';
+  }
+  if (demo.result) $("#demo-summary-content").innerHTML = `<div class="metric-grid"><div><small>Tables in reference SQL</small><strong>${d.tables.length} / ${state.meta.catalog_tables}</strong></div><div><small>Reference queries</small><strong>1</strong></div><div><small>Result rows</small><strong>1</strong></div><div><small>OpenAI calls in replay</small><strong>0</strong></div></div><p class="footnote">This reference query was executed against the fictional warehouse when the demo was built. Add your key in the playground to generate new SQL and see measured model use.</p>`;
+}
+
+function stopDemo() {
+  const demo = state.demo;
+  clearTimeout(demo.timer); demo.timer = null; demo.runId += 1;
+  if (!demo.running) return;
+  demo.running = false; demo.stopped = true; demo.progress = {}; demo.result = null;
+  paintDemoRun();
+}
+
+function runDemo() {
+  const demo = state.demo, d = state.meta.demos[demo.index];
+  if (demo.running || !d) return;
+  clearTimeout(demo.timer);
+  const runId = ++demo.runId;
+  demo.running = true; demo.stopped = false; demo.result = null; demo.progress = {stage: "gate"};
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const gate = {reason: "This prepared question asks for a read-only calculation on the grid dataset."};
+  const route = {tables: d.tables};
+  const calls = [{query: d.sql, rows: 1, csv: d.evidence, error: null}];
+  const schedule = (callback, delay) => {
+    demo.timer = setTimeout(() => { if (demo.running && demo.runId === runId) callback(); }, delay);
+  };
+  const finish = () => {
+    demo.running = false; demo.timer = null;
+    demo.result = {state: "answered", answer: d.answer, gate, route, tool_calls: calls};
+    paintDemoRun();
+  };
+  const reveal = () => {
+    if (reducedMotion) { finish(); return; }
+    const words = d.answer.match(/\S+\s*/g) || [];
+    let shown = 0;
+    const chunk = () => {
+      shown = Math.min(words.length, shown + 3);
+      demo.progress.answer_text = words.slice(0, shown).join("");
+      // Keep expanded evidence and keyboard focus stable while text is revealed.
+      $("#demo-answer").innerHTML = `<div class="answer-text">${md(demo.progress.answer_text)}</div>`;
+      if (shown === words.length) finish(); else schedule(chunk, 55);
+    };
+    chunk();
+  };
+  paintDemoRun();
+  $("#demo-answer-heading").focus({preventScroll: true});
+  $("#demo-view .workspace").scrollIntoView({behavior: reducedMotion ? "instant" : "smooth", block: "start"});
+  schedule(() => {
+    demo.progress = {stage: "route", gate}; paintDemoRun();
+    schedule(() => {
+      demo.progress = {stage: "sql", gate, route}; paintDemoRun();
+      schedule(() => {
+        demo.progress = {stage: "answer", gate, route, tool_calls: calls}; paintDemoRun();
+        schedule(reveal, reducedMotion ? 0 : 300);
+      }, reducedMotion ? 0 : 850);
+    }, reducedMotion ? 0 : 700);
+  }, reducedMotion ? 0 : 550);
 }
 
 function paintBenchmark() {
@@ -246,45 +322,56 @@ function paintKey() {
   $("#ask-access-note").textContent = modelReady() ? "Live model requests use your key and may incur API charges." : "Connect your key below to run a live question.";
 }
 
-function paint() {
-  paintKey();
-  const r = state.result, route = r?.route || state.progress.route, gate = r?.gate || state.progress.gate;
-  const calls = r?.tool_calls || state.progress.tool_calls || [];
-  const active = state.running ? state.progress.stage : null;
+function paintRun(session, prefix = "", isDemo = false) {
+  const q = name => document.getElementById(prefix + name);
+  const r = session.result, route = r?.route || session.progress.route, gate = r?.gate || session.progress.gate;
+  const calls = r?.tool_calls || session.progress.tool_calls || [];
+  const active = session.running ? session.progress.stage : null;
   const stageNames = {gate: "Checking request", route: "Selecting schema", sql: "Working with SQL", answer: "Interpreting results"};
   const total = state.meta.catalog_tables, selected = route?.tables || [];
-  $("#live-status").textContent = state.running ? stageNames[active] || "Starting…" : r ? "Finished" : "Ready";
-  $("#live-status").className = `live ${state.running ? "running" : ""}`;
+  q("live-status").textContent = session.running ? stageNames[active] || "Starting…" : r ? "Finished" : "Ready";
+  q("live-status").className = `live ${session.running ? "running" : ""}`;
   const steps = [
     ["Request gate", gate ? gate.reason : "Check relevance and instruction safety.", Boolean(gate)],
-    ["Select schema", route ? `${selected.length} of ${total} tables selected. Full columns and referenced tables retained.` :
+    ["Select schema", route ? `${selected.length} of ${total} tables selected. ${isDemo ? "Tables used by the verified reference query." : "Full columns and referenced tables retained."}` :
       "Select relevant tables from the documented catalog.", Boolean(route)],
-    ["Query the warehouse", calls.length ? `${calls.length} queries · ${calls.filter(c => !c.error).length} successful` :
+    ["Query the warehouse", calls.length ? `${calls.length} ${calls.length === 1 ? "query" : "queries"} · ${calls.filter(c => !c.error).length} successful` :
       r ? "No queries executed." : "Generate read-only SQL; repair errors if needed.", calls.length > 0],
     ["Answer from results", r ? r.state.replaceAll("_", " ") : "Use query evidence to answer the question.", r?.state === "answered"],
   ];
-  $("#flow").innerHTML = steps.map(([title, description, done], i) => {
+  const openSchema = q("flow").querySelector(".schema-list")?.open;
+  q("flow").innerHTML = steps.map(([title, description, done], i) => {
     const isActive = active === ["gate", "route", "sql", "answer"][i];
     return `
     <div class="flow-step ${isActive ? "active" : done ? "complete" : ""}" ${isActive ? 'aria-current="step"' : ""}><span class="step-number">${isActive ? '<span class="stage-spinner" aria-hidden="true"></span>' : done ? "✓" : `0${i + 1}`}</span>
       <div><strong>${title}</strong>${isActive ? '<span class="active-label">Active</span>' : ""}<p>${esc(description)}</p>
       ${i === 1 && route ? `<div class="schema-meter" role="img" aria-label="${selected.length} of ${total} catalog tables selected">
         <span style="width:${100 * selected.length / total}%"></span></div>
-        <details class="schema-list"><summary>Selected tables${route.fallback ? " · includes uncertain matches" : ""}</summary>
+        <details class="schema-list" ${openSchema ? "open" : ""}><summary>Selected tables${route.fallback ? " · includes uncertain matches" : ""}</summary>
           ${selected.map(t => `<code>${esc(t)}${route.columns?.[t] ? ` · ${esc(route.columns[t].join(", "))}` : ""}</code>`).join("") || "None"}</details>` : ""}</div></div>`;
   }).join("");
-  $("#answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";
-  $("#answer").innerHTML = state.error ? `<p class="error">${esc(state.error)}</p>` : r ?
-    `<div class="answer-text">${md(r.answer)}</div>` : state.running && state.progress.answer_text ?
-    `<div class="answer-text">${md(state.progress.answer_text)}</div>` : state.running ?
-    `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
+  q("answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";
+  q("answer").innerHTML = session.error ? `<p class="error">${esc(session.error)}</p>` : r ?
+    `<div class="answer-text">${md(r.answer)}</div>` : session.running && session.progress.answer_text ?
+    `<div class="answer-text">${md(session.progress.answer_text)}</div>` : session.running ?
+    `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">${isDemo ? "Replaying prepared stages. SQL and evidence appear next." : "The highlighted stage follows backend progress. SQL and evidence appear as they return."}</p>` :
     '<div class="empty"><span class="empty-symbol" aria-hidden="true">↳</span><strong>An answer you can inspect.</strong><span>Ask a question above. Your answer, SQL, and supporting data will appear here.</span></div>';
-  $("#details-panel").hidden = !calls.length;
-  $("#details").innerHTML = calls.map((call, i) => `<details class="evidence-item" ${i === calls.length - 1 ? "open" : ""}>
-    <summary>Query ${i + 1} · ${call.error ? "error" : `${call.rows} result rows`}</summary>
+  q("details-panel").hidden = !calls.length;
+  if (q("details").dataset.calls !== JSON.stringify(calls)) {
+    q("details").dataset.calls = JSON.stringify(calls);
+    q("details").innerHTML = calls.map((call, i) => `<details class="evidence-item" ${i === calls.length - 1 ? "open" : ""}>
+    <summary>Query ${i + 1} · ${call.error ? "error" : `${call.rows} result ${call.rows === 1 ? "row" : "rows"}`}</summary>
     <pre>${esc(call.query)}</pre>${call.csv ? `<div class="evidence-output"><b>Returned data</b><pre>${esc(call.csv)}</pre></div>` : ""}
     ${call.truncated ? `<p>${esc(call.truncated)}</p>` : ""}
     ${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("");
+  }
+  q("answer").setAttribute("aria-busy", String(session.running));
+}
+
+function paint() {
+  paintKey();
+  paintRun(state);
+  const r = state.result, calls = r?.tool_calls || state.progress.tool_calls || [];
   $("#metrics-panel").hidden = !r;
   if (r) $("#metrics").innerHTML = `<div class="metric-grid">
     <div title="From request processing start to the first streamed answer text"><small>First answer token</small><strong>${seconds(r.timings.first_token)}</strong></div>
@@ -316,7 +403,7 @@ async function ask() {
   const p = preset();
   state.running = true; state.result = null; state.error = ""; state.progress = {}; paint(); paintEvaluation();
   $("#answer-heading").focus({preventScroll: true});
-  $(".workspace").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"});
+  $("#ask-view .workspace").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"});
   try {
     const response = await fetch("/api/ask", {
       method: "POST", headers: requestHeaders(), body: JSON.stringify({ question }),

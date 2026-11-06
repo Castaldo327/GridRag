@@ -20,11 +20,14 @@ The app has three pages:
 
 | Page | What it shows | Key required? |
 | --- | --- | --- |
-| **Demo** | A guided question → schema → SQL → evidence walkthrough with verified synthetic examples | No |
+| **Demo** | The playground flow with seven prepared questions, staged progress, streamed answers, and verified SQL evidence | No |
 | **Playground** | Live questions, streaming answers, SQL evidence, data coverage and searchable table definitions | Yes, for hosted questions |
 | **Evaluation** | Recorded accuracy, latency and estimated cost for routed versus embedded schema retrieval | No, to view results |
 
-The demo is explicitly a prepared walkthrough, not a simulated live model run.
+The demo replays prepared answers and verified reference queries entirely in the
+browser. Its stage transitions and text reveal are illustrative; no model runs,
+API charges, or measured performance statistics are involved. Choose an example,
+select **Ask the grid**, and inspect the answer, selected tables, SQL, and returned data.
 The evaluation page also offers an optional live pipeline check suite with your key.
 That suite is separate from the recorded Qdrant comparison.
 

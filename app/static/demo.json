@@ -65,10 +65,61 @@
       "value": 70979.22,
       "unit": "MW",
       "sql": "SELECT max(demand_mw) AS peak_mw FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id) WHERE iso_code = 'ERCOT' AND interval_start_local::DATE = DATE '2026-10-19'",
+      "concept": "Aggregate a time series",
       "tables": [
+        "core.dim_iso",
         "core.fact_balance_hourly"
       ],
-      "evidence": "peak_mw\n70979.22\n"
+      "evidence": "peak_mw\n70979.22\n",
+      "answer": "ERCOT\u2019s highest hourly demand on October 19, 2026 (local time) was **70,979.22 MW**. The query takes the maximum hourly demand for that region and date. All measurements are from the fictional dataset."
+    },
+    {
+      "id": "share",
+      "label": "Fuel share",
+      "question": "What percentage of PJM's generation came from natural gas in September 2026?",
+      "value": 42.07465178730204,
+      "unit": "%",
+      "sql": "SELECT 100 *\n    (SELECT sum(generation_mw) FROM core.fact_generation_hourly\n     JOIN core.dim_iso USING (iso_id) JOIN core.dim_fuel USING (fuel_id)\n     WHERE iso_code = 'PJM' AND fuel_code = 'natural_gas'\n       AND interval_start_local >= DATE '2026-09-01' AND interval_start_local < DATE '2026-10-01') /\n    (SELECT sum(net_generation_mw) FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id)\n     WHERE iso_code = 'PJM'\n       AND interval_start_local >= DATE '2026-09-01' AND interval_start_local < DATE '2026-10-01') AS share_percent",
+      "concept": "Combine measures across tables",
+      "tables": [
+        "core.dim_iso",
+        "core.dim_fuel",
+        "core.fact_balance_hourly",
+        "core.fact_generation_hourly"
+      ],
+      "evidence": "share_percent\n42.07465178730204\n",
+      "answer": "Natural gas supplied **42.07%** of PJM\u2019s net generation in September 2026. The query divides gas generation by net generation over the same period and multiplies by 100. All measurements are from the fictional dataset."
+    },
+    {
+      "id": "queue",
+      "label": "Project queue",
+      "question": "How many active solar projects are in ERCOT's interconnection queue?",
+      "value": 14.0,
+      "unit": "projects",
+      "sql": "SELECT count(*) AS projects FROM core.queue_project JOIN core.dim_iso USING (iso_id) JOIN core.dim_fuel USING (fuel_id) WHERE iso_code = 'ERCOT' AND fuel_code = 'solar' AND status_code = 'active'",
+      "concept": "Filter through shared dimensions",
+      "tables": [
+        "core.dim_iso",
+        "core.dim_fuel",
+        "core.queue_project"
+      ],
+      "evidence": "projects\n14\n",
+      "answer": "ERCOT\u2019s interconnection queue contains **14 active solar projects** in this snapshot. The query filters by region, fuel, and active status before counting projects. All measurements are from the fictional dataset."
+    },
+    {
+      "id": "spread",
+      "label": "Price spread",
+      "question": "For CAISO_HUB on October 21, 2026 from 5 pm to 6 pm local, what was average real-time hub LMP minus day-ahead hourly hub LMP? Report the signed spread in USD/MWh.",
+      "value": -1.0858333333333334,
+      "unit": "USD/MWh",
+      "sql": "SELECT\n    (SELECT avg(lmp) FROM core.caiso_lmp_rt_hub_5min\n     WHERE interval_start_local >= TIMESTAMP '2026-10-21 17:00'\n       AND interval_start_local < TIMESTAMP '2026-10-21 18:00') -\n    (SELECT lmp FROM core.caiso_lmp_da_hub_hourly\n     WHERE interval_start_local = TIMESTAMP '2026-10-21 17:00') AS spread",
+      "concept": "Align five-minute and hourly data",
+      "tables": [
+        "core.caiso_lmp_rt_hub_5min",
+        "core.caiso_lmp_da_hub_hourly"
+      ],
+      "evidence": "spread\n-1.0858333333333334\n",
+      "answer": "CAISO_HUB\u2019s average real-time minus day-ahead price spread from 5\u20136 pm local on October 21, 2026 was **-1.09 USD/MWh**. The query averages the five-minute real-time prices before subtracting the matching hourly day-ahead price. All measurements are from the fictional dataset."
     },
     {
       "id": "forecast",
@@ -77,10 +128,12 @@
       "value": 72163.4,
       "unit": "MW",
       "sql": "SELECT forecast_mw FROM core.ercot_load_forecast_hourly WHERE interval_start_local = TIMESTAMP '2026-10-21 17:00' AND publish_time_utc <= TIMESTAMP '2026-10-20 18:00' ORDER BY publish_time_utc DESC LIMIT 1",
+      "concept": "Use only information known at the time",
       "tables": [
         "core.ercot_load_forecast_hourly"
       ],
-      "evidence": "forecast_mw\n72163.4\n"
+      "evidence": "forecast_mw\n72163.4\n",
+      "answer": "The latest eligible ERCOT load forecast for October 21, 2026 at 5 pm local was **72,163.40 MW**. The query uses only forecasts published at or before October 20 at 18:00 UTC, then selects the latest publication. All measurements are from the fictional dataset."
     },
     {
       "id": "storage",
@@ -89,10 +142,29 @@
       "value": 4060.0,
       "unit": "MWh",
       "sql": "SELECT sum(discharge_mw) / 12 AS discharge_mwh FROM core.caiso_storage_dispatch_5min WHERE interval_start_local::DATE = DATE '2026-10-21'",
+      "concept": "Convert interval power to energy",
       "tables": [
         "core.caiso_storage_dispatch_5min"
       ],
-      "evidence": "discharge_mwh\n4060.0\n"
+      "evidence": "discharge_mwh\n4060.0\n",
+      "answer": "CAISO\u2019s gross battery discharge energy on October 21, 2026 was **4,060.00 MWh**. The query sums five-minute discharge readings in MW and divides by 12 to convert them to energy. This is gross discharge, not net discharge after charging. All measurements are from the fictional dataset."
+    },
+    {
+      "id": "spread_forecast_error",
+      "label": "Hard: spread to forecast error",
+      "question": "For CAISO on October 21, 2026 local time, find the hour with the highest signed real-time minus day-ahead hub LMP spread. Average the 12 five-minute real-time hub LMPs within each hour before subtracting that hour's day-ahead hub LMP; negative spreads are allowed. Break ties by the earliest UTC hour. For the winning hour, using the latest load forecast published at or before October 21, 2026 12:00 UTC, what is forecast MW minus actual hourly demand MW? Report the signed error in MW.",
+      "value": -418.52999999999884,
+      "unit": "MW",
+      "sql": "WITH hourly_rt AS (\n    SELECT date_trunc('hour', interval_start_utc) AS delivery_utc, avg(lmp) AS rt_lmp\n    FROM core.caiso_lmp_rt_hub_5min\n    WHERE interval_start_local >= TIMESTAMP '2026-10-21 00:00'\n      AND interval_start_local < TIMESTAMP '2026-10-22 00:00'\n    GROUP BY 1 HAVING count(*) = 12\n), winning_hour AS (\n    SELECT rt.delivery_utc\n    FROM hourly_rt rt\n    JOIN core.caiso_lmp_da_hub_hourly da ON da.interval_start_utc = rt.delivery_utc\n    ORDER BY rt.rt_lmp - da.lmp DESC, rt.delivery_utc ASC\n    LIMIT 1\n), eligible_forecasts AS (\n    SELECT f.interval_start_utc, f.forecast_mw,\n           row_number() OVER (ORDER BY f.publish_time_utc DESC) AS vintage_rank\n    FROM core.caiso_load_forecast_hourly f\n    JOIN winning_hour w ON w.delivery_utc = f.interval_start_utc\n    WHERE f.publish_time_utc <= TIMESTAMP '2026-10-21 12:00'\n)\nSELECT f.forecast_mw - b.demand_mw AS signed_error_mw\nFROM eligible_forecasts f\nJOIN core.fact_balance_hourly b ON b.iso_id = 1 AND b.interval_start_utc = f.interval_start_utc\nWHERE f.vintage_rank = 1",
+      "concept": "Rank aligned price grains, select a forecast vintage, then compare with actual demand",
+      "tables": [
+        "core.fact_balance_hourly",
+        "core.caiso_lmp_rt_hub_5min",
+        "core.caiso_lmp_da_hub_hourly",
+        "core.caiso_load_forecast_hourly"
+      ],
+      "evidence": "signed_error_mw\n-418.52999999999884\n",
+      "answer": "For CAISO\u2019s hour with the highest signed price spread, the eligible load forecast minus actual demand was **-418.53 MW**. The selected hour was 08:00 local (15:00 UTC). The latest eligible forecast was 34,708.94 MW, compared with 35,127.47 MW actual demand. All measurements are from the fictional dataset."
     }
   ],
   "catalog": [
