@@ -1,0 +1,360 @@
+{
+  "catalog_tables": 65,
+  "isos": [
+    "CAISO",
+    "ERCOT",
+    "ISONE",
+    "MISO",
+    "NYISO",
+    "PJM",
+    "SPP"
+  ],
+  "max_question_chars": 2000,
+  "model_ready": false,
+  "requires_api_key": true,
+  "presets": [
+    {
+      "id": "peak",
+      "label": "Peak demand",
+      "concept": "Aggregate a time series",
+      "question": "What was ERCOT's highest hourly demand in MW on October 19, 2026 (local time)?"
+    },
+    {
+      "id": "share",
+      "label": "Fuel share",
+      "concept": "Combine measures across tables",
+      "question": "What percentage of PJM's generation came from natural gas in September 2026?"
+    },
+    {
+      "id": "queue",
+      "label": "Project queue",
+      "concept": "Filter through shared dimensions",
+      "question": "How many active solar projects are in ERCOT's interconnection queue?"
+    },
+    {
+      "id": "spread",
+      "label": "Price spread",
+      "concept": "Align five-minute and hourly data",
+      "question": "For CAISO_HUB on October 21, 2026 from 5 pm to 6 pm local, what was average real-time hub LMP minus day-ahead hourly hub LMP? Report the signed spread in USD/MWh."
+    },
+    {
+      "id": "forecast",
+      "label": "Forecast cutoff",
+      "concept": "Use only information known at the time",
+      "question": "What was ERCOT's latest hourly load forecast available at or before October 20, 2026 18:00 UTC for delivery on October 21 at 5 pm local? Report forecast MW."
+    },
+    {
+      "id": "storage",
+      "label": "Battery energy",
+      "concept": "Convert interval power to energy",
+      "question": "How much gross battery discharge energy in MWh was observed in CAISO on October 21, 2026, using five-minute storage dispatch?"
+    },
+    {
+      "id": "spread_forecast_error",
+      "label": "Hard: spread to forecast error",
+      "concept": "Rank aligned price grains, select a forecast vintage, then compare with actual demand",
+      "question": "For CAISO on October 21, 2026 local time, find the hour with the highest signed real-time minus day-ahead hub LMP spread. Average the 12 five-minute real-time hub LMPs within each hour before subtracting that hour's day-ahead hub LMP; negative spreads are allowed. Break ties by the earliest UTC hour. For the winning hour, using the latest load forecast published at or before October 21, 2026 12:00 UTC, what is forecast MW minus actual hourly demand MW? Report the signed error in MW."
+    }
+  ],
+  "evaluation_cases": [],
+  "demos": [
+    {
+      "id": "peak",
+      "label": "Peak demand",
+      "question": "What was ERCOT's highest hourly demand in MW on October 19, 2026 (local time)?",
+      "value": 70979.22,
+      "unit": "MW",
+      "sql": "SELECT max(demand_mw) AS peak_mw FROM core.fact_balance_hourly JOIN core.dim_iso USING (iso_id) WHERE iso_code = 'ERCOT' AND interval_start_local::DATE = DATE '2026-10-19'",
+      "tables": [
+        "core.fact_balance_hourly"
+      ],
+      "evidence": "peak_mw\n70979.22\n"
+    },
+    {
+      "id": "forecast",
+      "label": "Forecast cutoff",
+      "question": "What was ERCOT's latest hourly load forecast available at or before October 20, 2026 18:00 UTC for delivery on October 21 at 5 pm local? Report forecast MW.",
+      "value": 72163.4,
+      "unit": "MW",
+      "sql": "SELECT forecast_mw FROM core.ercot_load_forecast_hourly WHERE interval_start_local = TIMESTAMP '2026-10-21 17:00' AND publish_time_utc <= TIMESTAMP '2026-10-20 18:00' ORDER BY publish_time_utc DESC LIMIT 1",
+      "tables": [
+        "core.ercot_load_forecast_hourly"
+      ],
+      "evidence": "forecast_mw\n72163.4\n"
+    },
+    {
+      "id": "storage",
+      "label": "Battery energy",
+      "question": "How much gross battery discharge energy in MWh was observed in CAISO on October 21, 2026, using five-minute storage dispatch?",
+      "value": 4060.0,
+      "unit": "MWh",
+      "sql": "SELECT sum(discharge_mw) / 12 AS discharge_mwh FROM core.caiso_storage_dispatch_5min WHERE interval_start_local::DATE = DATE '2026-10-21'",
+      "tables": [
+        "core.caiso_storage_dispatch_5min"
+      ],
+      "evidence": "discharge_mwh\n4060.0\n"
+    }
+  ],
+  "catalog": [
+    {
+      "name": "core.dim_iso",
+      "ddl": "CREATE TABLE core.dim_iso (\n    iso_id   SMALLINT PRIMARY KEY,\n    iso_code VARCHAR NOT NULL UNIQUE,\n    timezone VARCHAR NOT NULL  -- clock of interval_start_local\n);"
+    },
+    {
+      "name": "core.dim_fuel",
+      "ddl": "-- Fuels and technologies shared by generation facts and queue projects.\nCREATE TABLE core.dim_fuel (\n    fuel_id        SMALLINT PRIMARY KEY,\n    fuel_code      VARCHAR NOT NULL UNIQUE,  -- natural_gas, coal, oil, nuclear, hydro, wind, solar, geothermal, biomass, battery, hydrogen, transmission, other\n    name           VARCHAR NOT NULL,\n    category       VARCHAR NOT NULL CHECK (category IN ('fossil', 'nuclear', 'renewable', 'storage', 'other')),\n    is_renewable   BOOLEAN NOT NULL,         -- hydro, wind, solar, geothermal, biomass\n    is_carbon_free BOOLEAN NOT NULL          -- renewable or nuclear\n);"
+    },
+    {
+      "name": "core.dim_location",
+      "ddl": "-- Fictional price locations: three electrical buses and one trading hub per ISO.\n-- Bus and hub IDs are not interchangeable.\nCREATE TABLE core.dim_location (\n    location_id   INTEGER  PRIMARY KEY,\n    iso_id        SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id),\n    location_code VARCHAR  NOT NULL UNIQUE,  -- ISO_BUS_A, ISO_BUS_B, ISO_BUS_C or ISO_HUB, with ISO replaced by the ISO code\n    location_type VARCHAR  NOT NULL CHECK (location_type IN ('bus', 'hub'))  -- no implied bus-to-hub averaging weights\n);"
+    },
+    {
+      "name": "core.dim_queue_status",
+      "ddl": "-- Common status classes of interconnection-queue projects.\nCREATE TABLE core.dim_queue_status (\n    status_code VARCHAR PRIMARY KEY,  -- active, withdrawn, completed, suspended or unknown\n    description VARCHAR NOT NULL\n);"
+    },
+    {
+      "name": "core.fact_balance_hourly",
+      "ddl": "-- Hourly balance: total demand (load) and net generation across all fuels, the denominator of fuel shares.\n-- One row per ISO and hour. Local timestamps repeat in the fall-back hour, so the key is UTC.\n-- Joining to generation by ISO/hour is one-to-many: each balance measure repeats for every fuel.\n-- Aggregate balance and fuel generation separately before combining totals, or make the join one-to-one.\nCREATE TABLE core.fact_balance_hourly (\n    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),\n    interval_start_utc   TIMESTAMP NOT NULL,\n    interval_start_local TIMESTAMP NOT NULL,\n    demand_mw            DOUBLE,  -- demand (load), MW\n    demand_forecast_mw   DOUBLE,  -- one simple day-ahead demand estimate per hour, MW; no publication time, so not usable for a forecast known at a cutoff\n    net_generation_mw    DOUBLE,  -- net generation from all fuels, MW (the denominator of fuel shares)\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.fact_generation_hourly",
+      "ddl": "-- Hourly generation by fuel: one row per ISO, hour and fuel; MW averaged over the hour.\n-- Battery is net output: negative while charging.\nCREATE TABLE core.fact_generation_hourly (\n    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),\n    interval_start_utc   TIMESTAMP NOT NULL,\n    interval_start_local TIMESTAMP NOT NULL,\n    fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),\n    generation_mw        DOUBLE    NOT NULL,  -- generation (output) from this fuel, MW averaged over the hour\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.fact_load_5min",
+      "ddl": "-- Five-minute load: one row per CAISO or ERCOT interval, local dates 2026-10-15 through 2026-10-21.\n-- Can differ slightly from hourly demand.\nCREATE TABLE core.fact_load_5min (\n    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),\n    interval_start_utc   TIMESTAMP NOT NULL,\n    interval_start_local TIMESTAMP NOT NULL,\n    load_mw              DOUBLE,  -- load (demand), MW\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.fact_generation_5min",
+      "ddl": "-- Five-minute generation by fuel for CAISO and ERCOT, local dates 2026-10-15 through 2026-10-21.\n-- Battery is net output: negative while charging.\nCREATE TABLE core.fact_generation_5min (\n    iso_id               SMALLINT  NOT NULL REFERENCES core.dim_iso (iso_id),\n    interval_start_utc   TIMESTAMP NOT NULL,\n    interval_start_local TIMESTAMP NOT NULL,\n    fuel_id              SMALLINT  NOT NULL REFERENCES core.dim_fuel (fuel_id),\n    generation_mw        DOUBLE    NOT NULL,  -- generation (output) from this fuel, MW over the five minutes\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.queue_project",
+      "ddl": "-- Interconnection queue: one fictional current project per row, as of 2026-10-21.\n-- No historical status snapshots: entry dates cannot reconstruct what the queue looked like earlier.\nCREATE TABLE core.queue_project (\n    project_id     INTEGER  PRIMARY KEY,\n    iso_id         SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id),\n    queue_id       VARCHAR,                -- fictional ISO-prefixed queue identifier\n    project_name   VARCHAR,                -- fictional project name\n    developer      VARCHAR,                -- interconnecting entity\n    county         VARCHAR,                -- project county\n    state          VARCHAR,                -- two-letter US state\n    fuel_id        SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),\n    technology     VARCHAR,                -- fictional technology label\n    status_code    VARCHAR  NOT NULL REFERENCES core.dim_queue_status (status_code),\n    status_raw     VARCHAR,                -- fictional raw status label behind status_code\n    capacity_mw    DOUBLE,                 -- proposed capacity, MW (not built capacity or output)\n    is_hybrid      BOOLEAN  NOT NULL,      -- a non-storage project paired with storage\n    queue_date     DATE,                   -- date the project entered the queue\n    proposed_cod   DATE,                   -- proposed commercial operation date\n    withdrawn_date DATE,                   -- date a withdrawn project left the queue\n    completed_date DATE                    -- date a completed project entered service\n);"
+    },
+    {
+      "name": "core.caiso_lmp_rt_bus_5min",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.caiso_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.caiso_lmp_rt_hub_5min",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.caiso_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.caiso_lmp_da_hub_hourly",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.caiso_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.caiso_load_forecast_hourly",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.caiso_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.caiso_ancillary_prices_hourly",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.caiso_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.caiso_storage_dispatch_5min",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.caiso_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.caiso_resource_outage_daily",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.caiso_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.caiso_renewable_curtailment_5min",
+      "ddl": "-- CAISO only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.caiso_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 1),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.ercot_lmp_rt_bus_5min",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.ercot_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.ercot_lmp_rt_hub_5min",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.ercot_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.ercot_lmp_da_hub_hourly",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.ercot_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.ercot_load_forecast_hourly",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.ercot_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.ercot_ancillary_prices_hourly",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.ercot_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.ercot_storage_dispatch_5min",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.ercot_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.ercot_resource_outage_daily",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.ercot_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.ercot_renewable_curtailment_5min",
+      "ddl": "-- ERCOT only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.ercot_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 2),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.isone_lmp_rt_bus_5min",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.isone_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.isone_lmp_rt_hub_5min",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.isone_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.isone_lmp_da_hub_hourly",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.isone_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.isone_load_forecast_hourly",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.isone_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.isone_ancillary_prices_hourly",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.isone_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.isone_storage_dispatch_5min",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.isone_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.isone_resource_outage_daily",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.isone_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.isone_renewable_curtailment_5min",
+      "ddl": "-- ISONE only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.isone_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 3),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.miso_lmp_rt_bus_5min",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.miso_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.miso_lmp_rt_hub_5min",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.miso_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.miso_lmp_da_hub_hourly",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.miso_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.miso_load_forecast_hourly",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.miso_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.miso_ancillary_prices_hourly",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.miso_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.miso_storage_dispatch_5min",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.miso_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.miso_resource_outage_daily",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.miso_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.miso_renewable_curtailment_5min",
+      "ddl": "-- MISO only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.miso_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 4),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.nyiso_lmp_rt_bus_5min",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.nyiso_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.nyiso_lmp_rt_hub_5min",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.nyiso_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.nyiso_lmp_da_hub_hourly",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.nyiso_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.nyiso_load_forecast_hourly",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.nyiso_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.nyiso_ancillary_prices_hourly",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.nyiso_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.nyiso_storage_dispatch_5min",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.nyiso_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.nyiso_resource_outage_daily",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.nyiso_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.nyiso_renewable_curtailment_5min",
+      "ddl": "-- NYISO only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.nyiso_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 5),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.pjm_lmp_rt_bus_5min",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.pjm_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.pjm_lmp_rt_hub_5min",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.pjm_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.pjm_lmp_da_hub_hourly",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.pjm_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.pjm_load_forecast_hourly",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.pjm_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.pjm_ancillary_prices_hourly",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.pjm_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.pjm_storage_dispatch_5min",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.pjm_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.pjm_resource_outage_daily",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.pjm_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.pjm_renewable_curtailment_5min",
+      "ddl": "-- PJM only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.pjm_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 6),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    },
+    {
+      "name": "core.spp_lmp_rt_bus_5min",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute LMPs at individual electrical buses; NOT hub prices or day-ahead prices.\nCREATE TABLE core.spp_lmp_rt_bus_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.spp_lmp_rt_hub_5min",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Real-time five-minute trading-HUB LMPs; NOT bus prices or day-ahead prices.\nCREATE TABLE core.spp_lmp_rt_hub_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.spp_lmp_da_hub_hourly",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Day-ahead hourly trading-HUB LMPs; compare against hourly averages of real-time hub prices.\nCREATE TABLE core.spp_lmp_da_hub_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    location_id INTEGER NOT NULL REFERENCES core.dim_location (location_id),  -- price location in core.dim_location; bus and hub grains differ\n    lmp DOUBLE NOT NULL,  -- total locational marginal price, USD/MWh; equals energy + congestion + loss\n    energy DOUBLE NOT NULL,  -- energy price component, USD/MWh\n    congestion DOUBLE NOT NULL,  -- congestion price component, USD/MWh\n    loss DOUBLE NOT NULL,  -- marginal-loss price component, USD/MWh\n    PRIMARY KEY (iso_id, interval_start_utc, location_id)\n);"
+    },
+    {
+      "name": "core.spp_load_forecast_hourly",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Hourly LOAD forecast vintages; multiple publication times per delivery hour. Not actual demand. Select the latest publication AT OR BEFORE the requested cutoff.\nCREATE TABLE core.spp_load_forecast_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    publish_time_utc TIMESTAMP NOT NULL,  -- when this forecast became known, UTC; apply a cutoff before ranking\n    forecast_mw DOUBLE NOT NULL,  -- forecast demand for the delivery hour, MW; never actual observed demand\n    PRIMARY KEY (iso_id, interval_start_utc, publish_time_utc)\n);"
+    },
+    {
+      "name": "core.spp_ancillary_prices_hourly",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Hourly ancillary service clearing prices by reserve product (regulation_up, regulation_down, spinning_reserve); NOT energy LMPs.\nCREATE TABLE core.spp_ancillary_prices_hourly (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    service_code VARCHAR NOT NULL,  -- regulation_up, regulation_down or spinning_reserve\n    clearing_price DOUBLE NOT NULL,  -- ancillary service clearing price, USD/MW-hour\n    PRIMARY KEY (iso_id, interval_start_utc, service_code)\n);"
+    },
+    {
+      "name": "core.spp_storage_dispatch_5min",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Observed five-minute battery dispatch and state of charge; positive charge/discharge magnitudes. Not proposed queue capacity or generation by fuel.\nCREATE TABLE core.spp_storage_dispatch_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    charge_mw DOUBLE NOT NULL,  -- power entering batteries, positive MW\n    discharge_mw DOUBLE NOT NULL,  -- power leaving batteries, positive MW\n    net_output_mw DOUBLE NOT NULL,  -- discharge_mw minus charge_mw; negative while charging\n    state_of_charge_mwh DOUBLE NOT NULL,  -- stored energy at interval start, MWh; not power or proposed capacity\n    PRIMARY KEY (iso_id, interval_start_utc)\n);"
+    },
+    {
+      "name": "core.spp_resource_outage_daily",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Daily unavailable resource capacity by fuel and planned/forced outage type; neither demand nor interconnection queue status.\nCREATE TABLE core.spp_resource_outage_daily (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    market_date DATE NOT NULL,  -- ISO-local calendar day\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- fuel in core.dim_fuel\n    outage_type VARCHAR NOT NULL,  -- planned or forced; both are unavailable resource capacity\n    unavailable_mw DOUBLE NOT NULL,  -- resource capacity unavailable during the day, MW; not lost energy\n    PRIMARY KEY (iso_id, market_date, fuel_id, outage_type)\n);"
+    },
+    {
+      "name": "core.spp_renewable_curtailment_5min",
+      "ddl": "-- SPP only, local dates 2026-10-15 through 2026-10-21. Five-minute curtailed solar/wind POWER, distinct from generated output or forecast production. Integrate MW/12 to MWh.\nCREATE TABLE core.spp_renewable_curtailment_5min (\n    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = 7),\n    interval_start_utc TIMESTAMP NOT NULL,  -- delivery interval start, UTC; join time series on this and iso_id\n    interval_start_local TIMESTAMP NOT NULL,  -- delivery interval start on the ISO clock; calendar filters use this\n    fuel_id SMALLINT NOT NULL REFERENCES core.dim_fuel (fuel_id),  -- solar or wind, in core.dim_fuel\n    curtailed_mw DOUBLE NOT NULL,  -- renewable output curtailed, MW; not actual generation\n    PRIMARY KEY (iso_id, interval_start_utc, fuel_id)\n);"
+    }
+  ]
+}

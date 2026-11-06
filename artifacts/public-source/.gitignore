@@ -1,0 +1,27 @@
+# reproducible warehouse
+data/
+
+# python
+.venv/
+.env*
+!.env.example
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.interview-build/
+.aws/
+.agents/
+.codex/
+output/
+artifacts/
+.cache/
+*.pem
+*.key
+
+# macOS metadata
+.DS_Store
+
+# hosting output and local Vercel project credentials
+.vercel/
+public/
