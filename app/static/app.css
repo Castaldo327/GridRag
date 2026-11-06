@@ -89,15 +89,11 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
 .composer-bottom { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 8px 10px 10px 18px; }
 .composer-bottom > span { color: var(--muted); font-size: 11px; }
 #ask-access-note { margin: 0; }
-.api-access { margin-top: 22px; border: 1px solid var(--line); border-radius: 8px; background: #f8faf5; }
-.api-access > summary { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 13px 16px; font-size: 13px; list-style: none; }
-.api-access > summary::-webkit-details-marker { display: none; }
-.api-access > summary > span:first-child { display: flex; align-items: center; gap: 9px; }
+.api-access { margin: 24px 0; border: 1px solid var(--line); border-radius: 8px; background: #f8faf5; }
+.api-access-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.key-connection { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .api-access:not(.connected) .connection-dot { background: #8d938a; }
-.summary-action { color: var(--accent); font-size: 12px; }
-.summary-action::after { content: "+"; margin-left: 12px; }
-.api-access[open] .summary-action::after { content: "−"; }
-.api-access-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 32px; padding: 22px; border-top: 1px solid var(--line); }
+.api-access-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 32px; padding: 22px; }
 .api-access h2 { font-size: 18px; }
 .api-access p { margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
 .api-access small { display: block; color: var(--muted); font-size: 11px; line-height: 1.7; }
@@ -255,8 +251,6 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
   .composer-bottom > span { align-self: start; }
   .api-access-body { padding: 16px; }
   .api-key-controls input { flex-basis: 100%; }
-  .summary-action { font-size: 11px; }
-  .summary-action::after { margin-left: 6px; }
   .flow-panel, .answer-panel, .details-panel, .metrics-panel { padding: 22px 18px; }
   .metric-grid > div { padding: 12px; }
   .metric-grid strong { font-size: 16px; }

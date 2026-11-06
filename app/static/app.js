@@ -7,7 +7,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
 const md = (value) => esc(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 const number = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const seconds = value => value == null ? "—" : `${Number(value).toFixed(2)} s`;
-const modelReady = () => Boolean(state.apiKey || state.meta?.model_ready);
+const modelReady = () => Boolean(state.apiKey || (state.meta?.model_ready && !state.meta?.requires_api_key));
 const requestHeaders = () => ({ "Content-Type": "application/json", "Accept": "application/x-ndjson",
   ...(state.apiKey ? { "Authorization": `Bearer ${state.apiKey}` } : {}) });
 const preset = () => state.meta.presets.find(p => p.question === $("#question").value.trim());
@@ -37,23 +37,22 @@ function render() {
     <div id="ask-view">
     <section class="hero panel">
       <div class="page-intro"><span class="eyebrow">THE PLAYGROUND</span><h1>Your question. Real SQL.</h1><p>Ask about energy data in plain language. Follow the answer back to its source.</p></div>
-      <div class="market-strip" aria-label="Available energy markets">${state.meta.isos.map(iso => `<span>${esc(iso)}</span>`).join("")}<small>${state.meta.catalog_tables} tables · ${state.meta.isos.length} markets</small></div>
-      <aside class="data-window" id="data-window"><span class="connection-dot" aria-hidden="true"></span><span>Synthetic dataset · Through <strong>Oct 21, 2026</strong> · Use a specific region and date.</span></aside>
-      <form id="ask-form" class="ask-form">
-        <label for="question">What would you like to know?</label>
-        <div class="question-composer"><textarea id="question" aria-describedby="data-window question-hint" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="What was ERCOT’s peak demand on October 19, 2026?"></textarea><div class="composer-bottom"><span id="question-hint">⌘ / Ctrl + Enter to ask</span><button id="ask-button" type="submit">Ask the grid →</button></div></div>
-        <span id="ask-access-note" class="footnote">Connect your key below to run a live question.</span>
-      </form>
-      <details id="key-settings" class="api-access">
-        <summary><span><span class="connection-dot" aria-hidden="true"></span><span id="key-summary">Connect your OpenAI key</span></span><span class="summary-action">Manage key</span></summary>
+      <section id="key-settings" class="api-access" aria-labelledby="api-key-heading">
         <div class="api-access-body">
-          <div class="api-access-intro"><h2 id="api-key-heading">Your key. Your session.</h2><p>Your key stays in this tab’s memory and passes through the app’s backend to OpenAI. It is never saved by the app. Reload or remove it to clear it. Usage is billed to your OpenAI account.</p><small id="model-access-note">Requires access to the configured Decisions and Responses models.</small></div>
+          <div class="api-access-intro"><div class="api-access-heading"><h2 id="api-key-heading">Connect your OpenAI key</h2><span class="key-connection"><span class="connection-dot" aria-hidden="true"></span><span id="key-summary">Not connected</span></span></div><p>Use your own key to ask live questions. Your key stays in this tab’s memory and passes through the app’s backend to OpenAI. It is never saved by the app. Reload or remove it to clear it. Usage is billed to your OpenAI account.</p><small id="model-access-note">Requires access to the configured Decisions and Responses models.</small></div>
           <form id="api-key-form" class="api-key-form" autocomplete="off">
             <label for="api-key">OpenAI API key</label><div class="api-key-controls"><input id="api-key" type="password" name="visitor-api-key" maxlength="503" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="api-key-status"><button id="save-key" type="submit">Use key</button><button id="clear-key" type="button" hidden>Remove</button></div>
             <span id="api-key-status" role="status"></span><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
           </form>
         </div>
-      </details>
+      </section>
+      <div class="market-strip" aria-label="Available energy markets">${state.meta.isos.map(iso => `<span>${esc(iso)}</span>`).join("")}<small>${state.meta.catalog_tables} tables · ${state.meta.isos.length} markets</small></div>
+      <aside class="data-window" id="data-window"><span class="connection-dot" aria-hidden="true"></span><span>Synthetic dataset · Through <strong>Oct 21, 2026</strong> · Use a specific region and date.</span></aside>
+      <form id="ask-form" class="ask-form">
+        <label for="question">What would you like to know?</label>
+        <div class="question-composer"><textarea id="question" aria-describedby="data-window question-hint" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="What was ERCOT’s peak demand on October 19, 2026?"></textarea><div class="composer-bottom"><span id="question-hint">⌘ / Ctrl + Enter to ask</span><button id="ask-button" type="submit">Ask the grid →</button></div></div>
+        <span id="ask-access-note" class="footnote">Add your key above to run a live question.</span>
+      </form>
       <p class="preset-hint">Or start with an example</p>
       <div class="examples" aria-label="Preset questions">${presetButtons(state.meta.presets.slice(0, 3))}</div>
       <details class="more-examples"><summary>More examples: prices, forecasts, and storage</summary><div class="examples">${presetButtons(state.meta.presets.slice(3), 3)}</div></details>
@@ -105,7 +104,6 @@ function render() {
     state.apiKey = key; state.keyMessage = ""; $("#api-key").value = "";
     $("#api-key").removeAttribute("aria-invalid");
     paint(); paintEvaluation();
-    $("#key-settings").open = false;
     $("#question").focus();
   };
   $("#clear-key").onclick = () => {
@@ -315,11 +313,11 @@ function paintKey() {
   $("#clear-key").hidden = !state.apiKey;
   $("#clear-key").disabled = busy;
   $("#api-key").placeholder = state.apiKey ? "Key added for this tab" : "sk-…";
-  $("#api-key-status").textContent = state.keyMessage || (state.apiKey ? "Key added for this tab. Reloading or closing this tab removes it." : state.meta.model_ready ? "Using the local server’s configured key. You can use your own instead." : "Add your key above to ask a question or run evaluations.");
+  $("#api-key-status").textContent = state.keyMessage || (state.apiKey ? "Key added for this tab. Reloading or closing this tab removes it." : (state.meta.model_ready && !state.meta.requires_api_key) ? "Using the local server’s configured key. You can use your own instead." : "Add your key above to ask a question or run evaluations.");
   $("#api-key-status").classList.toggle("error", Boolean(state.keyMessage));
-  $("#key-summary").textContent = state.apiKey ? "Key connected for this tab" : state.meta.model_ready ? "Local server key connected" : "Connect your OpenAI key";
+  $("#key-summary").textContent = state.apiKey ? "Connected for this tab" : modelReady() ? "Local server key connected" : "Not connected";
   $("#key-settings").classList.toggle("connected", modelReady());
-  $("#ask-access-note").textContent = modelReady() ? "Live model requests use your key and may incur API charges." : "Connect your key below to run a live question.";
+  $("#ask-access-note").textContent = modelReady() ? "Live model requests use your key and may incur API charges." : "Add your key above to run a live question.";
 }
 
 function paintRun(session, prefix = "", isDemo = false) {
@@ -396,7 +394,6 @@ async function ask() {
   const question = $("#question").value.trim();
   if (!question || state.running || state.evaluation.running) return;
   if (!modelReady()) {
-    $("#key-settings").open = true;
     $("#api-key").focus();
     return;
   }
