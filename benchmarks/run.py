@@ -4,10 +4,8 @@ Without --live, evaluate only dense retrieval (no OpenAI requests). Settings are
 predeclared, never selected using benchmark outcomes. All attempts are retained.
 """
 import argparse
-import csv
 import hashlib
 import importlib.metadata
-import io
 import json
 import math
 import random
@@ -22,29 +20,14 @@ from gridrag.catalog import demo_catalog
 from gridrag.llm import LLM
 from gridrag.records import State
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.warehouse.evaluation import assess
+from gridrag.warehouse.evaluation import assess, evidence_matches
 from gridrag.warehouse.evals import reference_value
 from benchmarks.cases import BENCHMARK_CASES
 from benchmarks.vector import MODEL, VectorRetriever
 
 
 def strict_evidence(result, expected, tolerance):
-    """A scalar reference must match the entire final successful SQL result.
-
-    Avoid accepting a coincidental number buried in a multi-row or multi-column
-    result. Prose matching remains a separate, weaker secondary check.
-    """
-    calls = [c for c in result.get("tool_calls", []) if c.get("csv") and not c.get("error")]
-    if not calls or calls[-1].get("truncated"):
-        return False
-    rows = list(csv.reader(io.StringIO(calls[-1]["csv"])))
-    if len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
-        return False
-    try:
-        value = float(rows[1][0])
-        return math.isfinite(value) and math.isclose(value, expected, abs_tol=tolerance + 1e-9, rel_tol=0)
-    except ValueError:
-        return False
+    return evidence_matches(result, expected, tolerance)
 
 
 def retrieval_metrics(case, selection, catalog):
@@ -116,7 +99,7 @@ def main():
     rows = []
     methods = ["routed", "vector-k4", "vector-k6"] if args.live else ["vector-k4", "vector-k6"]
     manifest = {
-        "format_version": 1, "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
+        "format_version": 2, "scoring_version": "strict-final-scalar-v2", "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
         "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
         "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
         "versions": {p: importlib.metadata.version(p) for p in ("qdrant-client", "fastembed", "openai", "duckdb")},

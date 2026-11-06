@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from app.__main__ import PRESETS, Handler
 from gridrag import config
-from gridrag.warehouse.evals import CASES
+from gridrag.warehouse.suite import EVALUATION_CASES as CASES
+from gridrag.warehouse.evaluation import evaluation_question
 
 
 def send(head, body=b""):
@@ -146,7 +147,7 @@ class AppTests(unittest.TestCase):
               patch.object(config, "settings", replace(config.settings, openai_api_key="test"))):
             status, events = post_evaluation()
         self.assertEqual(status, 200)
-        self.assertEqual(questions, [case.question for case in CASES])
+        self.assertEqual(questions, [evaluation_question(case) for case in CASES])
         self.assertEqual([event["id"] for event in events if event["type"] == "case_start"],
                          [case.id for case in CASES])
         self.assertEqual(len([event for event in events if event["type"] == "case_done"]), len(CASES))
@@ -202,7 +203,7 @@ class AppTests(unittest.TestCase):
                    "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
                    f"Content-Length: {len(body)}")
         def fake_answer(question, llm, on_progress):
-            self.assertEqual(question, CASES[0].question)
+            self.assertEqual(question, evaluation_question(CASES[0]))
             on_progress({"stage": "gate"})
             return {"usage": {"cost_usd": 0.01}}
         with (patch.object(Handler, "require_visitor_key", True),

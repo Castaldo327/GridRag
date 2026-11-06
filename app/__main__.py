@@ -14,11 +14,12 @@ from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
 from gridrag.llm import LLM
-from gridrag.warehouse.evaluation import assess, case_info
-from gridrag.warehouse.evals import CASES
+from gridrag.warehouse.evaluation import assess, case_info, evaluation_question
+from gridrag.warehouse.evals import CASES as PRESET_CASES
+from gridrag.warehouse.suite import EVALUATION_CASES as CASES, suite_info
 
 PRESETS = [{"id": case.id, "label": case.label, "concept": case.concept, "question": case.question}
-           for case in CASES if case.label]
+           for case in PRESET_CASES if case.label]
 STATIC = Path(__file__).parent / "static"
 RUN_LOCK = threading.Lock()
 MAX_BODY_BYTES = 16384
@@ -97,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "models": {"decisions": config.settings.decisions_model,
                                            "answer": config.settings.answer_model},
                                 "presets": PRESETS,
-                                "evaluation_cases": [case_info(case) for case in CASES]})
+                                "evaluation_cases": [case_info(case) for case in CASES], "evaluation_suite": suite_info()})
             except Exception:
                 logging.error("Could not load the catalog")
                 self.send(503, {"error": "Catalog unavailable. See the server log for details."})
@@ -208,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
             for index, case in enumerate(cases):
                 emit({"type": "case_start", "index": index, "id": case.id})
                 try:
-                    result = self.run_answer(case.question, on_progress=lambda update: (
+                    result = self.run_answer(evaluation_question(case), on_progress=lambda update: (
                         emit({"type": "case_progress", "index": index, "id": case.id,
                               "stage": update["stage"]}) if "stage" in update else None))
                     assessment = assess(case, result)

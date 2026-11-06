@@ -1,5 +1,5 @@
 const state = { demo: { index: 0, running: false, progress: {}, result: null, error: "", timer: null, runId: 0, stopped: false }, scoreScope: "all", benchmark: null, apiKey: "", keyMessage: "", meta: null, result: null, running: false, error: "", progress: {}, runs: new Map(),
-  evaluation: { running: false, active: null, stage: null, results: new Map(), summary: null, error: "" } };
+  evaluation: { running: false, active: null, stage: null, results: new Map(), summary: null, error: "", category: "all", repeats: 1, filter: "all", plan: [], stopRequested: false, manifest: null } };
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -85,11 +85,17 @@ function render() {
         <div><strong>Accuracy</strong><p>Numeric questions must produce the correct final scalar SQL result. Behavior cases must decline or request clarification without executing SQL. Independent reference queries never reach the model.</p></div>
         <div><strong>Fairness and limits</strong><p>Fixed settings, shuffled method order, repeated trials, and failures included. This small synthetic benchmark does not establish production accuracy. Token costs exclude embedding compute and hosting.</p></div>
       </div></details>
-      <details class="panel live-checks"><summary>Run the routed pipeline checks with your own key</summary>
-        <p class="footnote">These checks exercise the live playground. The comparison above is a separately recorded benchmark; rerunning these checks does not rerun Qdrant.</p>
-        <div class="evaluation-action"><button id="evaluation-run" type="button">Run checks →</button><small><a href="#playground">Add your key in the playground</a> first. This makes paid API calls.</small></div>
-        <div id="evaluation-summary" class="evaluation-summary" role="status"></div><div id="evaluation-cases" class="evaluation-cases"></div>
-      </details>
+      <section class="panel live-checks" aria-labelledby="evaluation-heading">
+        <div class="panel-head"><div><span class="eyebrow">LIVE REGRESSION SUITE</span><h2 id="evaluation-heading">Test the whole pipeline.</h2></div><span id="evaluation-version" class="badge"></span></div>
+        <p id="evaluation-suite-info" class="footnote"></p>
+        <p class="footnote">These checks exercise the routed playground. The recorded comparison above is a separate, fixed benchmark. Numeric questions request one row and one numeric answer column. Reference answers and SQL are never sent to the live model.</p>
+        <div class="evaluation-controls"><label for="evaluation-category">Coverage<select id="evaluation-category"></select></label><label for="evaluation-repeats">Trials per question<select id="evaluation-repeats"><option value="1">1 trial</option><option value="3">3 trials</option></select></label></div>
+        <div class="evaluation-action"><button id="evaluation-run" type="button">Run checks →</button><button id="evaluation-stop" class="text-button" type="button" hidden>Stop after this case</button><button id="evaluation-download" class="text-button" type="button" disabled>Download report ↓</button></div>
+        <p id="evaluation-access" class="footnote"></p>
+        <div id="evaluation-summary" class="evaluation-summary" role="status"></div><div id="evaluation-metrics"></div>
+        <div class="evaluation-results-toolbar"><label for="evaluation-filter">Show results<select id="evaluation-filter"><option value="all">All cases</option><option value="failed">Needs review</option><option value="passed">All checks passed</option></select></label><span class="footnote">Filtering does not change scores.</span></div>
+        <div id="evaluation-cases" class="evaluation-cases"></div>
+      </section>
     </section>`;
   $(".skip-link").onclick = event => { event.preventDefault(); $("#main").focus(); $("#main").scrollIntoView({block: "start"}); };
   $("#api-key-form").onsubmit = event => {
@@ -138,7 +144,12 @@ function render() {
   const initialQuestion = new URLSearchParams(location.search).get("q");
   $("#question").value = (initialQuestion || "").slice(0, state.meta.max_question_chars);
   if (initialQuestion && !location.hash) history.replaceState(null, "", `${location.search}#playground`);
-  $("#evaluation-run").onclick = runEvaluation;
+  $("#evaluation-run").onclick = () => runEvaluation();
+  $("#evaluation-category").onchange = event => { state.evaluation.category = event.target.value; paintEvaluation(); };
+  $("#evaluation-repeats").onchange = event => { state.evaluation.repeats = Number(event.target.value); paintEvaluation(); };
+  $("#evaluation-filter").onchange = event => { state.evaluation.filter = event.target.value; paintEvaluation(); };
+  $("#evaluation-stop").onclick = () => { state.evaluation.stopRequested = true; paintEvaluation(); };
+  $("#evaluation-download").onclick = downloadEvaluation;
   window.onhashchange = showView;
   paintDemo(); paintBenchmark(); paintCatalog();
   $("#catalog-search").oninput = paintCatalog;
@@ -442,90 +453,133 @@ async function ask() {
   } finally { state.running = false; paint(); paintEvaluation(); }
 }
 
+function evaluationStats() {
+  const entries = [...state.evaluation.results.values()];
+  const costs = entries.map(entry => entry.assessment?.result?.usage?.cost_usd).filter(value => Number.isFinite(value));
+  const latencies = entries.map(entry => entry.assessment?.result?.timings?.total).filter(value => Number.isFinite(value)).sort((a,b) => a-b);
+  const median = latencies.length ? (latencies[Math.floor((latencies.length-1)/2)] + latencies[Math.ceil((latencies.length-1)/2)]) / 2 : null;
+  return {completed: entries.length, passed: entries.filter(entry => entry.assessment?.passed).length,
+    correct: entries.filter(entry => entry.assessment?.correct).length,
+    errors: entries.filter(entry => entry.error || entry.assessment?.result?.state === "failed").length,
+    cost_usd: costs.reduce((sum, cost) => sum + cost, 0), costed_attempts: costs.length,
+    median_seconds: median, p95_seconds: latencies.length ? latencies[Math.ceil(.95*latencies.length)-1] : null};
+}
+
 function paintEvaluation() {
-  const e = state.evaluation, cases = state.meta.evaluation_cases || [];
-  const completed = e.results.size;
-  const passed = [...e.results.values()].filter(item => item.assessment?.passed).length;
-  const stageNames = { gate: "Checking request", route: "Selecting schema", sql: "Running SQL", answer: "Answering" };
+  const e = state.evaluation, all = state.meta.evaluation_cases || [], suite = state.meta.evaluation_suite;
+  const groups = suite?.groups || [...new Set(all.map(c => c.category || "analytics"))].map(id => ({id, label:id}));
+  const cases = all.filter(c => e.category === "all" || c.category === e.category);
+  $("#evaluation-category").innerHTML = '<option value="all">All categories</option>' + groups.map(g => `<option value="${esc(g.id)}">${esc(g.label)}${g.cases ? ` (${g.cases})` : ""}</option>`).join("");
+  $("#evaluation-category").value = e.category;
+  $("#evaluation-repeats").value = String(e.repeats);
+  $("#evaluation-category").disabled = e.running;
+  $("#evaluation-repeats").disabled = e.running;
+  $("#evaluation-version").textContent = suite ? `Suite v${suite.version}` : "Live checks";
+  $("#evaluation-suite-info").textContent = suite ? `${suite.cases} questions · ${suite.numeric} numeric · ${suite.behavior} scope and safety · ${suite.groups.length} coverage categories` : `${all.length} questions available`;
   $("#evaluation-run").disabled = e.running || state.running || !modelReady() || !cases.length;
-  $("#evaluation-run").textContent = e.running ? "Evaluation running…" : `Run all ${cases.length} evaluations →`;
-  $("#evaluation-summary").innerHTML = e.error ? `<span class="error">${esc(e.error)}</span>` :
-    e.summary ? `<strong>${e.summary.passed} of ${e.summary.total} passed</strong><span>${seconds(e.summary.seconds)} total · Estimated $${Number(e.summary.cost_usd).toFixed(5)} model cost</span>` :
-    e.running ? `<strong>${completed} of ${cases.length} complete</strong><span>${passed} passed · ${e.active ? `Running ${esc(e.active)}${e.stage ? ` · ${esc(stageNames[e.stage] || e.stage)}` : ""}` : "Starting…"}</span>` :
-    `<strong>${cases.length} cases ready</strong><span>Press Run all evaluations to start the live suite.</span>`;
-  if (!cases.length) {
-    $("#evaluation-cases").innerHTML = '<p class="error">Live checks are unavailable. Reload to try again; the recorded comparison above is still available.</p>';
-    return;
-  }
-  const expanded = new Set([...document.querySelectorAll(".evaluation-result[open]")].map(node => node.dataset.caseId));
-  $("#evaluation-cases").innerHTML = cases.map((c, i) => {
-    const entry = e.results.get(c.id), assessment = entry?.assessment, result = assessment?.result;
-    const status = assessment ? assessment.passed ? "Passed" : "Needs review" : entry?.error ? "Error" :
-      e.active === c.id ? "Running" : "Ready";
-    const statusClass = assessment ? assessment.passed ? "good" : "warn" : entry?.error ? "warn" :
-      e.active === c.id ? "active" : "";
-    const expected = c.expected == null ? esc(c.expected_state) : `${esc(c.expected_state)} · ${number(c.expected)} ${esc(c.unit)}`;
-    const checks = assessment?.checks.map(check => `<li class="${check.passed ? "good" : "warn"}">
-      <b>${check.passed ? "✓" : "!"} ${esc(check.name)}</b><span>${esc(check.detail)}</span></li>`).join("") || "";
-    const calls = result?.tool_calls || [];
-    return `<article class="evaluation-case ${statusClass}">
-      <div class="evaluation-case-head"><span class="case-index">${String(i + 1).padStart(2, "0")}</span>
-        <div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>Expected: ${expected}</small>
-          ${c.verification ? `<p class="evaluation-verification"><b>Warehouse verification:</b> ${esc(c.verification)}</p>` : ""}</div>
-        <span class="badge ${statusClass}">${status}</span></div>
-      ${entry?.error ? `<p class="error">${esc(entry.error)}</p>` : ""}
-      ${assessment ? `<details class="evaluation-result" data-case-id="${esc(c.id)}" ${expanded.has(c.id) ? "open" : ""}>
-        <summary>Inspect checks, answer, and SQL · ${seconds(result.timings?.total)} · $${Number(result.usage?.cost_usd || 0).toFixed(5)}</summary>
-        <ul class="evaluation-checks">${checks}</ul><div class="evaluation-answer"><b>Answer</b><p>${md(result.answer || "")}</p></div>
-        ${calls.map((call, j) => `<details class="evidence-item"><summary>Query ${j + 1} · ${call.error ? "error" : `${call.rows} rows`}</summary>
-          <pre>${esc(call.query)}</pre>${call.csv ? `<pre>${esc(call.csv)}</pre>` : ""}${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("")}</details>` : ""}
-    </article>`;
-  }).join("");
+  $("#evaluation-run").textContent = e.running ? "Evaluation running…" : `Run ${cases.length * e.repeats} ${cases.length * e.repeats === 1 ? "trial" : "trials"} →`;
+  $("#evaluation-stop").hidden = !e.running;
+  $("#evaluation-stop").disabled = e.stopRequested;
+  $("#evaluation-stop").textContent = e.stopRequested ? "Stopping after this case…" : "Stop after this case";
+  $("#evaluation-download").disabled = e.running || !e.results.size;
+  $("#evaluation-access").innerHTML = modelReady() ? `Starting a run makes up to <strong>${cases.length * e.repeats} paid question runs</strong> using your connected key. Each question may require several model calls. Each new run replaces the displayed report; download it first to keep it.` : '<a href="#playground">Connect your OpenAI key in the playground</a> to run checks. You can inspect every case and its expected result without a key.';
+  const stats = evaluationStats(), total = e.plan.length;
+  const stageNames = {gate:"Checking request",route:"Selecting schema",sql:"Running SQL",answer:"Answering"};
+  $("#evaluation-summary").innerHTML = `<strong>${e.running ? `${stats.completed} / ${total} trials complete` : total ? `${stats.completed} / ${total} trials completed${stats.completed < total ? " · Partial run" : ""}` : "Ready to evaluate"}</strong><span>${e.active ? `${esc(e.active.id)} · Trial ${e.active.repeat + 1} · ${esc(stageNames[e.stage] || "Starting")}` : "Task correctness and all-check pass rate are reported separately."}</span>${e.error ? `<span class="error">${esc(e.error)}</span>` : ""}`;
+  $("#evaluation-metrics").innerHTML = stats.completed ? `<div class="metric-grid"><div><small>Task correct / completed</small><strong>${stats.correct} / ${stats.completed}</strong></div><div><small>All checks passed / completed</small><strong>${stats.passed} / ${stats.completed}</strong></div><div><small>Execution / provider errors</small><strong>${stats.errors}</strong></div><div><small>Reported model cost</small><strong>$${stats.cost_usd.toFixed(5)}</strong></div></div><p class="footnote">Median ${seconds(stats.median_seconds)} · p95 ${seconds(stats.p95_seconds)} · Cost reported for ${stats.costed_attempts}/${stats.completed} attempts; failed-call billing and hosting are excluded. Task correctness requires the expected end state and complete scalar evidence (or no SQL for behavior cases). All checks additionally cover routing, forbidden SQL, answer value, and unit labels. Retries after repaired SQL remain visible. This suite does not estimate production accuracy.</p>` : "";
+  const expanded = new Set([...document.querySelectorAll("#evaluation-cases details[open]")].map(node => node.dataset.detailKey));
+  const displayed = cases.filter(c => {
+    const attempts = [...e.results.values()].filter(entry => entry.id === c.id);
+    return e.filter === "all" || e.filter === "failed" && attempts.some(entry => !entry.assessment?.passed) || e.filter === "passed" && attempts.length > 0 && attempts.every(entry => entry.assessment?.passed);
+  });
+  $("#evaluation-cases").innerHTML = displayed.map((c, i) => {
+    const attempts = [...e.results.values()].filter(entry => entry.id === c.id);
+    const passed = attempts.filter(entry => entry.assessment?.passed).length;
+    const active = e.active?.id === c.id;
+    const status = active ? "Running" : attempts.length ? `${passed}/${attempts.length} passed` : "Not run";
+    const statusClass = active ? "active" : attempts.length ? passed === attempts.length ? "good" : "warn" : "";
+    const expected = c.expected == null ? esc(c.expected_state) : `${number(c.expected)} ${esc(c.unit)} · tolerance ±${c.tolerance ?? .01}`;
+    return `<article class="evaluation-case ${statusClass}"><div class="evaluation-case-head"><span class="case-index">${String(i+1).padStart(2,"0")}</span><div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>${esc(groups.find(g => g.id === c.category)?.label || c.category || "Analytics")} · ${esc(c.difficulty || "standard")} · Expected: ${expected}</small></div><span class="badge ${statusClass}">${status}</span></div>
+      <details class="evaluation-result" data-detail-key="contract-${esc(c.id)}" ${expanded.has(`contract-${c.id}`) ? "open" : ""}><summary>Expected behavior and evidence contract</summary><p class="footnote">End state: ${esc(c.expected_state)} · ${esc(c.result_contract || "One numeric scalar")}.</p>${c.required_tables?.length ? `<p class="footnote">Required tables: ${c.required_tables.map(esc).join(", ")}</p>` : ""}${c.excluded_tables?.length ? `<p class="footnote">Excluded tables: ${c.excluded_tables.map(esc).join(", ")}</p>` : ""}${c.forbidden_sql?.length ? `<p class="footnote">Forbidden SQL text: ${c.forbidden_sql.map(esc).join(", ")}</p>` : ""}${c.verification ? `<p class="footnote">${esc(c.verification)}</p>` : ""}</details>
+      ${attempts.map(entry => {
+        const a = entry.assessment, r = a?.result, key = `${entry.id}:${entry.repeat}`;
+        return `<details class="evaluation-result" data-detail-key="${esc(key)}" ${expanded.has(key) ? "open" : ""}><summary>Trial ${entry.repeat+1} · ${a?.passed ? "All checks passed" : "Needs review"} · ${seconds(r?.timings?.total)}</summary>${entry.error ? `<p class="error">${esc(entry.error)}</p>` : ""}${a ? `<p class="footnote">Task ${a.correct ? "correct" : "incorrect"} · Expected ${a.expected == null ? esc(c.expected_state) : number(a.expected)} · Observed ${a.observed == null ? "no valid scalar" : number(a.observed)} · ${a.diagnostics?.sql_calls ?? 0} SQL calls, ${a.diagnostics?.sql_errors ?? 0} query errors</p><ul class="evaluation-checks">${a.checks.map(check => `<li class="${check.passed ? "good" : "warn"}"><b>${check.passed ? "✓" : "!"} ${esc(check.name)}</b><span>${esc(check.category || "check")} · ${esc(check.detail)}</span></li>`).join("")}</ul><div class="evaluation-answer"><b>Answer</b><p>${md(r.answer || "")}</p></div><div class="stage-metrics"><span>Tokens <b>${number(r.usage?.input_tokens || 0)} in / ${number(r.usage?.output_tokens || 0)} out</b></span><span>Model calls <b>${r.usage?.calls ?? "—"}</b></span><span>Failed model calls <b>${r.usage?.failed_calls ?? "—"}</b></span><span>Reported cost <b>${r.usage?.cost_usd == null ? "—" : `$${r.usage.cost_usd.toFixed(5)}`}</b></span></div>${(r.tool_calls || []).map((call,j) => `<details class="evidence-item"><summary>Query ${j+1} · ${call.error ? "error" : `${call.rows} rows`}${call.truncated ? " · truncated" : ""}</summary><pre>${esc(call.query)}</pre>${call.csv ? `<pre>${esc(call.csv)}</pre>` : ""}${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("")}` : ""}</details>`;
+      }).join("")}</article>`;
+  }).join("") || '<p class="footnote">No cases match this filter.</p>';
+}
+
+function downloadEvaluation() {
+  const e = state.evaluation;
+  if (e.running || !e.results.size) return;
+  // Explicit projection: tab credentials and other application state never enter reports.
+  const report = {format_version: 2, manifest: e.manifest, planned_trials: e.plan,
+    completed_trials: e.results.size, partial: e.results.size < e.plan.length,
+    summary: {...evaluationStats(), seconds: e.summary?.seconds}, error: e.error || null,
+    attempts: [...e.results.values()]};
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report,null,2)], {type:"application/json"}));
+  const link = document.createElement("a"); link.href = url; link.download = `gridrag-evaluation-${e.manifest.started_utc.slice(0,19).replaceAll(":","-")}.json`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 async function runEvaluation() {
-  const e = state.evaluation, cases = state.meta.evaluation_cases || [];
+  const e = state.evaluation, cases = (state.meta.evaluation_cases || []).filter(c => e.category === "all" || c.category === e.category);
   if (e.running || state.running || !modelReady() || !cases.length) return;
-  e.running = true; e.active = null; e.stage = null; e.results.clear(); e.summary = null; e.error = "";
+  e.running = true; e.active = null; e.stage = null; e.results.clear(); e.summary = null; e.error = ""; e.stopRequested = false;
+  e.plan = Array.from({length:e.repeats}, (_,repeat) => cases.map(c => ({id:c.id, repeat}))).flat();
+  e.manifest = {started_utc: new Date().toISOString(), suite: state.meta.evaluation_suite,
+    models: state.meta.models || null, category: e.category, repeats:e.repeats,
+    cases: cases.map(c => ({...c})), scoring: "Strict final scalar evidence; routing and prose checks reported separately", cost_basis:"Reported configured token-cost estimates; excludes hosting and unreported failed-call billing"};
   paintEvaluation(); paint();
   const started = performance.now();
-  let passed = 0, cost = 0;
   try {
-    // One bounded request per case keeps the full suite within hosting time limits.
-    for (const c of cases) {
-      const response = await fetch("/api/evaluate-case", {
-        method: "POST", headers: requestHeaders(), body: JSON.stringify({ id: c.id }),
-      });
-      if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
-      const reader = response.body.getReader(), decoder = new TextDecoder();
-      let buffer = "", summary = null;
+    for (const trial of e.plan) {
+      if (e.stopRequested) break;
+      e.active = trial; e.stage = null; paintEvaluation();
+      const key = `${trial.id}:${trial.repeat}`;
+      let completed = false;
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-          const lines = buffer.split("\n");
-          buffer = lines.pop();
-          for (const line of lines) {
-            if (!line.trim()) continue;
+        const response = await fetch("/api/evaluate-case", {method:"POST", headers:requestHeaders(), body:JSON.stringify({id:trial.id})});
+        if (!response.ok) {
+          e.stopRequested = true;
+          throw new Error((await response.json()).error || `HTTP ${response.status}`);
+        }
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        let buffer = "", summary = null;
+        try {
+          const consume = line => {
+            if (!line.trim()) return;
             const event = JSON.parse(line);
             if (event.type === "error") throw new Error(event.error);
-            if (event.type === "case_start") { e.active = event.id; e.stage = null; }
-            if (event.type === "case_progress") e.stage = event.stage;
-            if (event.type === "case_done") { e.results.set(event.assessment.id, event); e.active = null; e.stage = null; }
-            if (event.type === "case_error") { e.results.set(event.id, event); e.active = null; e.stage = null; }
+            if (event.type === "case_progress") { e.stage = event.stage; paintEvaluation(); }
+            if (event.type === "case_done" || event.type === "case_error") {
+              const id = event.assessment?.id || event.id;
+              if (id !== trial.id) throw new Error("The server returned a different evaluation case.");
+              e.results.set(key, {...event, id:trial.id, repeat:trial.repeat}); completed = true; paintEvaluation();
+            }
             if (event.type === "done") summary = event.summary;
-            paintEvaluation();
+          };
+          while (true) {
+            const {done,value} = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), {stream:!done});
+            const lines = buffer.split("\n"); buffer = lines.pop(); lines.forEach(consume);
+            if (done) { if (buffer.trim()) consume(buffer); break; }
+            if (summary) break;
           }
-          if (done || summary) break;
+          if (!summary || !completed) throw new Error("The evaluation stream ended early. Completed trials are retained.");
+        } finally { await reader.cancel(); }
+        // Stop after provider failures instead of spending on the remaining suite.
+        if (e.results.get(key)?.error || e.results.get(key)?.assessment?.result?.state === "failed") {
+          e.error = "Stopped after a provider or execution failure. Completed trials are retained; inspect the failing case before starting a new run.";
+          e.stopRequested = true;
         }
-        if (!summary) throw new Error("The evaluation connection ended early. Completed cases remain below; retry to run the full suite.");
-        passed += summary.passed; cost += summary.cost_usd;
-      } finally { await reader.cancel(); }
+      } catch (error) {
+        if (!completed) e.results.set(key, {id:trial.id,repeat:trial.repeat,error:error.message || "Evaluation request failed"});
+        e.error = error.message || "Evaluation request failed"; e.stopRequested = true;
+      }
+      e.active = null; e.stage = null; paintEvaluation();
     }
-    e.summary = { passed, total: cases.length, cost_usd: cost, seconds: (performance.now() - started) / 1000 };
-  } catch (error) {
-    e.error = error.message || "Could not run the evaluation. Please retry.";
   } finally {
+    e.summary = {...evaluationStats(), seconds:(performance.now()-started)/1000};
     e.running = false; e.active = null; e.stage = null; paintEvaluation(); paint();
   }
 }

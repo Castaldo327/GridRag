@@ -1,14 +1,13 @@
 """End-to-end accuracy checks using real provider calls. Opt in with GRIDRAG_LIVE_TESTS=1 and an API key.
 
-Asks every case in gridrag/warehouse/evals.py, the same table the UI presets come from."""
+Asks every case in the versioned live regression suite in gridrag/warehouse/suite.py."""
 
 import os
 import unittest
 
 from gridrag import answer, config
-from gridrag.records import State
-from gridrag.warehouse.evaluation import evidence_matches, states_value
-from gridrag.warehouse.evals import CASES, reference_value
+from gridrag.warehouse.evaluation import assess, evidence_matches, states_value, evaluation_question
+from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 
 
 class EvaluationChecks(unittest.TestCase):
@@ -27,27 +26,14 @@ class LiveTests(unittest.TestCase):
     def test_evaluation_cases(self):
         for case in CASES:
             with self.subTest(case=case.id):
-                res = answer.answer(case.question)
+                res = answer.answer(evaluation_question(case))
                 tables = res["route"]["tables"] if res["route"] else []
                 print(f"\n{case.id}: {res['state']} in {res['timings']['total']:.1f}s · "
                       f"{len(res['tool_calls'])} SQL queries · estimated ${res['usage']['cost_usd']:.6f}"
                       f"\n{res['answer']}\n{tables}")
-                self.assertEqual(res["state"], case.state)
-                for table in case.tables:
-                    self.assertIn(table, tables)
-                for table in case.excluded:
-                    self.assertNotIn(table, tables)
-                queries = " ".join(call["query"] or "" for call in res["tool_calls"])
-                for text in case.avoid:
-                    self.assertNotIn(text, queries)
-                if case.state is not State.ANSWERED:
-                    self.assertEqual(res["tool_calls"], [])  # declined and clarified requests never reach SQL
-                if case.sql:
-                    expected = reference_value(case)
-                    self.assertTrue(evidence_matches(res, expected, case.tolerance),
-                                    f"query evidence did not match {expected} {case.unit}")
-                    self.assertTrue(states_value(res["answer"], expected, case.tolerance),
-                                    f"expected {expected} {case.unit}")
+                assessment = assess(case, res)
+                self.assertTrue(assessment["passed"], assessment["diagnostics"]["failed_checks"])
+
 
 
 if __name__ == "__main__":

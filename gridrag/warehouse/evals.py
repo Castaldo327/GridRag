@@ -6,6 +6,7 @@ state, the route and, when a case has reference SQL, the value its answer states
 
 import csv
 import io
+import math
 from dataclasses import dataclass
 
 from gridrag import db
@@ -26,6 +27,8 @@ class Case:
     label: str = ""  # UI preset button; empty for cases only the live tests ask
     concept: str = ""
     verification: str = ""  # warehouse facts behind a challenging reference answer, shown in the UI
+    category: str = "analytics"
+    difficulty: str = "standard"
 
 
 CASES = (
@@ -161,6 +164,10 @@ WHERE f.vintage_rank = 1""",
 def reference_value(case: Case) -> float:
     """What the case's reference query computes from this warehouse."""
     result = db.run_model_sql(case.sql, 1)
-    if "error" in result:
+    rows = list(csv.reader(io.StringIO(result.get("csv", ""))))
+    if result.get("error") or result.get("truncated") or len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
         raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")
-    return float(list(csv.reader(io.StringIO(result["csv"])))[1][0])
+    value = float(rows[1][0])
+    if not math.isfinite(value):
+        raise RuntimeError(f"Reference query {case.id!r} returned a nonfinite value.")
+    return value

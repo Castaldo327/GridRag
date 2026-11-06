@@ -6,6 +6,8 @@ from pathlib import Path
 from gridrag import db
 from gridrag.catalog import demo_catalog
 from gridrag.warehouse.evals import CASES, reference_value
+from gridrag.warehouse.evaluation import case_info
+from gridrag.warehouse.suite import EVALUATION_CASES, suite_info
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 
@@ -32,7 +34,7 @@ def build():
     payload = {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
                "max_question_chars": 2000, "model_ready": False, "requires_api_key": True,
                "presets": [{"id": c.id, "label": c.label, "concept": c.concept, "question": c.question}
-                           for c in CASES if c.label], "evaluation_cases": [], "demos": demos,
+                           for c in CASES if c.label], "evaluation_cases": [case_info(case) for case in EVALUATION_CASES], "evaluation_suite": suite_info(), "demos": demos,
                "catalog": [{"name": t.name, "ddl": t.ddl} for t in catalog.tables.values()]}
     (STATIC / "demo.json").write_text(json.dumps(payload, indent=2) + "\n")
 

@@ -264,3 +264,11 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
   .workspace-footer { width: calc(100% - 32px); font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+/* Evaluation controls keep scope, cost, and completion explicit. */
+.evaluation-controls, .evaluation-results-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 16px; margin: 22px 0; }
+.evaluation-controls label, .evaluation-results-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+.evaluation-controls select, .evaluation-results-toolbar select { min-height: 44px; max-width: 100%; padding: 9px 32px 9px 12px; border: 1px solid #bfcdc3; border-radius: 7px; background: #fff; color: var(--ink); font: inherit; font-size: 14px; }
+.evaluation-results-toolbar .footnote { margin: 0; }
+#evaluation-metrics .metric-grid { margin-bottom: 16px; }
+#evaluation-cases .evaluation-result { overflow-wrap: anywhere; }
+@media (max-width: 440px) { .evaluation-controls { display: grid; grid-template-columns: 1fr; } }

@@ -107,6 +107,31 @@ model cost. That is a measured accuracy/latency/cost tradeoff on this suite.
 See [methodology and measured results](https://sunairio-energy-demo.vercel.app/#evaluation). This is a small synthetic
 experiment, not evidence of general superiority or production accuracy.
 
+### Live regression suite
+
+The Evaluation page also provides a separate, versioned **28-question** suite:
+22 numeric cases and 6 scope/safety cases across core analytics, time and forecast
+vintages, storage and operations, regional retrieval, and request behavior. Browse
+the questions, expected values, tolerances, and evidence contracts without a key.
+Select a category and one or three trials per question, then run with your own key.
+Each trial uses a bounded Vercel request; stopping waits for the current case.
+
+Task correctness requires the expected end state plus the complete final scalar
+SQL result, or no SQL for a behavior case. Numeric requests explicitly ask for one
+row and one numeric column. Truncated results, extra rows/columns, nonfinite values,
+and a failed final query cannot pass by matching an earlier or incidental number.
+The stricter all-check score also checks required/excluded tables, forbidden SQL,
+answer value, and unit labels. Valid alternative routes can therefore be task-correct
+while failing a routing check. Prose checks are deterministic diagnostics, not a
+semantic guarantee. Repaired SQL errors remain visible in each attempt's trace.
+
+Reports retain each trial, failures, expected/observed values, SQL and CSV evidence,
+model use, latency, suite/schema fingerprints, and partial-run status. Export JSON
+before starting a new run; reports contain no API keys. Cost uses reported configured
+token rates and excludes hosting and unreported failed-call billing. Reference SQL
+and expected values never reach the model. The recorded 18-question comparison above
+remains a historical artifact; the expanded live suite does not rewrite its scores.
+
 ## Data coverage
 
 | Data | Coverage |
