@@ -20,7 +20,6 @@ class handler(Handler):
 
     def do_POST(self):
         self._route()
-        # The UI requests each evaluation case separately to bound function duration.
-        if self.path == "/api/evaluate":
-            return self.send(400, {"error": "Use the Evaluation tab to run the suite one case at a time."})
+        if self.path in {"/api/evaluate", "/api/evaluate-case"}:
+            return self.send(410, {"error": "Evaluation is read-only. View the recorded comparisons in the Evaluation tab."})
         super().do_POST()

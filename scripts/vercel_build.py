@@ -22,6 +22,7 @@ def main():
             continue
         shutil.copy2(source, output / "static" / name)
     shutil.copy2(static / "index.html", output / "index.html")
+    shutil.copytree(static / "vendor", output / "static" / "vendor")
     print(f"Prepared {len(counts)} tables and {sum(counts.values()):,} fictional rows for Vercel.")
 
 

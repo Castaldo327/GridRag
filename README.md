@@ -22,14 +22,14 @@ The app has three pages:
 | --- | --- | --- |
 | **Demo** | The playground flow with seven prepared questions, staged progress, streamed answers, and verified SQL evidence | No |
 | **Playground** | Live questions, streaming answers, SQL evidence, data coverage and searchable table definitions | Yes, for hosted questions |
-| **Evaluation** | Recorded accuracy, latency and estimated cost for routed versus embedded schema retrieval | No, to view results |
+| **Evaluation** | Actual recorded answers from GridRag and Qdrant, with trial selection, SQL evidence, latency, and cost | No |
 
 The demo replays prepared answers and verified reference queries entirely in the
 browser. Its stage transitions and text reveal are illustrative; no model runs,
 API charges, or measured performance statistics are involved. Choose an example,
 select **Ask the grid**, and inspect the answer, selected tables, SQL, and returned data.
-The evaluation page also offers an optional live pipeline check suite with your key.
-That suite is separate from the recorded Qdrant comparison.
+The evaluation page is read-only. Browse the recorded answers and evidence without
+a key or running model calls.
 
 Requires Python **3.11–3.13** and [uv](https://docs.astral.sh/uv/).
 
@@ -107,35 +107,22 @@ model cost. That is a measured accuracy/latency/cost tradeoff on this suite.
 See [methodology and measured results](https://sunairio-energy-demo.vercel.app/#evaluation). This is a small synthetic
 experiment, not evidence of general superiority or production accuracy.
 
-### Live regression suite
+### Read the recorded answers
 
-The Evaluation page also provides a separate, versioned **26-question** suite:
-22 numeric cases and 4 grid scope/safety cases across core analytics, time and forecast
-vintages, storage and operations, regional retrieval, and request behavior. Browse
-the questions, expected values, tolerances, and evidence contracts without a key.
-Select a category and one or three trials per question, then run with your own key.
-Every question also has a **Run question** button for one independent trial, regardless
-of the batch repeat setting. Results accumulate across individual and category runs;
-re-running a question adds a trial without replacing its earlier results. Use
-**Clear results** to start a fresh report. Each trial uses a bounded Vercel request;
-stopping waits for the current case. Unrelated-topic questions are excluded from
-the live suite.
+Evaluation shows **17 recorded questions**, omitting unrelated-topic content from
+its historical 18-question archive. Each question displays the original answer from
+GridRag's routed schema, Qdrant top-4 retrieval, and Qdrant top-6 retrieval. All three
+use the same SQL model. Select trial 1, 2, or 3 to inspect every recorded attempt,
+including failures, with selected tables, SQL, CSV evidence, time, and estimated cost.
+Summary statistics are computed over the questions currently displayed. The original
+archive remains available for download. There are no evaluation run controls and
+browsing never makes paid API calls.
 
-Task correctness requires the expected end state plus the complete final scalar
-SQL result, or no SQL for a behavior case. Numeric requests explicitly ask for one
-row and one numeric column. Truncated results, extra rows/columns, nonfinite values,
-and a failed final query cannot pass by matching an earlier or incidental number.
-The stricter all-check score also checks required/excluded tables, forbidden SQL,
-answer value, and unit labels. Valid alternative routes can therefore be task-correct
-while failing a routing check. Prose checks are deterministic diagnostics, not a
-semantic guarantee. Repaired SQL errors remain visible in each attempt's trace.
-
-Reports retain each trial, failures, expected/observed values, SQL and CSV evidence,
-model use, latency, suite/schema fingerprints, and partial-run status. Export JSON
-to keep a copy outside the current tab; reports contain no API keys. Cost uses reported configured
-token rates and excludes hosting and unreported failed-call billing. Reference SQL
-and expected values never reach the model. The recorded 18-question comparison above
-remains a historical artifact; the expanded live suite does not rewrite its scores.
+The developer regression suite in `gridrag/warehouse/suite.py` remains available for
+explicit local testing. Its 26 cases are separate from the recorded comparison;
+questions without recorded three-way answers are not shown as measured results.
+Markdown answers use pinned, locally vendored Marked and DOMPurify bundles; tables,
+lists, headings, code, and links are rendered with untrusted HTML sanitized.
 
 ## Data coverage
 
