@@ -3,6 +3,8 @@
 import io
 import json
 import unittest
+import tempfile
+from pathlib import Path
 from dataclasses import replace
 from unittest.mock import patch
 
@@ -45,6 +47,30 @@ def post_evaluation(origin="http://localhost:8000"):
 
 
 class AppTests(unittest.TestCase):
+    def test_missing_optional_report_returns_a_clean_404(self):
+        with tempfile.TemporaryDirectory() as directory, patch("app.__main__.STATIC", Path(directory)):
+            self.assertEqual(send("GET /static/benchmark.json HTTP/1.1\r\nHost: localhost:8000")[0], 404)
+
+    def test_private_files_and_path_traversal_are_not_served(self):
+        for path in ("/.env", "/.env.local", "/.git/config", "/.vercel/project.json",
+                     "/data/warehouse.duckdb", "/static/../../.env"):
+            with self.subTest(path=path):
+                self.assertEqual(send(f"GET {path} HTTP/1.1\r\nHost: localhost:8000")[0], 404)
+
+    def test_access_logs_exclude_request_urls_and_user_input(self):
+        with self.assertLogs(level="INFO") as logs:
+            Handler.log_message(None, "%s %s %s", "GET /?private-input HTTP/1.1", "200", "-")
+        self.assertNotIn("private-input", "\n".join(logs.output))
+        self.assertIn("200", "\n".join(logs.output))
+
+    def test_public_demo_data_needs_no_key(self):
+        with patch.object(config, "settings", replace(config.settings, openai_api_key=None)):
+            status, data = send("GET /static/demo.json HTTP/1.1\r\nHost: localhost:8000")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["demos"]), 3)
+        self.assertEqual(len(data["catalog"]), 65)
+        self.assertNotIn("api_key", data)
+
     def test_invalid_and_cross_origin_requests_never_reach_model(self):
         too_long = "x" * (config.settings.max_question_chars + 1)
         with patch("app.__main__.answer") as model:

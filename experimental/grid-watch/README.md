@@ -2,6 +2,17 @@
 
 A local experiment in intelligent grid alerts. Experimental and not part of submission. Four watches check incoming measurements every five simulated minutes. An alert reports a measured condition; its cause remains unknown.
 
+## Who this helps
+
+**Describe the grid condition you care about. Get an alert when the readings match, with evidence to help you act.**
+
+- As a grid operations analyst, I need to be alerted when Dominion load drops more than 1,000 MW in 10 minutes, so I can check the readings and investigate the sudden change.
+- As an ERCOT market analyst, I need to be alerted when reserves fall below the seasonal range, so I can review tightening supply and flag it to my team.
+- As a power trader monitoring a node, I need to be alerted when congestion reaches the top 5% of the last 90 days, so I can review my exposure to unusual congestion costs.
+- As a load forecasting analyst, I need to be alerted when actual load exceeds forecast by more than 5%, so I can review the forecast and flag a possible planning adjustment.
+
+The value is turning a specific monitoring need into a persistent watch, without requiring the user to write SQL or keep checking a dashboard. This demo illustrates that flow with four preset requests; free-form alert creation is not yet implemented. The alert supplies measurements for a next step, not an immediate explanation of the cause.
+
 ## Run
 
 From the repository root:

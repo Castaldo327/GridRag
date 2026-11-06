@@ -39,7 +39,7 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(set(res["timings"]), {"gate", "total"})
         self.assertEqual(res["usage"]["calls"], 0)
         self.assertNotIn("secret diagnostic", str(res))
-        self.assertIn("secret diagnostic", "\n".join(logs.output))  # the detail is logged instead
+        self.assertNotIn("secret diagnostic", "\n".join(logs.output))
 
     def test_routing_outage_is_a_failure_not_a_clarification(self):
         # No usable scores would otherwise keep all 65 tables and ask the user to narrow the question.

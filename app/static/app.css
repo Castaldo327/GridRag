@@ -240,3 +240,82 @@ h2 { margin: 6px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -.025em
 .api-key-form > a { justify-self: start; color: var(--accent); font-size: 10px; text-underline-offset: 3px; }
 @media (max-width: 1100px) { .api-access { grid-template-columns: 1fr; gap: 18px; padding: 22px; } }
 @media (max-width: 580px) { .api-access { padding: 20px 18px; } .api-key-controls input { flex-basis: 100%; } }
+
+/* Public research pages */
+.nav-number { color: var(--gold); font: 10px ui-monospace, monospace; }
+.demo-hero { padding: 42px; }
+.demo-hero h1 { font-size: clamp(40px, 4.6vw, 66px); max-width: 740px; }
+.demo-hero > p { max-width: 660px; font-size: 15px; }
+.demo-actions { display: flex; align-items: center; gap: 24px; margin: 28px 0 34px; }
+.demo-actions a, .demo-bottom > a { font-size: 12px; text-decoration: none; }
+.primary-link { display: inline-block; border: 0; border-radius: 7px; padding: 13px 18px; background: var(--accent); color: #fff; text-decoration: none; font-size: 12px; }
+.primary-link:hover { background: #164f47; }
+.demo-stats { display: flex; gap: 35px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.demo-stats strong { margin-right: 6px; color: var(--ink); font-size: 23px; font-weight: 550; }
+.walkthrough { padding: 30px; margin-top: 22px; }
+.walkthrough .panel-head { margin-bottom: 12px; }
+.walkthrough-note { color: var(--muted); font-size: 12px; line-height: 1.8; max-width: 720px; }
+.demo-options { display: flex; gap: 8px; flex-wrap: wrap; margin: 22px 0; }
+.demo-options button { border: 1px solid var(--line); border-radius: 20px; padding: 9px 16px; background: #fff; color: var(--muted); font-size: 12px; }
+.demo-options button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: #9dbdad; }
+.walkthrough-grid { display: grid; grid-template-columns: minmax(200px, .8fr) minmax(0, 1.5fr); gap: 26px; }
+.demo-steps { display: flex; flex-direction: column; gap: 8px; }
+.demo-steps button { display: flex; align-items: center; gap: 12px; padding: 17px 12px; border: 1px solid transparent; border-radius: 8px; text-align: left; color: var(--muted); background: #f8faf6; font-size: 12px; }
+.demo-steps button span { color: #6b8d7b; font: 11px ui-monospace, monospace; }
+.demo-steps button b { margin-left: auto; font-weight: 400; }
+.demo-steps button[aria-pressed="true"] { border-color: #92b29d; background: #edf5ee; color: var(--ink); }
+.demo-detail { min-height: 300px; padding: 26px; border: 1px solid #dce7dd; border-radius: 10px; background: #f9fbf7; }
+.demo-detail h2 { margin: 10px 0 12px; font-size: 22px; }
+.demo-detail p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.demo-detail blockquote { margin: 22px 0; padding-left: 18px; border-left: 3px solid #a5bd9b; font-size: 19px; line-height: 1.65; letter-spacing: -.02em; }
+.demo-detail pre { max-height: 280px; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: #fff; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.8 ui-monospace, monospace; }
+.demo-detail .primary-link { margin-top: 16px; }
+.demo-tables { display: grid; gap: 8px; margin-top: 22px; }
+.demo-tables code { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; overflow-wrap: anywhere; font-size: 12px; }
+.demo-answer { display: flex; align-items: baseline; gap: 12px; margin: 24px 0; }
+.demo-answer strong { font-size: 38px; letter-spacing: -.04em; font-weight: 550; }
+.demo-answer span { color: var(--muted); }
+.demo-bottom { display: flex; gap: 30px; justify-content: space-between; align-items: center; padding: 34px 10px 10px; }
+.demo-bottom p { max-width: 640px; margin: 12px 0; color: var(--muted); font-size: 12px; line-height: 1.9; }
+.demo-bottom > a { flex: none; color: var(--accent); }
+.catalog-search-label { display: block; margin: 18px 0 8px; font-size: 11px; }
+#catalog-search { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); }
+#catalog-list { max-height: 400px; overflow: auto; margin-top: 12px; }
+.benchmark-panel { margin-top: 20px; padding: 28px; }
+.comparison-scroll { overflow-x: auto; }
+.comparison-table { border-collapse: collapse; width: 100%; font-size: 12px; text-align: left; }
+.comparison-table caption { text-align: left; margin-bottom: 14px; font-size: 11px; color: var(--muted); }
+.comparison-table th, .comparison-table td { padding: 18px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.comparison-table thead th { font-weight: 500; color: var(--muted); font-size: 10px; }
+.comparison-table tbody th { font-weight: 550; }
+.comparison-table tbody tr:first-child { background: #f0f6ed; }
+.comparison-table td { font-variant-numeric: tabular-nums; }
+.interval-notes { margin: 20px 0; padding: 16px 18px; background: #f8f9f5; border-radius: 8px; }
+.interval-notes p { margin: 4px 0; font-size: 11px; color: var(--muted); line-height: 1.8; }
+.artifact-link { font-size: 12px; color: var(--accent); text-underline-offset: 4px; }
+.methodology, .live-checks { padding: 24px 28px; margin-top: 18px; }
+.methodology > summary, .live-checks > summary { cursor: pointer; font-size: 13px; font-weight: 550; }
+.live-checks .evaluation-action { margin-top: 20px; }
+@media (max-width: 850px) {
+  .demo-hero { padding: 30px; }
+  .walkthrough-grid { grid-template-columns: 1fr; gap: 18px; }
+  .demo-steps { display: grid; grid-template-columns: 1fr 1fr; }
+  .demo-bottom { align-items: start; flex-direction: column; gap: 10px; }
+}
+@media (max-width: 580px) {
+  .demo-hero, .walkthrough, .benchmark-panel { padding: 23px 18px; }
+  .demo-hero h1 { font-size: 40px; }
+  .demo-hero > p { font-size: 13px; }
+  .demo-actions { align-items: start; flex-direction: column; gap: 18px; }
+  .demo-stats { gap: 20px; flex-wrap: wrap; }
+  .demo-stats span { display: flex; flex-direction: column; gap: 5px; font-size: 10px; }
+  .demo-steps button { font-size: 10px; padding: 13px 8px; gap: 8px; }
+  .demo-detail { padding: 20px 16px; }
+  .demo-detail h2 { font-size: 20px; }
+  .methodology, .live-checks { padding: 20px 18px; }
+}
+.case-breakdown { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.case-breakdown > summary { cursor: pointer; font-size: 12px; }
+.case-breakdown article { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.case-breakdown article > strong { font-size: 12px; font-weight: 500; line-height: 1.8; }
+.case-breakdown article > div { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 10px; font-size: 11px; color: var(--muted); }

@@ -26,7 +26,8 @@ ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
-    "/static/logo-mark.png": ("logo-mark.png", "image/png"),
+    "/static/demo.json": ("demo.json", "application/json; charset=utf-8"),
+    "/static/benchmark.json": ("benchmark.json", "application/json; charset=utf-8"),
     "/static/energy-mark.svg": ("energy-mark.svg", "image/svg+xml"),
 }
 
@@ -34,6 +35,11 @@ ASSETS = {
 class Handler(BaseHTTPRequestHandler):
     # Hosting always requires a visitor key, even if an owner key is configured.
     require_visitor_key = os.environ.get("VERCEL") == "1"
+
+    def log_message(self, format, *args):
+        # Request URLs may contain user data; access logs contain only status codes.
+        if len(args) >= 2 and str(args[1]).isdigit():
+            logging.info("HTTP status %s", args[1])
 
     def same_origin(self):
         origin = self.headers.get("Origin")
@@ -77,7 +83,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path in ASSETS:
             name, content_type = ASSETS[path]
-            self.send(200, (STATIC / name).read_bytes(), content_type)
+            asset = STATIC / name
+            if not asset.is_file():
+                return self.send(404, {"error": "Asset not available"})
+            self.send(200, asset.read_bytes(), content_type)
         elif path == "/api/meta":
             try:
                 catalog = demo_catalog()
@@ -90,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "presets": PRESETS,
                                 "evaluation_cases": [case_info(case) for case in CASES]})
             except Exception:
-                logging.exception("Could not load the catalog")
+                logging.error("Could not load the catalog")
                 self.send(503, {"error": "Catalog unavailable. See the server log for details."})
         else:
             self.send(404, {"error": "Not found"})
@@ -143,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:
-            logging.exception("Demo request failed")
+            logging.error("Demo request failed")
             error = "Could not complete the question. See the server log for details."
             if stream_started:
                 emit({"type": "error", "error": error})
@@ -209,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (BrokenPipeError, ConnectionResetError):
                     raise
                 except Exception:
-                    logging.exception("Evaluation case %s failed", case.id)
+                    logging.error("Evaluation case %s failed", case.id)
                     emit({"type": "case_error", "index": index, "id": case.id,
                           "error": "Could not complete this case. See the server log for details."})
             emit({"type": "done", "summary": {"passed": passed, "total": len(cases),
@@ -218,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:
-            logging.exception("Evaluation run failed")
+            logging.error("Evaluation run failed")
             if stream_started:
                 try:
                     emit({"type": "error", "error": "Evaluation stopped. See the server log for details."})
@@ -235,7 +244,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Grid History: http://127.0.0.1:{server.server_port}", flush=True)
+    print(f"GridRag: http://127.0.0.1:{server.server_port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

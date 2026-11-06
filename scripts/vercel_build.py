@@ -3,14 +3,24 @@ import shutil
 from pathlib import Path
 
 from gridrag.warehouse.build import build
+from scripts.public_assets import build as build_public_assets
 
 
 def main():
     counts = build()
+    build_public_assets()
     static = Path("app/static")
     output = Path("public")
-    output.mkdir(exist_ok=True)
-    shutil.copytree(static, output / "static", dirs_exist_ok=True)
+    # A clean output directory prevents stale files from being deployed.
+    if output.exists():
+        shutil.rmtree(output)
+    output.mkdir()
+    (output / "static").mkdir()
+    for name in ("app.js", "app.css", "energy-mark.svg", "demo.json", "benchmark.json"):
+        source = static / name
+        if name == "benchmark.json" and not source.exists():
+            continue
+        shutil.copy2(source, output / "static" / name)
     shutil.copy2(static / "index.html", output / "index.html")
     print(f"Prepared {len(counts)} tables and {sum(counts.values()):,} fictional rows for Vercel.")
 

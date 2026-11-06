@@ -12,3 +12,10 @@ output
 public
 data
 **/__pycache__
+artifacts
+.cache
+.github
+benchmarks
+compose.yaml
+**/*.pem
+**/*.key
