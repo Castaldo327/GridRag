@@ -30,6 +30,7 @@ ASSETS = {
     "/static/demo.json": ("demo.json", "application/json; charset=utf-8"),
     "/static/benchmark.json": ("benchmark.json", "application/json; charset=utf-8"),
     "/static/energy-mark.svg": ("energy-mark.svg", "image/svg+xml"),
+    "/static/architecture.svg": ("architecture.svg", "image/svg+xml"),
     "/static/vendor/marked.umd.js": ("vendor/marked.umd.js", "text/javascript; charset=utf-8"),
     "/static/vendor/purify.min.js": ("vendor/purify.min.js", "text/javascript; charset=utf-8"),
 }

@@ -73,7 +73,9 @@ The main pipeline:
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
 
 The [architecture page](https://sunairio-energy-demo.vercel.app/#architecture)
-explains this design with an accessible, responsive flow diagram. Its distinguishing
+explains this design with the system diagram, a full-size SVG, and a stage-by-stage
+text walkthrough. The diagram source lives in `app/static/architecture.svg` and is
+copied to `public/static/architecture.svg` on every build. Its distinguishing
 choice is independent relevance scoring followed by reference expansion and column
 selection. It makes an inspectable schema selection for SQL, with a measured
 accuracy/cost tradeoff; it does not establish a claim of research novelty.

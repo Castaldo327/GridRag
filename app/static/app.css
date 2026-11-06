@@ -273,6 +273,16 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
 .architecture-intro { padding: 12px 0 8px; }
 .architecture-intro > p { max-width: 740px; }
 .architecture-pipeline, .architecture-comparison { padding: 28px; }
+.architecture-diagram { margin: 22px 0; }
+.architecture-diagram-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.architecture-diagram img { display: block; width: 100%; min-width: 840px; height: auto; }
+.architecture-diagram figcaption { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 10px 24px; margin-top: 16px; color: var(--muted); font-size: 12px; line-height: 1.85; }
+.architecture-diagram figcaption p { max-width: 690px; flex: 1 1 400px; }
+.architecture-diagram figcaption strong { color: var(--ink); }
+.architecture-diagram figcaption .artifact-link { flex: none; padding: 0; font-size: 12px; }
+.diagram-mobile-hint { display: none; }
+.architecture-walkthrough { margin: 22px 0; }
+.architecture-walkthrough > summary { font-size: 14px; font-weight: 550; color: var(--accent); }
 .architecture-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; padding: 0; margin: 28px 0; list-style: none; }
 .architecture-flow li { min-width: 0; padding: 0 18px; border-left: 1px solid var(--line); }
 .architecture-flow li:first-child { padding-left: 0; border: 0; }
@@ -301,6 +311,6 @@ h3 { font-size: 23px; line-height: 1.35; font-weight: 550; letter-spacing: -.025
 .architecture-deployment dt { font-size: 14px; font-weight: 600; }
 .architecture-deployment dd { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.85; }
 .architecture-deployment > .footnote { grid-column: 1 / -1; }
-@media (max-width: 960px) { .architecture-flow { grid-template-columns: 1fr; gap: 22px; } .architecture-flow li, .architecture-flow li:first-child { padding: 0 0 0 20px; border-left: 2px solid var(--line); } .architecture-flow h3 { margin: 5px 0; } }
+@media (max-width: 960px) { .diagram-mobile-hint { display: block; flex-basis: 100%; } .architecture-flow { grid-template-columns: 1fr; gap: 22px; } .architecture-flow li, .architecture-flow li:first-child { padding: 0 0 0 20px; border-left: 2px solid var(--line); } .architecture-flow h3 { margin: 5px 0; } }
 @media (max-width: 720px) { .architecture-principles, .architecture-paths, .architecture-deployment { grid-template-columns: 1fr; } .view-tabs { gap: 22px; } }
 @media (max-width: 440px) { .architecture-pipeline, .architecture-comparison { padding: 22px 18px; } .architecture-paths > div { padding: 18px; } .view-tabs { gap: 19px; } .view-tabs a { font-size: 13px; } }
