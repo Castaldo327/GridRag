@@ -109,12 +109,17 @@ experiment, not evidence of general superiority or production accuracy.
 
 ### Live regression suite
 
-The Evaluation page also provides a separate, versioned **28-question** suite:
-22 numeric cases and 6 scope/safety cases across core analytics, time and forecast
+The Evaluation page also provides a separate, versioned **26-question** suite:
+22 numeric cases and 4 grid scope/safety cases across core analytics, time and forecast
 vintages, storage and operations, regional retrieval, and request behavior. Browse
 the questions, expected values, tolerances, and evidence contracts without a key.
 Select a category and one or three trials per question, then run with your own key.
-Each trial uses a bounded Vercel request; stopping waits for the current case.
+Every question also has a **Run question** button for one independent trial, regardless
+of the batch repeat setting. Results accumulate across individual and category runs;
+re-running a question adds a trial without replacing its earlier results. Use
+**Clear results** to start a fresh report. Each trial uses a bounded Vercel request;
+stopping waits for the current case. Unrelated-topic questions are excluded from
+the live suite.
 
 Task correctness requires the expected end state plus the complete final scalar
 SQL result, or no SQL for a behavior case. Numeric requests explicitly ask for one
@@ -127,7 +132,7 @@ semantic guarantee. Repaired SQL errors remain visible in each attempt's trace.
 
 Reports retain each trial, failures, expected/observed values, SQL and CSV evidence,
 model use, latency, suite/schema fingerprints, and partial-run status. Export JSON
-before starting a new run; reports contain no API keys. Cost uses reported configured
+to keep a copy outside the current tab; reports contain no API keys. Cost uses reported configured
 token rates and excludes hosting and unreported failed-call billing. Reference SQL
 and expected values never reach the model. The recorded 18-question comparison above
 remains a historical artifact; the expanded live suite does not rewrite its scores.

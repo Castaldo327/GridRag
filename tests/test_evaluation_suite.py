@@ -58,11 +58,12 @@ class EvaluationSuiteTests(unittest.TestCase):
 
     def test_suite_is_versioned_and_does_not_change_recorded_benchmark_cases(self):
         info=suite_info()
-        self.assertEqual(len(EVALUATION_CASES),28)
+        self.assertEqual(len(EVALUATION_CASES),26)
+        self.assertFalse({"off_topic", "unrelated_task"} & {case.id for case in EVALUATION_CASES})
         self.assertEqual(len(BENCHMARK_CASES),18)
-        self.assertEqual(len({case.id for case in EVALUATION_CASES}),28)
-        self.assertEqual(sum(group["cases"] for group in info["groups"]),28)
-        self.assertEqual(info["numeric"]+info["behavior"],28)
+        self.assertEqual(len({case.id for case in EVALUATION_CASES}),26)
+        self.assertEqual(sum(group["cases"] for group in info["groups"]),26)
+        self.assertEqual(info["numeric"]+info["behavior"],26)
         self.assertEqual(len(info["sha256"]),64)
         self.assertEqual(info,suite_info())
         tables=demo_catalog().tables

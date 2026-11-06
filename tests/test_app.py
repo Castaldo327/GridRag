@@ -218,7 +218,7 @@ class AppTests(unittest.TestCase):
             factory.return_value.close.assert_called_once()
 
     def test_bad_evaluation_case_is_rejected_before_model_calls(self):
-        for payload in ({"id": "missing"}, [], {}):
+        for payload in ({"id": "missing"}, {"id": "off_topic"}, {"id": "unrelated_task"}, [], {}):
             body = json.dumps(payload).encode()
             with patch("app.__main__.answer") as model:
                 status, _ = send("POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"

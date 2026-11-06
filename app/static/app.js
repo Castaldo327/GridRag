@@ -90,7 +90,7 @@ function render() {
         <p id="evaluation-suite-info" class="footnote"></p>
         <p class="footnote">These checks exercise the routed playground. The recorded comparison above is a separate, fixed benchmark. Numeric questions request one row and one numeric answer column. Reference answers and SQL are never sent to the live model.</p>
         <div class="evaluation-controls"><label for="evaluation-category">Coverage<select id="evaluation-category"></select></label><label for="evaluation-repeats">Trials per question<select id="evaluation-repeats"><option value="1">1 trial</option><option value="3">3 trials</option></select></label></div>
-        <div class="evaluation-action"><button id="evaluation-run" type="button">Run checks →</button><button id="evaluation-stop" class="text-button" type="button" hidden>Stop after this case</button><button id="evaluation-download" class="text-button" type="button" disabled>Download report ↓</button></div>
+        <div class="evaluation-action"><button id="evaluation-run" type="button">Run checks →</button><button id="evaluation-stop" class="text-button" type="button" hidden>Stop after this case</button><button id="evaluation-download" class="text-button" type="button" disabled>Download report ↓</button><button id="evaluation-clear" class="text-button" type="button" disabled>Clear results</button></div>
         <p id="evaluation-access" class="footnote"></p>
         <div id="evaluation-summary" class="evaluation-summary" role="status"></div><div id="evaluation-metrics"></div>
         <div class="evaluation-results-toolbar"><label for="evaluation-filter">Show results<select id="evaluation-filter"><option value="all">All cases</option><option value="failed">Needs review</option><option value="passed">All checks passed</option></select></label><span class="footnote">Filtering does not change scores.</span></div>
@@ -150,6 +150,12 @@ function render() {
   $("#evaluation-filter").onchange = event => { state.evaluation.filter = event.target.value; paintEvaluation(); };
   $("#evaluation-stop").onclick = () => { state.evaluation.stopRequested = true; paintEvaluation(); };
   $("#evaluation-download").onclick = downloadEvaluation;
+  $("#evaluation-clear").onclick = () => {
+    const e = state.evaluation;
+    if (e.running) return;
+    e.results.clear(); e.plan = []; e.revealKey = null; e.manifest = null; e.summary = null; e.error = ""; e.filter = "all";
+    $("#evaluation-filter").value = "all"; paintEvaluation();
+  };
   window.onhashchange = showView;
   paintDemo(); paintBenchmark(); paintCatalog();
   $("#catalog-search").oninput = paintCatalog;
@@ -482,7 +488,8 @@ function paintEvaluation() {
   $("#evaluation-stop").disabled = e.stopRequested;
   $("#evaluation-stop").textContent = e.stopRequested ? "Stopping after this case…" : "Stop after this case";
   $("#evaluation-download").disabled = e.running || !e.results.size;
-  $("#evaluation-access").innerHTML = modelReady() ? `Starting a run makes up to <strong>${cases.length * e.repeats} paid question runs</strong> using your connected key. Each question may require several model calls. Each new run replaces the displayed report; download it first to keep it.` : '<a href="#playground">Connect your OpenAI key in the playground</a> to run checks. You can inspect every case and its expected result without a key.';
+  $("#evaluation-clear").disabled = e.running || !e.plan.length;
+  $("#evaluation-access").innerHTML = modelReady() ? `Starting a run makes up to <strong>${cases.length * e.repeats} paid question runs</strong> using your connected key. Each question may require several model calls. Run any question once using its Run question button. Results and repeat attempts accumulate until you choose Clear results.` : '<a href="#playground">Connect your OpenAI key in the playground</a> to run checks. You can inspect every case and its expected result without a key.';
   const stats = evaluationStats(), total = e.plan.length;
   const stageNames = {gate:"Checking request",route:"Selecting schema",sql:"Running SQL",answer:"Answering"};
   $("#evaluation-summary").innerHTML = `<strong>${e.running ? `${stats.completed} / ${total} trials complete` : total ? `${stats.completed} / ${total} trials completed${stats.completed < total ? " · Partial run" : ""}` : "Ready to evaluate"}</strong><span>${e.active ? `${esc(e.active.id)} · Trial ${e.active.repeat + 1} · ${esc(stageNames[e.stage] || "Starting")}` : "Task correctness and all-check pass rate are reported separately."}</span>${e.error ? `<span class="error">${esc(e.error)}</span>` : ""}`;
@@ -499,20 +506,24 @@ function paintEvaluation() {
     const status = active ? "Running" : attempts.length ? `${passed}/${attempts.length} passed` : "Not run";
     const statusClass = active ? "active" : attempts.length ? passed === attempts.length ? "good" : "warn" : "";
     const expected = c.expected == null ? esc(c.expected_state) : `${number(c.expected)} ${esc(c.unit)} · tolerance ±${c.tolerance ?? .01}`;
-    return `<article class="evaluation-case ${statusClass}"><div class="evaluation-case-head"><span class="case-index">${String(i+1).padStart(2,"0")}</span><div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>${esc(groups.find(g => g.id === c.category)?.label || c.category || "Analytics")} · ${esc(c.difficulty || "standard")} · Expected: ${expected}</small></div><span class="badge ${statusClass}">${status}</span></div>
+    return `<article class="evaluation-case ${statusClass}" data-evaluation-id="${esc(c.id)}"><div class="evaluation-case-head"><span class="case-index">${String(i+1).padStart(2,"0")}</span><div><strong>${esc(c.label)}</strong><p>${esc(c.question)}</p><small>${esc(groups.find(g => g.id === c.category)?.label || c.category || "Analytics")} · ${esc(c.difficulty || "standard")} · Expected: ${expected}</small></div><div class="evaluation-case-actions"><span class="badge ${statusClass}">${status}</span><button class="primary-link" type="button" data-evaluation-case="${esc(c.id)}" aria-label="Run evaluation: ${esc(c.label)}" ${e.running || state.running || !modelReady() ? "disabled" : ""}>${active ? "Running…" : "Run question"}</button><small>1 paid trial</small></div></div>
       <details class="evaluation-result" data-detail-key="contract-${esc(c.id)}" ${expanded.has(`contract-${c.id}`) ? "open" : ""}><summary>Expected behavior and evidence contract</summary><p class="footnote">End state: ${esc(c.expected_state)} · ${esc(c.result_contract || "One numeric scalar")}.</p>${c.required_tables?.length ? `<p class="footnote">Required tables: ${c.required_tables.map(esc).join(", ")}</p>` : ""}${c.excluded_tables?.length ? `<p class="footnote">Excluded tables: ${c.excluded_tables.map(esc).join(", ")}</p>` : ""}${c.forbidden_sql?.length ? `<p class="footnote">Forbidden SQL text: ${c.forbidden_sql.map(esc).join(", ")}</p>` : ""}${c.verification ? `<p class="footnote">${esc(c.verification)}</p>` : ""}</details>
       ${attempts.map(entry => {
         const a = entry.assessment, r = a?.result, key = `${entry.id}:${entry.repeat}`;
-        return `<details class="evaluation-result" data-detail-key="${esc(key)}" ${expanded.has(key) ? "open" : ""}><summary>Trial ${entry.repeat+1} · ${a?.passed ? "All checks passed" : "Needs review"} · ${seconds(r?.timings?.total)}</summary>${entry.error ? `<p class="error">${esc(entry.error)}</p>` : ""}${a ? `<p class="footnote">Task ${a.correct ? "correct" : "incorrect"} · Expected ${a.expected == null ? esc(c.expected_state) : number(a.expected)} · Observed ${a.observed == null ? "no valid scalar" : number(a.observed)} · ${a.diagnostics?.sql_calls ?? 0} SQL calls, ${a.diagnostics?.sql_errors ?? 0} query errors</p><ul class="evaluation-checks">${a.checks.map(check => `<li class="${check.passed ? "good" : "warn"}"><b>${check.passed ? "✓" : "!"} ${esc(check.name)}</b><span>${esc(check.category || "check")} · ${esc(check.detail)}</span></li>`).join("")}</ul><div class="evaluation-answer"><b>Answer</b><p>${md(r.answer || "")}</p></div><div class="stage-metrics"><span>Tokens <b>${number(r.usage?.input_tokens || 0)} in / ${number(r.usage?.output_tokens || 0)} out</b></span><span>Model calls <b>${r.usage?.calls ?? "—"}</b></span><span>Failed model calls <b>${r.usage?.failed_calls ?? "—"}</b></span><span>Reported cost <b>${r.usage?.cost_usd == null ? "—" : `$${r.usage.cost_usd.toFixed(5)}`}</b></span></div>${(r.tool_calls || []).map((call,j) => `<details class="evidence-item"><summary>Query ${j+1} · ${call.error ? "error" : `${call.rows} rows`}${call.truncated ? " · truncated" : ""}</summary><pre>${esc(call.query)}</pre>${call.csv ? `<pre>${esc(call.csv)}</pre>` : ""}${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("")}` : ""}</details>`;
+        return `<details class="evaluation-result" data-detail-key="${esc(key)}" ${expanded.has(key) || e.revealKey === key ? "open" : ""}><summary>Trial ${entry.repeat+1} · ${a?.passed ? "All checks passed" : "Needs review"} · ${seconds(r?.timings?.total)}</summary>${entry.error ? `<p class="error">${esc(entry.error)}</p>` : ""}${a ? `<p class="footnote">Task ${a.correct ? "correct" : "incorrect"} · Expected ${a.expected == null ? esc(c.expected_state) : number(a.expected)} · Observed ${a.observed == null ? "no valid scalar" : number(a.observed)} · ${a.diagnostics?.sql_calls ?? 0} SQL calls, ${a.diagnostics?.sql_errors ?? 0} query errors</p><ul class="evaluation-checks">${a.checks.map(check => `<li class="${check.passed ? "good" : "warn"}"><b>${check.passed ? "✓" : "!"} ${esc(check.name)}</b><span>${esc(check.category || "check")} · ${esc(check.detail)}</span></li>`).join("")}</ul><div class="evaluation-answer"><b>Answer</b><p>${md(r.answer || "")}</p></div><div class="stage-metrics"><span>Tokens <b>${number(r.usage?.input_tokens || 0)} in / ${number(r.usage?.output_tokens || 0)} out</b></span><span>Model calls <b>${r.usage?.calls ?? "—"}</b></span><span>Failed model calls <b>${r.usage?.failed_calls ?? "—"}</b></span><span>Reported cost <b>${r.usage?.cost_usd == null ? "—" : `$${r.usage.cost_usd.toFixed(5)}`}</b></span></div>${(r.tool_calls || []).map((call,j) => `<details class="evidence-item"><summary>Query ${j+1} · ${call.error ? "error" : `${call.rows} rows`}${call.truncated ? " · truncated" : ""}</summary><pre>${esc(call.query)}</pre>${call.csv ? `<pre>${esc(call.csv)}</pre>` : ""}${call.error ? `<p class="error">${esc(call.error)}</p>` : ""}</details>`).join("")}` : ""}</details>`;
       }).join("")}</article>`;
   }).join("") || '<p class="footnote">No cases match this filter.</p>';
+  if (e.revealKey && e.results.has(e.revealKey)) e.revealKey = null;
+  document.querySelectorAll("[data-evaluation-case]").forEach(button => {
+    button.onclick = () => runEvaluation(button.dataset.evaluationCase);
+  });
 }
 
 function downloadEvaluation() {
   const e = state.evaluation;
   if (e.running || !e.results.size) return;
   // Explicit projection: tab credentials and other application state never enter reports.
-  const report = {format_version: 2, manifest: e.manifest, planned_trials: e.plan,
+  const report = {format_version: 3, manifest: e.manifest, planned_trials: e.plan,
     completed_trials: e.results.size, partial: e.results.size < e.plan.length,
     summary: {...evaluationStats(), seconds: e.summary?.seconds}, error: e.error || null,
     attempts: [...e.results.values()]};
@@ -521,18 +532,33 @@ function downloadEvaluation() {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function runEvaluation() {
-  const e = state.evaluation, cases = (state.meta.evaluation_cases || []).filter(c => e.category === "all" || c.category === e.category);
+async function runEvaluation(caseId = null) {
+  const e = state.evaluation, all = state.meta.evaluation_cases || [];
+  const cases = all.filter(c => caseId ? c.id === caseId : e.category === "all" || c.category === e.category);
   if (e.running || state.running || !modelReady() || !cases.length) return;
-  e.running = true; e.active = null; e.stage = null; e.results.clear(); e.summary = null; e.error = ""; e.stopRequested = false;
-  e.plan = Array.from({length:e.repeats}, (_,repeat) => cases.map(c => ({id:c.id, repeat}))).flat();
-  e.manifest = {started_utc: new Date().toISOString(), suite: state.meta.evaluation_suite,
-    models: state.meta.models || null, category: e.category, repeats:e.repeats,
-    cases: cases.map(c => ({...c})), scoring: "Strict final scalar evidence; routing and prose checks reported separately", cost_basis:"Reported configured token-cost estimates; excludes hosting and unreported failed-call billing"};
+  const previousSeconds = e.summary?.seconds || 0;
+  const repeats = caseId ? 1 : e.repeats;
+  const scheduled = [];
+  for (let trial = 0; trial < repeats; trial++) {
+    for (const c of cases) {
+      const previous = [...e.plan, ...scheduled].filter(item => item.id === c.id);
+      const repeat = previous.length ? Math.max(...previous.map(item => item.repeat)) + 1 : 0;
+      scheduled.push({id:c.id, repeat});
+    }
+  }
+  e.running = true; e.active = null; e.stage = null; e.summary = null; e.error = ""; e.stopRequested = false;
+  e.plan.push(...scheduled);
+  e.revealKey = caseId ? `${scheduled[0].id}:${scheduled[0].repeat}` : null;
+  if (!e.manifest) e.manifest = {started_utc: new Date().toISOString(), suite: state.meta.evaluation_suite,
+    models: state.meta.models || null, cases: all.map(c => ({...c})), batches: [],
+    scoring: "Strict final scalar evidence; routing and prose checks reported separately", cost_basis:"Reported configured token-cost estimates; excludes hosting and unreported failed-call billing"};
+  const batch = {started_utc:new Date().toISOString(), scope:caseId ? "question" : "category", case_id:caseId,
+    category:caseId ? cases[0].category : e.category, repeats, planned_trials:scheduled, status:"running"};
+  e.manifest.batches.push(batch);
   paintEvaluation(); paint();
   const started = performance.now();
   try {
-    for (const trial of e.plan) {
+    for (const trial of scheduled) {
       if (e.stopRequested) break;
       e.active = trial; e.stage = null; paintEvaluation();
       const key = `${trial.id}:${trial.repeat}`;
@@ -579,7 +605,10 @@ async function runEvaluation() {
       e.active = null; e.stage = null; paintEvaluation();
     }
   } finally {
-    e.summary = {...evaluationStats(), seconds:(performance.now()-started)/1000};
+    batch.status = e.error ? "error" : scheduled.every(trial => e.results.has(`${trial.id}:${trial.repeat}`)) ? "complete" : "stopped";
+    batch.error = e.error || null;
+    batch.completed_utc = new Date().toISOString();
+    e.summary = {...evaluationStats(), seconds:previousSeconds+(performance.now()-started)/1000};
     e.running = false; e.active = null; e.stage = null; paintEvaluation(); paint();
   }
 }
