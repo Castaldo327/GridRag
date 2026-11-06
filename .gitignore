@@ -21,7 +21,6 @@ artifacts/
 .cache/
 *.pem
 *.key
-.vercelignore
 
 # macOS metadata
 .DS_Store

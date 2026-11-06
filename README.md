@@ -2,7 +2,7 @@
 <h1 align="center">GridRag</h1>
 <p align="center"><strong>Ask the grid. Follow the evidence.</strong><br>
 An independent exploration of schema retrieval for energy analytics.</p>
-<p align="center"><a href="#try-it">Try it</a> · <a href="#the-experiment">The experiment</a> · <a href="docs/evaluation.md">Evaluation</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
+<p align="center"><a href="https://sunairio-energy-demo.vercel.app/">Live demo ↗</a> · <a href="#try-it">Run locally</a> · <a href="#the-experiment">The experiment</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
 
 Electricity questions are rarely just text lookups. A price spread requires aligned
 intervals. Battery energy requires a conversion from MW to MWh. A historical
@@ -58,8 +58,6 @@ the question, relevant schema and returned synthetic rows.
 Does scoring tables and columns preserve the context needed for SQL better than
 retrieving embedded table definitions? What does that trade in latency and cost?
 
-[![GridRag pipeline](docs/architecture.svg)](docs/architecture.svg)
-
 The main pipeline:
 
 1. Check the question for domain relevance and misuse.
@@ -103,7 +101,7 @@ The recorded run scored **92.6%** for routed schema versus **72.2%** for top-6
 embeddings, with median latency **4.50 s vs 3.44 s** and roughly **10.8×** estimated
 model cost. That is a measured accuracy/latency/cost tradeoff on this suite.
 
-See [methodology and measured results](docs/evaluation.md). This is a small synthetic
+See [methodology and measured results](https://sunairio-energy-demo.vercel.app/#evaluation). This is a small synthetic
 experiment, not evidence of general superiority or production accuracy.
 
 ## Data coverage
@@ -134,8 +132,7 @@ uv run python -m scripts.security_audit --history
 uv run python -m scripts.public_release
 ```
 
-CI runs the offline suite, frontend syntax check, redacted secret checks and public
-snapshot packaging. Tests cover schema parsing, read-only SQL enforcement, resource
+The checks cover schema parsing, read-only SQL enforcement, resource
 limits, request-scoped credentials, failed requests, streaming, reference queries
 and benchmark scoring. See [contributing](CONTRIBUTING.md).
 
@@ -151,6 +148,10 @@ before committing the snapshot. See [release privacy details](SECURITY.md).
 Connect that GitHub repository to Vercel using the checked-in `vercel.json`. No owner
 OpenAI key is needed. The public endpoints always require a visitor key, even if an
 owner key was configured accidentally.
+
+Set **Root Directory** to the repository root (`.`) and **Framework Preset** to
+**Other**. Leave build and output overrides disabled: `vercel.json` sets the build
+command to `uv run --locked python -m scripts.vercel_build` and output to `public`.
 
 The Vercel build generates the fictional warehouse and copies only approved frontend
 assets into `public/`. The DuckDB file is bundled privately with the Python function,

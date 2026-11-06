@@ -7,7 +7,7 @@
     "api/index.py": {
       "maxDuration": 300,
       "includeFiles": "data/warehouse.duckdb",
-      "excludeFiles": "{.venv/**,.git/**,.env*,.aws/**,.agents/**,.codex/**,.vercel/**,.cache/**,.github/**,experimental/**,benchmarks/**,tests/**,docs/**,output/**,artifacts/**,.interview-build/**,.mypy_cache/**,public/**,**/*.pem,**/*.key,compose.yaml}"
+      "excludeFiles": "{.venv/**,.git/**,.env*,.aws/**,.agents/**,.codex/**,.vercel/**,.cache/**,.github/**,benchmarks/**,tests/**,docs/**,output/**,artifacts/**,.interview-build/**,.mypy_cache/**,public/**,**/*.pem,**/*.key,compose.yaml}"
     }
   },
   "rewrites": [

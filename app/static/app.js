@@ -11,39 +11,35 @@ const modelReady = () => Boolean(state.apiKey || state.meta?.model_ready);
 const requestHeaders = () => ({ "Content-Type": "application/json", "Accept": "application/x-ndjson",
   ...(state.apiKey ? { "Authorization": `Bearer ${state.apiKey}` } : {}) });
 const preset = () => state.meta.presets.find(p => p.question === $("#question").value.trim());
+const presetButtons = (items, offset = 0) => items.map((p, i) => `<button type="button" data-preset="${i + offset}" title="${esc(p.question)}" aria-label="${esc(p.label)}: ${esc(p.question)}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("");
 
 function render() {
   $("#main").innerHTML = `
     <div id="demo-view"></div>
-    <section class="api-access panel" aria-labelledby="api-key-heading">
-      <div class="api-access-intro"><span class="eyebrow">TRY IT YOURSELF</span><h2 id="api-key-heading">Bring your own OpenAI key.</h2>
-        <p>Your key is held in this tab’s memory and sent to the app’s backend to call OpenAI. The app does not save it. Reload or remove it to clear it. API usage is billed to your OpenAI account.</p>
-        <small id="model-access-note">Models: ${esc(state.meta.models?.decisions || "configured decision model")} · ${esc(state.meta.models?.answer || "configured answer model")} · Requires Decisions and Responses API access.</small></div>
-      <form id="api-key-form" class="api-key-form" autocomplete="off">
-        <label for="api-key">OpenAI API key</label><div class="api-key-controls"><input id="api-key" type="password" name="visitor-api-key" maxlength="503" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="api-key-status"><button id="save-key" type="submit">Use key</button><button id="clear-key" type="button" hidden>Remove</button></div>
-        <span id="api-key-status" role="status"></span>
-        <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
-      </form>
-    </section>
     <div id="ask-view">
     <section class="hero panel">
-      <span class="eyebrow">ENERGY INTELLIGENCE · SYNTHETIC DATA</span>
-      <h1>Your question. Real SQL.</h1>
-      <p>Explore demand, generation, prices, and projects. Ask in plain language and get an answer you can trace back to the data.</p>
+      <div class="page-intro"><span class="eyebrow">THE PLAYGROUND</span><h1>Your question. Real SQL.</h1><p>Ask about energy data in plain language. Follow the answer back to its source.</p></div>
       <div class="market-strip" aria-label="Available energy markets">${state.meta.isos.map(iso => `<span>${esc(iso)}</span>`).join("")}<small>${state.meta.catalog_tables} tables · ${state.meta.isos.length} markets</small></div>
-      <aside class="data-window" id="data-window" aria-label="Synthetic data coverage">
-        <strong>Data ends October 21, 2026 · This is a fixed snapshot, not live data.</strong>
-        <span>Start with a region, a measure, and a date in the ranges below. Use specific dates rather than “today.”</span>
-      </aside>
+      <aside class="data-window" id="data-window"><span class="connection-dot" aria-hidden="true"></span><span>Synthetic dataset · Through <strong>Oct 21, 2026</strong> · Use a specific region and date.</span></aside>
       <form id="ask-form" class="ask-form">
-        <label class="sr-only" for="question">Your question</label>
-        <textarea id="question" aria-describedby="data-window" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="Try: What was ERCOT’s peak demand on October 19, 2026?"></textarea>
-        <button id="ask-button" type="submit">Ask the grid →</button>
+        <label for="question">What would you like to know?</label>
+        <div class="question-composer"><textarea id="question" aria-describedby="data-window question-hint" rows="3" maxlength="${state.meta.max_question_chars}" required placeholder="What was ERCOT’s peak demand on October 19, 2026?"></textarea><div class="composer-bottom"><span id="question-hint">⌘ / Ctrl + Enter to ask</span><button id="ask-button" type="submit">Ask the grid →</button></div></div>
+        <span id="ask-access-note" class="footnote">Connect your key below to run a live question.</span>
       </form>
-      <p class="preset-hint">A place to start. Choose a question, then make it yours.</p>
-      <div class="examples" aria-label="Preset questions">${state.meta.presets.map((p, i) => `
-        <button type="button" data-preset="${i}" title="${esc(p.question)}" aria-label="${esc(p.label)}: ${esc(p.question)}"><b>${esc(p.label)}</b><span>${esc(p.concept)}</span></button>`).join("")}</div>
-      <details class="question-guide" open>
+      <details id="key-settings" class="api-access">
+        <summary><span><span class="connection-dot" aria-hidden="true"></span><span id="key-summary">Connect your OpenAI key</span></span><span class="summary-action">Manage key</span></summary>
+        <div class="api-access-body">
+          <div class="api-access-intro"><h2 id="api-key-heading">Your key. Your session.</h2><p>Your key stays in this tab’s memory and passes through the app’s backend to OpenAI. It is never saved by the app. Reload or remove it to clear it. Usage is billed to your OpenAI account.</p><small id="model-access-note">Requires access to the configured Decisions and Responses models.</small></div>
+          <form id="api-key-form" class="api-key-form" autocomplete="off">
+            <label for="api-key">OpenAI API key</label><div class="api-key-controls"><input id="api-key" type="password" name="visitor-api-key" maxlength="503" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="api-key-status"><button id="save-key" type="submit">Use key</button><button id="clear-key" type="button" hidden>Remove</button></div>
+            <span id="api-key-status" role="status"></span><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
+          </form>
+        </div>
+      </details>
+      <p class="preset-hint">Or start with an example</p>
+      <div class="examples" aria-label="Preset questions">${presetButtons(state.meta.presets.slice(0, 3))}</div>
+      <details class="more-examples"><summary>More examples: prices, forecasts, and storage</summary><div class="examples">${presetButtons(state.meta.presets.slice(3), 3)}</div></details>
+      <details class="question-guide">
         <summary>What’s in the warehouse?</summary>
         <div class="guide-grid">
           <div><strong>Demand &amp; generation by fuel</strong><p>Hourly peaks, averages, totals and fuel shares, including solar and wind.</p><small>All 7 regions · Jan 1, 2025–Oct 21, 2026</small></div>
@@ -55,7 +51,7 @@ function render() {
         <button class="guide-example" type="button" data-question="What was CAISO's highest hourly solar generation in MW on October 19, 2026?">Try: CAISO’s highest hourly solar generation on October 19, 2026 →</button>
       </details>
       <details class="question-guide"><summary>Browse the table definitions</summary><label class="catalog-search-label" for="catalog-search">Find a table, region, or measure</label><input id="catalog-search" type="search" placeholder="Try: ERCOT, storage, forecast"><div id="catalog-list"></div></details>
-      <p class="coverage">${state.meta.catalog_tables} catalog tables · ${state.meta.isos.length} ISOs · Synthetic demonstration data · Questions use the configured model API.</p>
+
 
     </section>
     <div class="workspace">
@@ -63,8 +59,8 @@ function render() {
         <div class="panel-head"><div><span class="eyebrow">QUESTION → EVIDENCE</span><h2>The path to an answer</h2></div><span class="live" id="live-status" role="status"></span></div>
         <div id="flow" class="flow"></div>
       </section>
-      <section class="panel answer-panel">
-        <div class="panel-head"><div><span class="eyebrow">RESULT</span><h2>Answer</h2></div><span id="answer-state"></span></div>
+      <section class="panel answer-panel" aria-labelledby="answer-heading">
+        <div class="panel-head"><div><span class="eyebrow">RESULT</span><h2 id="answer-heading" tabindex="-1">Answer</h2></div><span id="answer-state"></span></div>
         <div id="answer" class="answer" aria-live="polite"></div>
       </section>
     </div>
@@ -77,7 +73,7 @@ function render() {
       <div id="metrics"></div>
     </section></div>
     <section id="evaluation-view" hidden>
-      <div class="hero panel"><span class="eyebrow">MEASURE THE TRADEOFFS</span><h1>Does better context<br>make a better answer?</h1><p>The routed schema approach versus embedded schema retrieval in Qdrant. Same questions, same SQL model, same database. Compare accuracy, response time, and estimated model cost.</p></div>
+      <div class="page-intro evaluation-intro"><span class="eyebrow">THE EVALUATION</span><h1>Measure the tradeoffs.</h1><p>Routed schema versus embedded retrieval. Same questions, same SQL model, same database.</p></div>
       <div id="benchmark-results" class="panel benchmark-panel"></div>
       <details class="panel methodology"><summary>How the comparison works</summary><div class="guide-grid">
         <div><strong>Routed schema</strong><p>A decision model scores tables, expands their references, then scores columns. The SQL model receives the resulting compact schema.</p></div>
@@ -97,15 +93,20 @@ function render() {
     if (state.running || state.evaluation.running) return;
     const key = $("#api-key").value.trim();
     if (!/^sk-[A-Za-z0-9_-]{10,500}$/.test(key)) {
+      $("#api-key").setAttribute("aria-invalid", "true");
       state.keyMessage = "Enter a valid OpenAI API key beginning with sk-.";
       paintKey(); return;
     }
     state.apiKey = key; state.keyMessage = ""; $("#api-key").value = "";
+    $("#api-key").removeAttribute("aria-invalid");
     paint(); paintEvaluation();
+    $("#key-settings").open = false;
+    $("#question").focus();
   };
   $("#clear-key").onclick = () => {
     if (state.running || state.evaluation.running) return;
     state.apiKey = ""; state.keyMessage = ""; $("#api-key").value = "";
+    $("#api-key").removeAttribute("aria-invalid");
     paint(); paintEvaluation();
   };
   $("#ask-form").onsubmit = e => { e.preventDefault(); ask(); };
@@ -126,7 +127,14 @@ function render() {
       $("#question").focus();
     };
   });
-  $("#question").value = new URLSearchParams(location.search).get("q") || state.meta.presets[0].question;
+  $("#question").onkeydown = event => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault(); $("#ask-form").requestSubmit();
+    }
+  };
+  const initialQuestion = new URLSearchParams(location.search).get("q");
+  $("#question").value = (initialQuestion || "").slice(0, state.meta.max_question_chars);
+  if (initialQuestion && !location.hash) history.replaceState(null, "", `${location.search}#playground`);
   $("#evaluation-run").onclick = runEvaluation;
   window.onhashchange = showView;
   paintDemo(); paintBenchmark(); paintCatalog();
@@ -136,15 +144,13 @@ function render() {
   paintEvaluation();
 }
 
-function showView() {
+function showView(event) {
   const requested = location.hash.slice(1);
   const view = ["playground", "evaluation"].includes(requested) ? requested : requested === "ask" ? "playground" : "demo";
   $("#demo-view").hidden = view !== "demo";
   $("#ask-view").hidden = view !== "playground";
-  $(".api-access").hidden = view !== "playground";
   $("#evaluation-view").hidden = view !== "evaluation";
   const title = {demo: "Demo", playground: "Playground", evaluation: "Evaluation"}[view];
-  $("#view-title").textContent = title;
   document.title = `${title} · GridRag`;
   document.querySelectorAll("[data-view-link]").forEach(link => {
     const selected = link.dataset.viewLink === view;
@@ -153,6 +159,7 @@ function showView() {
     else link.removeAttribute("aria-current");
   });
   window.scrollTo(0, 0);
+  if (event) $("#main").focus({preventScroll: true});
 }
 
 function paintCatalog() {
@@ -176,12 +183,24 @@ function paintDemo() {
     `<pre>${esc(d.sql)}</pre>`,
     `<div class="demo-answer"><strong>${number(d.value)}</strong><span>${esc(d.unit)}</span></div><pre>${esc(d.evidence)}</pre>`
   ];
-  $("#demo-view").innerHTML = `<section class="hero panel demo-hero"><span class="eyebrow">AN INDEPENDENT ENERGY + AI PROJECT</span><h1>Ask the grid.<br>Follow the evidence.</h1><p>Electricity data is full of subtle questions: which market, which interval, which forecast vintage? GridRag explores how AI can find the right schema, write SQL, and answer from the data.</p><div class="demo-actions"><a class="primary-link" href="#playground">Open the playground ↗</a><a href="#evaluation">See the comparison →</a></div><div class="demo-stats"><span><strong>65</strong> documented tables</span><span><strong>7</strong> US grid regions</span><span><strong>100%</strong> synthetic data</span></div></section>
-    <section class="panel walkthrough"><div class="panel-head"><div><span class="eyebrow">NO KEY NEEDED</span><h2>One question, explained.</h2></div><span class="badge">Guided walkthrough</span></div><p class="walkthrough-note">These examples use verified reference queries on the fictional warehouse. They are prepared examples, not live model responses.</p><div class="demo-options" role="group" aria-label="Walkthrough examples">${demos.map((item,i) => `<button data-demo="${i}" aria-pressed="${i === state.demoIndex}">${esc(item.label)}</button>`).join("")}</div><div class="walkthrough-grid"><div class="demo-steps">${titles.map((title,i) => `<button data-step="${i}" aria-pressed="${i === state.demoStep}"><span>0${i+1}</span>${title}<b aria-hidden="true">→</b></button>`).join("")}</div><div class="demo-detail" aria-live="polite"><span class="eyebrow">STEP ${state.demoStep + 1} OF 4</span><h2>${titles[state.demoStep]}</h2><p>${explanations[d.id][state.demoStep]}</p>${detail[state.demoStep]}<button id="demo-next" class="primary-link">${state.demoStep < 3 ? "Next step →" : "Start again ↺"}</button></div></div></section>
-    <div class="demo-bottom"><div><span class="eyebrow">WHY THIS EXISTS</span><h2>Good answers start with the right context.</h2><p>A personal exploration of schema retrieval for energy analytics. Built to make the path from natural-language question to database evidence visible, measurable, and reproducible.</p></div><a href="#evaluation">Explore the evaluation ↗</a></div>`;
-  document.querySelectorAll("[data-demo]").forEach(b => b.onclick = () => { state.demoIndex = Number(b.dataset.demo); state.demoStep = 0; paintDemo(); document.querySelector(`[data-demo="${state.demoIndex}"]`).focus(); });
-  document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => { state.demoStep = Number(b.dataset.step); paintDemo(); document.querySelector(`[data-step="${state.demoStep}"]`).focus(); });
-  $("#demo-next").onclick = () => { state.demoStep = (state.demoStep + 1) % 4; paintDemo(); $("#demo-next").focus(); };
+  $("#demo-view").innerHTML = `
+    <section class="demo-hero">
+      <div class="demo-hero-copy"><span class="eyebrow">ENERGY DATA, EXPLAINED</span><h1>Ask the grid.<br><span>Follow the evidence.</span></h1><p>Turn a plain-language question into a traceable answer. Explore how AI finds the right tables, writes SQL, and works from the data.</p><div class="demo-actions"><button id="explore-example" class="primary-link" type="button">Explore an example <span aria-hidden="true">↓</span></button><a href="#playground">Ask your own question <span aria-hidden="true">↗</span></a></div><span class="hero-caption">Start with the demo. No account or API key needed.</span></div>
+      <aside class="reference-card" aria-label="Prepared example result"><div class="reference-card-top"><span class="eyebrow">A QUESTION → AN ANSWER</span><span class="reference-check" aria-label="Verified reference query">✓</span></div><blockquote>${esc(d.question)}</blockquote><div class="reference-result"><span class="reference-label">${esc(d.label)}</span><div><strong>${number(d.value)}</strong><span>${esc(d.unit)}</span></div></div><div class="reference-card-bottom"><span>Verified SQL evidence</span><span>Prepared example</span></div></aside>
+    </section>
+    <div class="dataset-strip" aria-label="Dataset overview"><span><strong>${state.meta.catalog_tables}</strong> documented tables</span><span><strong>${state.meta.isos.length}</strong> US grid regions</span><span class="dataset-note"><span class="connection-dot" aria-hidden="true"></span>Entirely synthetic data</span></div>
+    <section id="walkthrough" class="panel walkthrough" aria-labelledby="walkthrough-heading"><div class="panel-head"><div><span class="eyebrow">FOLLOW THE PROCESS</span><h2 id="walkthrough-heading" tabindex="-1">One question. Every step.</h2></div><span class="badge">No key needed</span></div><p class="walkthrough-note">Choose an example and follow its question, schema, SQL, and result. These use verified reference queries, not live model responses.</p><div class="demo-options" role="group" aria-label="Walkthrough examples">${demos.map((item,i) => `<button type="button" data-demo="${i}" aria-pressed="${i === state.demoIndex}">${esc(item.label)}</button>`).join("")}</div><div class="walkthrough-grid"><div class="demo-steps" role="group" aria-label="Walkthrough steps">${titles.map((title,i) => `<button type="button" data-step="${i}" aria-pressed="${i === state.demoStep}"><span>${i < state.demoStep ? "✓" : `0${i+1}`}</span>${title}<b aria-hidden="true">→</b></button>`).join("")}</div><div class="demo-detail"><div class="demo-detail-content" aria-live="polite" aria-atomic="true"><span class="eyebrow">STEP ${state.demoStep + 1} OF 4</span><h3>${titles[state.demoStep]}</h3><p>${explanations[d.id][state.demoStep]}</p>${detail[state.demoStep]}</div><div class="demo-detail-actions"><button id="demo-next" class="primary-link" type="button">${state.demoStep < 3 ? "Next step →" : "Start again ↺"}</button><button id="try-demo-question" class="text-button" type="button">Try this question live ↗</button></div></div></div></section>
+    <section class="research-note"><div><span class="eyebrow">BEYOND THE DEMO</span><h2>Better context. Better answers?</h2><p>Compare routed schema with embedded retrieval across accuracy, response time, and estimated model cost.</p></div><a href="#evaluation">Explore the evaluation <span aria-hidden="true">→</span></a></section>`;
+  $("#explore-example").onclick = () => { $("#walkthrough-heading").focus({preventScroll: true}); $("#walkthrough").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"}); };
+  document.querySelectorAll("[data-demo]").forEach(b => b.onclick = () => { state.demoIndex = Number(b.dataset.demo); state.demoStep = 0; paintDemo(); document.querySelector(`[data-demo="${state.demoIndex}"]`).focus({preventScroll: true}); });
+  document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => { state.demoStep = Number(b.dataset.step); paintDemo(); document.querySelector(`[data-step="${state.demoStep}"]`).focus({preventScroll: true}); });
+  $("#demo-next").onclick = () => { state.demoStep = (state.demoStep + 1) % 4; paintDemo(); $("#demo-next").focus({preventScroll: true}); };
+  $("#try-demo-question").onclick = () => {
+    if (state.running || state.evaluation.running) return;
+    $("#question").value = d.question;
+    $("#question").dispatchEvent(new Event("input"));
+    location.hash = "playground";
+  };
 }
 
 function paintBenchmark() {
@@ -222,6 +241,9 @@ function paintKey() {
   $("#api-key").placeholder = state.apiKey ? "Key added for this tab" : "sk-…";
   $("#api-key-status").textContent = state.keyMessage || (state.apiKey ? "Key added for this tab. Reloading or closing this tab removes it." : state.meta.model_ready ? "Using the local server’s configured key. You can use your own instead." : "Add your key above to ask a question or run evaluations.");
   $("#api-key-status").classList.toggle("error", Boolean(state.keyMessage));
+  $("#key-summary").textContent = state.apiKey ? "Key connected for this tab" : state.meta.model_ready ? "Local server key connected" : "Connect your OpenAI key";
+  $("#key-settings").classList.toggle("connected", modelReady());
+  $("#ask-access-note").textContent = modelReady() ? "Live model requests use your key and may incur API charges." : "Connect your key below to run a live question.";
 }
 
 function paint() {
@@ -256,7 +278,7 @@ function paint() {
     `<div class="answer-text">${md(r.answer)}</div>` : state.running && state.progress.answer_text ?
     `<div class="answer-text">${md(state.progress.answer_text)}</div>` : state.running ?
     `<div class="loading"><i></i>${esc(stageNames[active] || "Starting the pipeline")}…</div><p class="footnote">The highlighted stage follows backend progress. SQL and evidence appear as they return.</p>` :
-    '<div class="empty"><span class="empty-symbol" aria-hidden="true">✧</span><strong>Your next insight starts here.</strong><span>Choose a question or write your own. Your answer and supporting evidence will appear here.</span></div>';
+    '<div class="empty"><span class="empty-symbol" aria-hidden="true">↳</span><strong>An answer you can inspect.</strong><span>Ask a question above. Your answer, SQL, and supporting data will appear here.</span></div>';
   $("#details-panel").hidden = !calls.length;
   $("#details").innerHTML = calls.map((call, i) => `<details class="evidence-item" ${i === calls.length - 1 ? "open" : ""}>
     <summary>Query ${i + 1} · ${call.error ? "error" : `${call.rows} result rows`}</summary>
@@ -276,17 +298,25 @@ function paint() {
       ${calls.map((call, i) => call.execution_seconds == null ? "" : `<span>Database query ${i + 1} <b>${seconds(call.execution_seconds)}</b></span>`).join("")}</div>
       <p class="footnote">Model times include network waits and SDK retries. Database times include SQL checks and result formatting.</p>
     </details>`;
-  $("#ask-button").disabled = state.running || state.evaluation.running || !modelReady();
-  $("#ask-button").textContent = state.running ? "Running…" : "Ask the grid →";
+  $("#ask-button").disabled = state.running || state.evaluation.running || !$("#question").value.trim();
+  $("#ask-button").textContent = state.running ? "Running…" : modelReady() ? "Ask the grid →" : "Connect key to ask →";
+  $("#answer").setAttribute("aria-busy", String(state.running));
   $("#question").disabled = state.running || state.evaluation.running;
   document.querySelectorAll("[data-preset], [data-question]").forEach(b => { b.disabled = state.running || state.evaluation.running; });
 }
 
 async function ask() {
   const question = $("#question").value.trim();
-  if (!question || state.running || state.evaluation.running || !modelReady()) return;
+  if (!question || state.running || state.evaluation.running) return;
+  if (!modelReady()) {
+    $("#key-settings").open = true;
+    $("#api-key").focus();
+    return;
+  }
   const p = preset();
   state.running = true; state.result = null; state.error = ""; state.progress = {}; paint(); paintEvaluation();
+  $("#answer-heading").focus({preventScroll: true});
+  $(".workspace").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"});
   try {
     const response = await fetch("/api/ask", {
       method: "POST", headers: requestHeaders(), body: JSON.stringify({ question }),
@@ -340,7 +370,7 @@ function paintEvaluation() {
     e.running ? `<strong>${completed} of ${cases.length} complete</strong><span>${passed} passed · ${e.active ? `Running ${esc(e.active)}${e.stage ? ` · ${esc(stageNames[e.stage] || e.stage)}` : ""}` : "Starting…"}</span>` :
     `<strong>${cases.length} cases ready</strong><span>Press Run all evaluations to start the live suite.</span>`;
   if (!cases.length) {
-    $("#evaluation-cases").innerHTML = '<p class="error">Evaluation cases are unavailable. Restart the local app and reload this page.</p>';
+    $("#evaluation-cases").innerHTML = '<p class="error">Live checks are unavailable. Reload to try again; the recorded comparison above is still available.</p>';
     return;
   }
   const expanded = new Set([...document.querySelectorAll(".evaluation-result[open]")].map(node => node.dataset.caseId));
@@ -427,7 +457,7 @@ async function boot() {
     fetch("/api/meta").then(r => r.ok ? r.json() : null).then(meta => {
       if (!meta) return;
       state.meta = {...state.meta, ...meta};
-      $("#model-access-note").textContent = `Models: ${meta.models.decisions} · ${meta.models.answer} · Requires Decisions and Responses API access.`;
+      $("#model-access-note").textContent = `Models: ${meta.models.decisions} · ${meta.models.answer}. Requires Decisions and Responses API access.`;
       paintKey(); paint(); paintEvaluation();
     }).catch(() => {});
   } catch (error) {
