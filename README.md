@@ -1,8 +1,8 @@
-<p align="center"><img src="app/static/energy-mark.svg" alt="GridRag" width="72" height="72"></p>
-<h1 align="center">GridRag</h1>
+<p align="center"><img src="app/static/logo-mark.png" alt="Grid Status demo" width="72" height="72"></p>
+<h1 align="center">GridRag · Grid Status Demo</h1>
 <p align="center"><strong>Ask the grid. Follow the evidence.</strong><br>
-An independent exploration of schema retrieval for energy analytics.</p>
-<p align="center"><a href="https://sunairio-energy-demo.vercel.app/">Live demo ↗</a> · <a href="#try-it">Run locally</a> · <a href="#the-experiment">The experiment</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
+An independent Grid Status demo exploring schema retrieval for energy analytics.</p>
+<p align="center"><a href="https://gridrag.vercel.app/">Live demo ↗</a> · <a href="#try-it">Run locally</a> · <a href="#the-experiment">The experiment</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
 
 Electricity questions are rarely just text lookups. A price spread requires aligned
 intervals. Battery energy requires a conversion from MW to MWh. A historical
@@ -72,7 +72,7 @@ The main pipeline:
 5. Generate SQL, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
 
-The [architecture page](https://sunairio-energy-demo.vercel.app/#architecture)
+The [architecture page](https://gridrag.vercel.app/#architecture)
 explains this design with the system diagram, a full-size SVG, and a stage-by-stage
 text walkthrough. The diagram source lives in `app/static/architecture.svg` and is
 copied to `public/static/architecture.svg` on every build. Its distinguishing
@@ -114,7 +114,7 @@ The recorded run scored **92.6%** for routed schema versus **72.2%** for top-6
 embeddings, with median latency **4.50 s vs 3.44 s** and roughly **10.8×** estimated
 model cost. That is a measured accuracy/latency/cost tradeoff on this suite.
 
-See [methodology and measured results](https://sunairio-energy-demo.vercel.app/#evaluation). This is a small synthetic
+See [methodology and measured results](https://gridrag.vercel.app/#evaluation). This is a small synthetic
 experiment, not evidence of general superiority or production accuracy.
 
 ### Read the recorded answers

@@ -209,7 +209,7 @@ function showView(event) {
   $("#architecture-view").hidden = view !== "architecture";
   if (view === "playground") loadModelMeta();
   const title = {demo: "Demo", playground: "Playground", evaluation: "Evaluation", architecture: "Architecture"}[view];
-  document.title = `${title} · GridRag`;
+  document.title = `${title} · Grid Status Demo · GridRag`;
   document.querySelectorAll("[data-view-link]").forEach(link => {
     const selected = link.dataset.viewLink === view;
     link.classList.toggle("selected", selected);

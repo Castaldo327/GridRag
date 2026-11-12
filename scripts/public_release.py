@@ -9,7 +9,7 @@ from scripts.security_audit import ROOT, local_secrets, scan
 FILES = {"README.md", "SECURITY.md", "CONTRIBUTING.md", "pyproject.toml", "uv.lock", "vercel.json", ".gitleaksignore",
          "compose.yaml", ".gitignore", ".vercelignore", ".env.example"}
 TREES = {"app", "api", "gridrag", "benchmarks", "scripts", "tests", ".github/workflows"}
-SUFFIXES = {".py", ".js", ".css", ".html", ".svg", ".json", ".sql", ".md", ".yml"}
+SUFFIXES = {".py", ".js", ".css", ".html", ".svg", ".png", ".json", ".sql", ".md", ".yml"}
 
 
 def release_files():

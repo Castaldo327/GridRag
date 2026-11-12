@@ -16,7 +16,7 @@ def main():
         shutil.rmtree(output)
     output.mkdir()
     (output / "static").mkdir()
-    for name in ("app.js", "app.css", "energy-mark.svg", "architecture.svg", "demo.json", "benchmark.json"):
+    for name in ("app.js", "app.css", "energy-mark.svg", "logo-mark.png", "architecture.svg", "demo.json", "benchmark.json"):
         source = static / name
         if name == "benchmark.json" and not source.exists():
             continue
