@@ -32,7 +32,7 @@ function page() {
   context.page.state.benchmark = {
     manifest: {experiment: "capability-30-v1", created_utc: "2026-11-13T02:58:02Z", repeats: 1,
       models: {sql: "test"}, embedding_model: "test", cost_basis: "test", vector_top_k: 21,
-      hybrid: {dense_pool: 48, final_k: 25}, max_routed_tables: 25},
+      hybrid: {dense_pool: 48, final_k: 25, reranker: "test-reranker", reranker_endpoint: "/v1/decisions"}, max_routed_tables: 25},
     cases,
     runs: cases.flatMap(c => methods.map(method => ({
       case: c.id, method, repeat: 0, correct: c.id !== "medium",
@@ -52,6 +52,8 @@ test("difficulty filters recompute all methods' scores and retain failures", () 
   assert.match(summary(), /4 questions shown · 1 recorded attempt per approach/);
   assert.equal((summary().match(/<td>75\.0%<\/td>/g) || []).length, 3);
   assert.match(summary(), /Top 21 tables/);
+  assert.match(summary(), /Qdrant → Decisions/);
+  assert.match(summary(), /OpenAI Decisions API \(test-reranker\)/);
   assert.match(summary(), /48 candidates → up to 25 tables/);
   assert.match(summary(), /25 tables including references and 4,096 SQL output tokens/);
   assert.match(summary(), /Nov 12, 2026/);

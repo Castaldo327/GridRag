@@ -26,7 +26,10 @@ embedding documents.
   BM25 matches. Fuse semantic/keyword/metadata signals with weights 0.55/0.25/0.20.
   Metadata covers region, physical measure, cadence and documented coverage.
   Rerank the entire union (at most 60 tables) against the full question with one
-  Decisions call. Keep relevant candidates up to 25, then expand references.
+  OpenAI Decisions API call (`POST /v1/decisions`, `gpt-6-luna`). Each candidate
+  gets a predicate relevance probability; candidates are sorted by that probability,
+  with fusion scores breaking ties. Keep relevant candidates up to 25, then expand
+  references.
   The total 25-table budget still applies after expansion; excess context asks
   for clarification and fails an answerable task. The reranker is paid and its
   calls, tokens, latency and estimated cost are included.
@@ -69,3 +72,9 @@ live report and writes the sanitized local `app/static/benchmark.json`; it does
 not deploy. Retrieval-only runs omit `--live`; hybrid then uses fusion without
 the paid reranker and may exceed the table budget. Those diagnostics are not
 substitutes for live capability scores.
+
+Each live trace records the Decisions endpoint and configured model. Repeated
+one-attempt runs can differ with identical retrieval settings; score differences
+alone do not establish an algorithmic improvement. See the
+[OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
+for the predicate relevance-scoring contract.

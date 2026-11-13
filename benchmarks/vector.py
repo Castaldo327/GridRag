@@ -69,7 +69,9 @@ class VectorRetriever:
         if use_hybrid:
             names, fused = hybrid.shortlist(question, catalog, scores)
             diagnostics = {"dense_candidates": list(scores), "shortlist": names, "fusion_scores": fused,
-                           "reranker": "decisions" if llm is not None else "fusion-only"}
+                           "reranker": "decisions" if llm is not None else "fusion-only",
+                           "reranker_endpoint": "/v1/decisions" if llm is not None else None,
+                           "reranker_model": config.settings.decisions_model if llm is not None else None}
             if llm is not None:
                 names, scores, fallback = hybrid.rerank(question, llm, catalog, names, fused)
                 names = [name for name in names if scores[name] is None

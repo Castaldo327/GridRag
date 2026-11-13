@@ -8,6 +8,7 @@ from benchmarks import hybrid
 from benchmarks.vector import VectorRetriever
 from gridrag.catalog import demo_catalog
 from gridrag import config
+from gridrag.answer import answer
 from gridrag.route import RoutingFailed
 
 
@@ -72,3 +73,54 @@ class HybridTests(unittest.TestCase):
         names, _ = hybrid.shortlist("Compare hourly demand and prices across the regions", catalog, dense)
         self.assertTrue(set(dense) <= set(names))
         self.assertEqual(hybrid.FINAL_K, 25)
+
+    def test_qdrant_candidates_are_reranked_by_one_decisions_call_before_sql(self):
+        catalog = demo_catalog()
+        vector = VectorRetriever.__new__(VectorRetriever)
+        vector.catalog, vector.collection = catalog, "owned"
+        vector.encoder, vector.client = Mock(), Mock()
+        embedding = Mock()
+        embedding.tolist.return_value = [0.]
+        vector.encoder.query_embed.return_value = [embedding]
+        order = []
+
+        def retrieve(*args, **kwargs):
+            order.append("qdrant")
+            return SimpleNamespace(points=[SimpleNamespace(
+                payload={"table": "core.fact_balance_hourly"}, score=.9)])
+
+        def decide(stage, question, questions):
+            order.append("decisions")
+            self.assertEqual(stage, "route")
+            self.assertEqual(question, "California hourly demand")
+            self.assertTrue(all(item["type"] == "predicate" for item in questions))
+            return {item["name"]: {"probability": .9 if catalog.tables["core.fact_balance_hourly"].ddl
+                                   in item["instructions"] else .01} for item in questions}
+
+        vector.client.query_points.side_effect = retrieve
+        llm = Mock()
+        llm.decide.side_effect = decide
+        llm.totals.return_value = {"calls": 0, "failed_calls": 0, "input_tokens": 0, "cached_tokens": 0,
+                                   "output_tokens": 0, "cost_usd": 0., "per_call": []}
+
+        def sql(*args, **kwargs):
+            order.append("sql")
+            self.assertEqual(set(kwargs["allowed_tables"]), {"core.fact_balance_hourly", "core.dim_iso"})
+            return {"state": "answered", "answer": "Verified answer", "tool_calls": []}
+
+        with (patch.object(config, "settings", replace(config.settings, max_routed_tables=25)),
+              patch("gridrag.answer.gate", return_value={"allowed": True, "reason": "Relevant",
+                                                         "relevance": 1., "malicious": 0.}),
+              patch("gridrag.answer.agent.run", side_effect=sql)):
+            result = answer("California hourly demand", llm=llm, catalog=catalog,
+                            retriever=vector.retrieve_hybrid)
+        self.assertEqual(order, ["qdrant", "decisions", "sql"])
+        llm.decide.assert_called_once()
+        llm.respond.assert_not_called()
+        selected = result["route"]
+        self.assertEqual([item["instructions"] for item in llm.decide.call_args.args[2]],
+                         [hybrid.TABLE_QUESTION + catalog.tables[name].ddl
+                          for name in selected["retrieval"]["shortlist"]])
+        self.assertEqual(set(selected["tables"]), {"core.fact_balance_hourly", "core.dim_iso"})
+        self.assertEqual(selected["retrieval"]["reranker_endpoint"], "/v1/decisions")
+        self.assertEqual(selected["retrieval"]["reranker_model"], config.settings.decisions_model)

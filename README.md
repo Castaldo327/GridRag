@@ -85,7 +85,9 @@ Dense retrieval selects the top **21** tables. Hybrid retrieval combines **48**
 semantic candidates with up to **12** keyword matches, uses region, measure,
 cadence and coverage signals, then reranks the entire candidate union against the
 question. Both supply full columns after reference expansion. The hybrid method's
-additional Decisions call is included in time and estimated model cost.
+second pass calls the OpenAI Decisions API (`gpt-6-luna`) once to score candidate
+relevance, then sorts those probabilities before reference expansion. Its time
+and estimated model cost are included.
 
 All three methods share the SQL model, approved entity vocabulary, gate, repair
 budget, and SQL guard. Evaluation allows **25 tables including references** and
@@ -127,9 +129,9 @@ remain in the separate developer regression suite.
 
 | Method | Correct answers | Required-table recall | Median time |
 | --- | --- | --- | --- |
-| Routed schema | 100.0% | 100.0% | 4.45 s |
-| Hybrid reranking | 96.7% | 100.0% | 3.81 s |
-| Dense vector · top21 | 80.0% | 92.5% | 3.36 s |
+| Routed schema | 96.7% | 100.0% | 4.45 s |
+| Qdrant → Decisions | 96.7% | 100.0% | 3.77 s |
+| Dense vector · top21 | 80.0% | 92.5% | 3.81 s |
 
 This is a small synthetic development suite with one attempt per method, not a
 held-out test or a production-accuracy estimate. Required-table recall, query

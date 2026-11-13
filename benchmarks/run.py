@@ -181,6 +181,7 @@ def benchmark_manifest(args, vector):
         "hybrid": {"dense_pool": hybrid.DENSE_POOL, "keyword_pool": hybrid.KEYWORD_POOL,
                    "rerank_pool": hybrid.RERANK_POOL, "final_k": hybrid.FINAL_K, "weights": hybrid.WEIGHTS,
                    "reranker": config.settings.decisions_model if args.live else "fusion-only",
+                   "reranker_endpoint": "/v1/decisions" if args.live else None,
                    "metadata": ["region", "measure", "cadence", "coverage"]},
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
         "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
