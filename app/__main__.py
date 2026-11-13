@@ -10,6 +10,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from app.assets import ASSETS
 from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
@@ -23,18 +24,6 @@ PRESETS = [{"id": case.id, "label": case.label, "concept": case.concept, "questi
 STATIC = Path(__file__).parent / "static"
 RUN_LOCK = threading.Lock()
 MAX_BODY_BYTES = 16384
-ASSETS = {
-    "/": ("index.html", "text/html; charset=utf-8"),
-    "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/static/app.css": ("app.css", "text/css; charset=utf-8"),
-    "/static/demo.json": ("demo.json", "application/json; charset=utf-8"),
-    "/static/benchmark.json": ("benchmark.json", "application/json; charset=utf-8"),
-    "/static/energy-mark.svg": ("energy-mark.svg", "image/svg+xml"),
-    "/static/architecture.svg": ("architecture.svg", "image/svg+xml"),
-    "/static/vendor/marked.umd.js": ("vendor/marked.umd.js", "text/javascript; charset=utf-8"),
-    "/static/vendor/purify.min.js": ("vendor/purify.min.js", "text/javascript; charset=utf-8"),
-}
-
 
 class Handler(BaseHTTPRequestHandler):
     # Hosting always requires a visitor key, even if an owner key is configured.
@@ -145,46 +134,61 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {"error": f"Enter a question of 1–{config.settings.max_question_chars} characters"})
         if not self.authorize_model():
             return
-        if not RUN_LOCK.acquire(blocking=False):
-            return self.send(409, {"error": "A question is already running. Try again when it finishes."})
         streaming = self.headers.get("Accept") == "application/x-ndjson"
-        stream_started = False
+        self.execute_request(
+            lambda: self.answer_question(question, streaming), streaming=streaming,
+            failure_message="Could not complete the question. See the server log for details.",
+            label="Demo request failed",
+        )
 
-        def emit(event):
-            self.wfile.write((json.dumps(event) + "\n").encode())
-            self.wfile.flush()
+    def emit(self, event):
+        self.wfile.write((json.dumps(event) + "\n").encode())
+        self.wfile.flush()
 
+    def start_stream(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+    def send_failure(self, message, stream_started):
         try:
-            if streaming:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/x-ndjson")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.close_connection = True
-                stream_started = True
-                result = self.run_answer(question, on_progress=lambda update: emit({"type": "progress", **update}))
+            if stream_started:
+                self.emit({"type": "error", "error": message})
             else:
-                result = self.run_answer(question)
-            if streaming:
-                emit({"type": "done", "result": result})
-            else:
-                self.send(200, result)
+                self.send(500, {"error": message})
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception:
-            logging.error("Demo request failed")
-            error = "Could not complete the question. See the server log for details."
-            if stream_started:
-                try:
-                    emit({"type": "error", "error": error})
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            else:
-                self.send(500, {"error": error})
+
+    def execute_request(self, action, *, streaming, failure_message, label):
+        """Own admission, response framing, disconnect handling, and lock release."""
+        if not RUN_LOCK.acquire(blocking=False):
+            return self.send(409, {"error": "A question is already running. Try again when it finishes."})
+        stream_started = False
+        try:
+            if streaming:
+                self.start_stream()
+                stream_started = True
+            action()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            # Log a diagnostic type, never a provider exception body or visitor credentials.
+            logging.error("%s (%s)", label, type(exc).__name__)
+            self.send_failure(failure_message, stream_started)
         finally:
             RUN_LOCK.release()
+
+    def answer_question(self, question, streaming):
+        progress = (lambda update: self.emit({"type": "progress", **update})) if streaming else None
+        result = self.run_answer(question, on_progress=progress)
+        if streaming:
+            self.emit({"type": "done", "result": result})
+        else:
+            self.send(200, result)
 
     def do_evaluate(self):
         """Run the shared live evaluation suite and stream each case as it finishes."""
@@ -207,58 +211,45 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {"error": "Evaluation requests must not include a body"})
         if not self.authorize_model():
             return
-        if not RUN_LOCK.acquire(blocking=False):
-            return self.send(409, {"error": "A question is already running. Try again when it finishes."})
+        self.execute_request(
+            lambda: self.evaluate_cases(cases), streaming=True,
+            failure_message="Evaluation stopped. See the server log for details.",
+            label="Evaluation run failed",
+        )
 
-        def emit(event):
-            self.wfile.write((json.dumps(event) + "\n").encode())
-            self.wfile.flush()
+    def evaluate_case(self, index, case):
+        def progress(update):
+            if "stage" in update:
+                self.emit({"type": "case_progress", "index": index, "id": case.id,
+                           "stage": update["stage"]})
 
-        stream_started = False
-        started = time.perf_counter()
-        passed = 0
-        cost = 0.0
+        self.emit({"type": "case_start", "index": index, "id": case.id})
         try:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/x-ndjson")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.close_connection = True
-            stream_started = True
-            for index, case in enumerate(cases):
-                emit({"type": "case_start", "index": index, "id": case.id})
-                try:
-                    result = self.run_answer(evaluation_question(case), on_progress=lambda update: (
-                        emit({"type": "case_progress", "index": index, "id": case.id,
-                              "stage": update["stage"]}) if "stage" in update else None))
-                    assessment = assess(case, result)
-                    passed += assessment["passed"]
-                    cost += result["usage"]["cost_usd"]
-                    emit({"type": "case_done", "index": index, "assessment": assessment})
-                except (BrokenPipeError, ConnectionResetError):
-                    raise
-                except Exception:
-                    logging.error("Evaluation case %s failed", case.id)
-                    emit({"type": "case_error", "index": index, "id": case.id,
-                          "error": "Could not complete this case. See the server log for details."})
-            emit({"type": "done", "summary": {"passed": passed, "total": len(cases),
-                                               "cost_usd": round(cost, 6),
-                                               "seconds": round(time.perf_counter() - started, 3)}})
+            result = self.run_answer(evaluation_question(case), on_progress=progress)
+            assessment = assess(case, result)
+            outcome = assessment["passed"], result["usage"]["cost_usd"]
+            self.emit({"type": "case_done", "index": index, "assessment": assessment})
+            return outcome
         except (BrokenPipeError, ConnectionResetError):
-            pass
-        except Exception:
-            logging.error("Evaluation run failed")
-            if stream_started:
-                try:
-                    emit({"type": "error", "error": "Evaluation stopped. See the server log for details."})
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            else:
-                self.send(500, {"error": "Evaluation could not start. See the server log for details."})
-        finally:
-            RUN_LOCK.release()
+            raise
+        except Exception as exc:
+            logging.error("Evaluation case %s failed (%s)", case.id, type(exc).__name__)
+            self.emit({"type": "case_error", "index": index, "id": case.id,
+                       "error": "Could not complete this case. See the server log for details."})
+            return False, 0.0
+
+    def evaluate_cases(self, cases):
+        """Keep case failures independent while accumulating the full-suite denominator."""
+        started = time.perf_counter()
+        passed, cost = 0, 0.0
+        for index, case in enumerate(cases):
+            case_passed, case_cost = self.evaluate_case(index, case)
+            passed += case_passed
+            cost += case_cost
+        self.emit({"type": "done", "summary": {
+            "passed": passed, "total": len(cases), "cost_usd": round(cost, 6),
+            "seconds": round(time.perf_counter() - started, 3),
+        }})
 
 
 def main():

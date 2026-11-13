@@ -479,7 +479,7 @@ async function ask() {
     $("#api-key").focus();
     return;
   }
-  const p = preset();
+  const selectedPreset = preset();
   state.running = true; state.result = null; state.error = ""; state.progress = {}; paint();
   $("#answer-heading").focus({preventScroll: true});
   $("#ask-view .workspace").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start"});
@@ -492,40 +492,32 @@ async function ask() {
       const error = await response.json().catch(() => null);
       throw new Error(error?.error || fallback);
     }
-    const reader = response.body.getReader(), decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line);
-          if (event.type === "error") throw new Error(event.error);
-          if (event.type === "progress") {
-            if (event.answer_delta !== undefined) {
-              state.progress.answer_text = (state.progress.answer_text || "") + event.answer_delta;
-              $("#answer").innerHTML = `<div class="answer-text">${md(state.progress.answer_text)}</div>`;
-            } else {
-              Object.assign(state.progress, event);
-              paint();
-            }
-          }
-          if (event.type === "done") {
-            state.result = event.result;
-            if (p) state.runs.set(p.id, event.result);
-          }
-        }
-        if (done || state.result) break;
-      }
-      if (!state.result) throw new Error("The connection ended before the answer arrived. Please retry.");
-    } finally { await reader.cancel(); }
+    for await (const event of readJsonEvents(response.body)) {
+      applyAnswerEvent(event, selectedPreset);
+      if (state.result) break;
+    }
+    if (!state.result) throw new Error("The connection ended before the answer arrived. Please retry.");
 
   } catch (error) {
     state.error = error.message || "Could not reach the server. Please retry.";
   } finally { state.running = false; paint(); }
+}
+
+function applyAnswerEvent(event, selectedPreset) {
+  if (event.type === "error") throw new Error(event.error);
+  if (event.type === "done") {
+    state.result = event.result;
+    if (selectedPreset) state.runs.set(selectedPreset.id, event.result);
+    return;
+  }
+  if (event.type !== "progress") return;
+  if (event.answer_delta !== undefined) {
+    state.progress.answer_text = (state.progress.answer_text || "") + event.answer_delta;
+    $("#answer").innerHTML = `<div class="answer-text">${md(state.progress.answer_text)}</div>`;
+    return;
+  }
+  Object.assign(state.progress, event);
+  paint();
 }
 
 function loadModelMeta() {

@@ -3,10 +3,24 @@ import unittest
 from unittest.mock import Mock, patch
 
 from api.index import handler
-from app.__main__ import Handler
+from app.__main__ import ASSETS, Handler, STATIC
 
 
 class HostedAssetsTests(unittest.TestCase):
+    def test_every_required_asset_is_available_to_the_local_server(self):
+        for route, (name, content_type) in ASSETS.items():
+            if name == "benchmark.json" and not (STATIC / name).is_file():
+                continue
+            with self.subTest(route=route):
+                request = Handler.__new__(Handler)
+                request.path = route
+                request.send = Mock()
+                request.do_GET()
+                status, content, kind = request.send.call_args.args
+                self.assertEqual(status, 200)
+                self.assertEqual(content, (STATIC / name).read_bytes())
+                self.assertEqual(kind, content_type)
+
     def test_markdown_browser_bundles_are_served(self):
         for path, marker in [("/static/vendor/marked.umd.js", b"marked"),
                              ("/static/vendor/purify.min.js", b"DOMPurify")]:

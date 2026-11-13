@@ -3,6 +3,7 @@
 import hashlib
 import time
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 
 from gridrag import config
@@ -29,22 +30,23 @@ class VectorRetriever:
             raise ValueError("top_k must fit the shared table budget")
         self.top_k = top_k
         self.catalog = catalog
-        self.client = QdrantClient(url=url, timeout=30)
         self.collection = "gridrag_benchmark_" + uuid.uuid4().hex
         started = time.perf_counter()
-        self.encoder = TextEmbedding(MODEL, cache_dir=str(Path(".cache/embeddings")), threads=2)
-        tables = list(catalog.tables.values())
-        vectors = list(self.encoder.passage_embed([table.ddl for table in tables]))
-        self.client.create_collection(self.collection, vectors_config=models.VectorParams(
-            size=len(vectors[0]), distance=models.Distance.COSINE))
-        try:
+        with ExitStack() as resources:
+            self.client = QdrantClient(url=url, timeout=30)
+            resources.callback(self.client.close)
+            self.encoder = TextEmbedding(MODEL, cache_dir=str(Path(".cache/embeddings")), threads=2)
+            tables = list(catalog.tables.values())
+            vectors = list(self.encoder.passage_embed([table.ddl for table in tables]))
+            self.client.create_collection(self.collection, vectors_config=models.VectorParams(
+                size=len(vectors[0]), distance=models.Distance.COSINE))
+            # Register deletion only after creation succeeds; never touch another run's collection.
+            resources.callback(self.client.delete_collection, self.collection)
             self.client.upsert(self.collection, wait=True, points=[
                 models.PointStruct(id=i, vector=vector.tolist(), payload={"table": table.name})
                 for i, (table, vector) in enumerate(zip(tables, vectors, strict=True))
             ])
-        except Exception:
-            self.close()
-            raise
+            self._resources = resources.pop_all()
         self.index_seconds = time.perf_counter() - started
         self.schema_sha256 = hashlib.sha256("\n".join(t.ddl for t in tables).encode()).hexdigest()
 
@@ -65,8 +67,5 @@ class VectorRetriever:
         return selection
 
     def close(self):
-        try:
-            # Delete only this run's randomly named collection, never an existing user collection.
-            self.client.delete_collection(self.collection)
-        finally:
-            self.client.close()
+        """Release this run's collection and client once, even if deletion fails."""
+        self._resources.close()

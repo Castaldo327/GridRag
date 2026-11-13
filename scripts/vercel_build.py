@@ -2,6 +2,7 @@
 import shutil
 from pathlib import Path
 
+from app.assets import ASSETS
 from gridrag.warehouse.build import build
 from scripts.public_assets import build as build_public_assets
 
@@ -15,14 +16,13 @@ def main():
     if output.exists():
         shutil.rmtree(output)
     output.mkdir()
-    (output / "static").mkdir()
-    for name in ("app.js", "app.css", "energy-mark.svg", "logo-mark.png", "architecture.svg", "demo.json", "benchmark.json"):
+    for route, (name, _) in ASSETS.items():
         source = static / name
         if name == "benchmark.json" and not source.exists():
             continue
-        shutil.copy2(source, output / "static" / name)
-    shutil.copy2(static / "index.html", output / "index.html")
-    shutil.copytree(static / "vendor", output / "static" / "vendor")
+        destination = output / (route.lstrip("/") or "index.html")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
     print(f"Prepared {len(counts)} tables and {sum(counts.values()):,} fictional rows for Vercel.")
 
 

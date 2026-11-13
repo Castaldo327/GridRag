@@ -6,9 +6,9 @@ import unittest
 import tempfile
 from pathlib import Path
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from app.__main__ import PRESETS, Handler
+from app.__main__ import PRESETS, RUN_LOCK, Handler
 from gridrag import config
 from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 from gridrag.warehouse.evaluation import evaluation_question
@@ -48,6 +48,54 @@ def post_evaluation(origin="http://localhost:8000"):
 
 
 class AppTests(unittest.TestCase):
+    def test_failed_requests_release_admission_lock_and_redact_errors(self):
+        for streaming in (False, True):
+            with (self.subTest(streaming=streaming),
+                  patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+                  patch("app.__main__.answer", side_effect=RuntimeError("private provider detail")),
+                  patch("app.__main__.logging.error") as log):
+                status, body = post({"question": "demand?"}, stream=streaming)
+            self.assertFalse(RUN_LOCK.locked())
+            self.assertNotIn("private provider detail", json.dumps(body))
+            self.assertNotIn("private provider detail", str(log.call_args_list))
+            self.assertEqual(status, 200 if streaming else 500)
+            self.assertIn("error", body[-1] if streaming else body)
+
+    def test_disconnected_requests_release_admission_lock_without_sending_an_error(self):
+        for failure in (BrokenPipeError(), ConnectionResetError()):
+            for streaming in (False, True):
+                with self.subTest(failure=type(failure).__name__, streaming=streaming):
+                    request = Handler.__new__(Handler)
+                    request.start_stream = Mock()
+                    request.send_failure = Mock()
+                    request.execute_request(Mock(side_effect=failure), streaming=streaming,
+                                            failure_message="Failed", label="Request failed")
+                    self.assertFalse(RUN_LOCK.locked())
+                    request.send_failure.assert_not_called()
+
+    def test_busy_requests_do_not_start_work_or_release_someone_elses_lock(self):
+        with RUN_LOCK, patch("app.__main__.answer") as model:
+            with patch.object(config, "settings", replace(config.settings, openai_api_key="test")):
+                self.assertEqual(post({"question": "demand?"})[0], 409)
+            self.assertTrue(RUN_LOCK.locked())
+            model.assert_not_called()
+
+    def test_evaluation_continues_after_a_case_failure(self):
+        cases = CASES[:2]
+        result = {"usage": {"cost_usd": .01}}
+        with (patch("app.__main__.CASES", cases),
+              patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+              patch("app.__main__.answer", side_effect=[RuntimeError("private"), result]),
+              patch("app.__main__.assess", return_value={"passed": True}),
+              patch("app.__main__.logging.error")):
+            _, events = post_evaluation()
+        self.assertEqual([event["type"] for event in events],
+                         ["case_start", "case_error", "case_start", "case_done", "done"])
+        self.assertEqual(events[-1]["summary"]["total"], 2)
+        self.assertEqual(events[-1]["summary"]["passed"], 1)
+        self.assertEqual(events[-1]["summary"]["cost_usd"], .01)
+        self.assertFalse(RUN_LOCK.locked())
+
     def test_invalid_http_framing_and_nested_json_never_reach_model(self):
         body = b'{"question":"demand?"}'
         base = "POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nContent-Type: application/json\r\n"

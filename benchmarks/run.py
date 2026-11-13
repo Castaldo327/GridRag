@@ -11,17 +11,20 @@ import math
 import random
 import statistics
 import time
+import tempfile
+from collections.abc import Iterator, Sequence
+from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from gridrag import config
 from gridrag.answer import answer
-from gridrag.catalog import demo_catalog
+from gridrag.catalog import Catalog, demo_catalog
 from gridrag.llm import LLM
-from gridrag.records import State
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.warehouse.evaluation import assess, evidence_matches
-from gridrag.warehouse.evals import reference_value
+from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches
+from gridrag.warehouse.evals import Case, reference_value
 from benchmarks.cases import BENCHMARK_CASES
 from benchmarks.vector import MODEL, VectorRetriever
 
@@ -81,6 +84,126 @@ def paired_intervals(rows):
     return results
 
 
+SEED = 42
+LIVE_METHODS = ("routed", "vector-k4", "vector-k6")
+RETRIEVAL_METHODS = ("vector-k4", "vector-k6")
+PUBLIC_CASE_IDS = frozenset(case.id for case in BENCHMARK_CASES[:12])
+
+
+@dataclass(frozen=True)
+class Attempt:
+    case: Case
+    method: str
+    repeat: int
+
+
+def scheduled_attempts(cases: Sequence[Case], methods: Sequence[str], repeats: int) -> Iterator[Attempt]:
+    """Keep the seeded case/method order independent of execution and scoring."""
+    rng = random.Random(SEED)
+    for repeat in range(repeats):
+        shuffled_cases = list(cases)
+        rng.shuffle(shuffled_cases)
+        for case in shuffled_cases:
+            order = list(methods)
+            rng.shuffle(order)
+            yield from (Attempt(case, method, repeat) for method in order)
+
+
+def live_attempt(case, catalog, retriever, references):
+    llm = LLM(api_key=config.settings.openai_api_key)
+    try:
+        result = answer(evaluation_question(case), llm=llm, catalog=catalog, retriever=retriever)
+    finally:
+        llm.close()
+    checks = assess(case, result)
+    numeric = strict_evidence(result, references[case.id], case.tolerance) if case.sql else None
+    # Accuracy and diagnostic checks share the evaluation suite's scoring contract.
+    row = {
+        "state": result["state"], "correct": checks["correct"], "checks_passed": checks["passed"],
+        "cost_usd": result["usage"]["cost_usd"], "input_tokens": result["usage"]["input_tokens"],
+        "output_tokens": result["usage"]["output_tokens"], "result": result,
+        "strict_numeric_evidence": numeric, "checks": checks["checks"],
+    }
+    return row, result.get("route")
+
+
+def retrieval_attempt(case, catalog, retriever):
+    try:
+        selection = retriever(case.question, None, catalog)
+        state = "retrieved"
+    except RoutingTooBroad as exc:
+        selection, state = exc.selection, "clarification"
+    return {"state": state, "correct": None, "cost_usd": None, "input_tokens": None}, selection
+
+
+def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, references, *, live: bool):
+    case, method = attempt.case, attempt.method
+    retriever = route if method == "routed" else vector.retrieve
+    vector.top_k = 4 if method == "vector-k4" else 6
+    started = time.perf_counter()
+    if live:
+        row, selection = live_attempt(case, catalog, retriever, references)
+    else:
+        row, selection = retrieval_attempt(case, catalog, retriever)
+    row.update({
+        "case": case.id, "split": "public" if case.id in PUBLIC_CASE_IDS else "additional",
+        "method": method, "repeat": attempt.repeat, "seconds": time.perf_counter() - started,
+    })
+    if selection:
+        row.update(retrieval_metrics(case, selection, catalog))
+    elif case.tables:
+        row.update(required_table_recall=0., all_required_tables=False, schema_chars=0)
+    return row
+
+
+def benchmark_manifest(args, vector):
+    return {
+        "format_version": 2, "scoring_version": "strict-final-scalar-v2",
+        "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
+        "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
+        "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
+        "versions": {p: importlib.metadata.version(p) for p in ("qdrant-client", "fastembed", "openai", "duckdb")},
+        "schema_sha256": vector.schema_sha256,
+        "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+        "index_seconds": vector.index_seconds, "seed": SEED,
+        "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
+        "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
+                              for k, v in config.settings.prices.items()},
+    }
+
+
+def save_report(output: Path, manifest, rows):
+    """Replace the report atomically without sharing a temporary path with other runs."""
+    report = {
+        "manifest": manifest, "summary": summarize(rows),
+        "paired_intervals": paired_intervals(rows) if manifest["live"] else [], "runs": rows,
+    }
+    payload = json.dumps(report, indent=2) + "\n"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stream = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                         prefix=output.name + ".", suffix=".tmp", delete=False)
+    temporary = Path(stream.name)
+    try:
+        with stream:
+            stream.write(payload)
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_benchmark(args, catalog, vector, references):
+    manifest = benchmark_manifest(args, vector)
+    methods = LIVE_METHODS if args.live else RETRIEVAL_METHODS
+    rows = []
+    for attempt in scheduled_attempts(BENCHMARK_CASES, methods, args.repeats):
+        row = run_attempt(attempt, catalog, vector, references, live=args.live)
+        rows.append(row)
+        save_report(args.output, manifest, rows)
+        print(f"{len(rows)} {attempt.method} {attempt.case.id}: {row['state']} "
+              f"correct={row['correct']} {row['seconds']:.2f}s", flush=True)
+    print(f"Saved {len(rows)} attempts to {args.output}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Make paid model calls with the local configured key")
@@ -94,76 +217,9 @@ def main():
         parser.error("Set OPENAI_API_KEY locally before using --live")
     catalog = demo_catalog()
     # Preflight every reference before incurring model usage.
-    references = {c.id: reference_value(c) for c in BENCHMARK_CASES if c.sql}
-    vector = VectorRetriever(catalog, args.url)
-    rows = []
-    methods = ["routed", "vector-k4", "vector-k6"] if args.live else ["vector-k4", "vector-k6"]
-    manifest = {
-        "format_version": 2, "scoring_version": "strict-final-scalar-v2", "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
-        "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
-        "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
-        "versions": {p: importlib.metadata.version(p) for p in ("qdrant-client", "fastembed", "openai", "duckdb")},
-        "schema_sha256": vector.schema_sha256,
-        "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
-        "index_seconds": vector.index_seconds, "seed": 42,
-        "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
-        "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
-                              for k, v in config.settings.prices.items()},
-    }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    def save():
-        report = {"manifest": manifest, "summary": summarize(rows), "paired_intervals": paired_intervals(rows) if args.live else [], "runs": rows}
-        temporary = args.output.with_suffix(".tmp")
-        temporary.write_text(json.dumps(report, indent=2) + "\n")
-        temporary.replace(args.output)
-    rng = random.Random(42)
-    try:
-        for repeat in range(args.repeats):
-            cases = list(BENCHMARK_CASES)
-            rng.shuffle(cases)
-            for case in cases:
-                order = methods.copy()
-                rng.shuffle(order)
-                for method in order:
-                    vector.top_k = 4 if method == "vector-k4" else 6
-                    retriever = route if method == "routed" else vector.retrieve
-                    started = time.perf_counter()
-                    if args.live:
-                        llm = LLM(api_key=config.settings.openai_api_key)
-                        try:
-                            question = case.question + (" Return the final SQL result as one row and one numeric answer column." if case.sql else "")
-                            result = answer(question, llm=llm, catalog=catalog, retriever=retriever)
-                        finally:
-                            llm.close()
-                        checks = assess(case, result)
-                        numeric = strict_evidence(result, references[case.id], case.tolerance) if case.sql else None
-                        # Primary accuracy is behavior + whole-result correctness. Table recall is diagnostic,
-                        # since an alternative valid query must not be counted wrong solely for its route.
-                        correct = result["state"] == case.state and (numeric if case.sql else not result["tool_calls"])
-                        row = {"state": result["state"], "correct": bool(correct), "checks_passed": checks["passed"],
-                               "cost_usd": result["usage"]["cost_usd"], "input_tokens": result["usage"]["input_tokens"],
-                               "output_tokens": result["usage"]["output_tokens"], "result": result,
-                               "strict_numeric_evidence": numeric, "checks": checks["checks"]}
-                        selection = result.get("route")
-                    else:
-                        try:
-                            selection = retriever(case.question, None, catalog)
-                            state = "retrieved"
-                        except RoutingTooBroad as exc:
-                            selection, state = exc.selection, "clarification"
-                        row = {"state": state, "correct": None, "cost_usd": None, "input_tokens": None}
-                    row.update({"case": case.id, "split": "public" if case in BENCHMARK_CASES[:12] else "additional",
-                                "method": method, "repeat": repeat, "seconds": time.perf_counter() - started})
-                    if selection:
-                        row.update(retrieval_metrics(case, selection, catalog))
-                    elif case.tables:
-                        row.update(required_table_recall=0., all_required_tables=False, schema_chars=0)
-                    rows.append(row)
-                    save()
-                    print(f"{len(rows)} {method} {case.id}: {row['state']} correct={row['correct']} {row['seconds']:.2f}s", flush=True)
-        print(f"Saved {len(rows)} attempts to {args.output}", flush=True)
-    finally:
-        vector.close()
+    references = {case.id: reference_value(case) for case in BENCHMARK_CASES if case.sql}
+    with closing(VectorRetriever(catalog, args.url)) as vector:
+        run_benchmark(args, catalog, vector, references)
 
 
 if __name__ == "__main__":
