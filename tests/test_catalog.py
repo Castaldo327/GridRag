@@ -76,6 +76,12 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Table.parse("CREATE TABLE core.broken (value INTEGER")
 
+    def test_structural_columns_follow_declarations_instead_of_name_suffixes(self):
+        table = Table.parse("CREATE TABLE retail.item (sku VARCHAR PRIMARY KEY, "
+                            "department VARCHAR REFERENCES retail.department (name), "
+                            "updated TIMESTAMP, optional_id INTEGER, optional_code VARCHAR);")
+        self.assertEqual(table.structural_columns, {"sku", "department", "updated"})
+
     def test_inconsistent_catalogs_are_rejected(self):
         region = Table.parse("CREATE TABLE core.region (id INTEGER);")
         for tables, families in (

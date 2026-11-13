@@ -121,7 +121,6 @@ class Table:
     def structural_columns(self) -> frozenset[str]:
         """Keep declared keys and time columns even when their relevance score is low.
 
-        Identifier/code suffixes remain a conservative fallback for this demo's DDL.
         Unique keys can be targets of foreign keys even when they are not primary keys.
         """
         keys = set()
@@ -130,7 +129,7 @@ class Table:
             for match in re.finditer(r"\b(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I):
                 keys.update(name.strip().lower() for name in match[1].split(","))
         for name, definition in self.columns.items():
-            if name.endswith(("_id", "_code")) or re.search(
+            if re.search(
                 r"\b(?:DATE|TIMESTAMP|TIMESTAMPTZ|REFERENCES|PRIMARY KEY|UNIQUE)\b", _code(definition), re.I
             ):
                 keys.add(name)
@@ -259,10 +258,9 @@ def parse(script: str) -> list[Table]:
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
     from gridrag.warehouse import build, products
-    from gridrag.grounding import demo_vocabulary
     isos = list(build.ISO_IDS)
     return Catalog.of(parse(build.schema_text()), [
         Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),
                MappingProxyType({iso: products.table_name(iso, product) for iso in isos}))
         for product in products.PRODUCTS
-    ], vocabulary=demo_vocabulary())
+    ])

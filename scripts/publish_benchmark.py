@@ -1,4 +1,5 @@
 """Verify completeness and build a safe public projection of a local benchmark run."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +24,12 @@ def public_report(report):
     actual = [(row["case"], row["method"], row["repeat"]) for row in rows]
     if not manifest["live"] or set(actual) != expected or len(actual) != len(expected):
         raise ValueError("Only a complete live run with every declared case/method/repetition can be published")
+    if (manifest.get("pipeline_version") != "schema-driven-v1"
+            or manifest.get("grounding", {}).get("version") != "schema-only-v1"
+            or manifest.get("grounding", {}).get("curated_vocabulary") is not False
+            or manifest.get("hybrid", {}).get("fusion_version") != "semantic-bm25-v1"
+            or manifest.get("hybrid", {}).get("metadata")):
+        raise ValueError("Publish a fresh schema-driven run without demo-specific rules or curated aliases")
     fields = {"case", "method", "repeat", "split", "state", "correct", "checks_passed", "seconds", "cost_usd",
               "input_tokens", "output_tokens", "required_table_recall", "all_required_tables", "selected_tables",
               "schema_chars", "extra_tables", "strict_numeric_evidence"}
@@ -49,7 +56,10 @@ def public_report(report):
 
 
 def main():
-    report = public_report(json.loads(Path("artifacts/benchmark.json").read_text()))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, default=Path("artifacts/benchmark.json"))
+    args = parser.parse_args()
+    report = public_report(json.loads(args.input.read_text()))
     payload = json.dumps(report, indent=2) + "\n"
     if scan(payload.encode(), local_secrets()):
         raise ValueError("Public report failed redacted secret checks")

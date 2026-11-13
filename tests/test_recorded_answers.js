@@ -99,3 +99,17 @@ test("earlier data cannot appear as results of the new capability suite", () => 
   assert.doesNotMatch(element("#benchmark-results").innerHTML, /75\.0%|before-grounding/);
   assert.equal(element("#recorded-answers").innerHTML, "");
 });
+
+test("demo-specific recorded retrieval is labeled historical without changing its results", () => {
+  const {api, element} = page();
+  api.state.benchmark.manifest.hybrid.metadata = ["region", "measure", "cadence", "coverage"];
+  api.paintBenchmark();
+  const summary = element("#benchmark-results").innerHTML;
+  assert.match(summary, /Historical retrieval:/);
+  assert.match(summary, /These scores do not evaluate the current generic retriever/);
+  assert.equal((summary.match(/<td>75\.0%<\/td>/g) || []).length, 3);
+  delete api.state.benchmark.manifest.hybrid.metadata;
+  api.state.benchmark.manifest.hybrid.fusion_version = "semantic-bm25-v1";
+  api.paintBenchmark();
+  assert.doesNotMatch(element("#benchmark-results").innerHTML, /Historical retrieval:/);
+});

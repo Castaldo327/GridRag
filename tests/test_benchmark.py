@@ -68,6 +68,14 @@ class BenchmarkTests(unittest.TestCase):
             public_report({"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
                                         "cases_sha256": "stale"}, "runs": []})
 
+    def test_complete_demo_tuned_run_cannot_be_republished_as_current(self):
+        report = {"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
+                  "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest()},
+                  "runs": [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES
+                           for method in LIVE_METHODS]}
+        with self.assertRaisesRegex(ValueError, "fresh schema-driven run"):
+            public_report(report)
+
     def test_reference_cases_are_valid_and_unique(self):
         self.assertEqual(len({c.id for c in BENCHMARK_CASES}), len(BENCHMARK_CASES))
         for case in BENCHMARK_CASES:

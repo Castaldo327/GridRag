@@ -59,7 +59,7 @@ class FailureTests(unittest.TestCase):
             res = answer.answer("Compare every energy price")
         sql.assert_not_called()
         self.assertEqual(res["state"], State.CLARIFICATION)
-        self.assertIn("Which region", res["answer"])
+        self.assertIn("Which subset", res["answer"])
         self.assertEqual(res["route"], selection)  # what was chosen stays visible
 
     def test_sql_receives_only_the_routed_schema(self):
@@ -80,7 +80,7 @@ class FailureTests(unittest.TestCase):
                                      for name in selection["tables"]))
         self.assertNotIn("location_type", sql.call_args.kwargs["schema"])
         self.assertEqual(sql.call_args.kwargs["allowed_tables"], selection["tables"])
-        self.assertIn("California, California ISO, CAISO => 'CAISO'", sql.call_args.kwargs["grounding"])
+        self.assertEqual(sql.call_args.kwargs["grounding"], "")
         self.assertEqual((res["state"], res["answer"]), (State.ANSWERED, "28 locations"))
         self.assertEqual(set(res["timings"]), {"gate", "route", "sql", "total"})
 

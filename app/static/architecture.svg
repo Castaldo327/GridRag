@@ -27,7 +27,7 @@
 <text x="1200" y="455" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Score tables, then columns in parallel</text>
 <polyline points="1200,490 1200,527 720,527 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
 <rect x="751" y="513" width="421" height="28" rx="0" fill="#FFFFFF" stroke="none"/>
-<text x="962" y="532" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#087E8B">Selected schema + approved dimension values</text>
+<text x="962" y="532" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#087E8B">Selected schema + documented constraints</text>
 <rect x="40" y="570" width="1360" height="358" rx="16" fill="#F5F9FC" stroke="#E2EDF5"/>
 <polyline points="720,570 720,637" fill="none" stroke="#087E8B" stroke-width="2" stroke-linejoin="round" marker-end="url(#teal)"/>
 <text x="68" y="605" text-anchor="start" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#50758E">02 / QUERY THE DATA AND EXPLAIN</text>
@@ -46,7 +46,7 @@
 <text x="240" y="885" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Execution and result limits</text>
 <text x="720" y="797" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Write, inspect, repair</text>
 <text x="720" y="828" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">SQL model</text>
-<text x="720" y="860" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Generate SQL with schema + approved values</text>
+<text x="720" y="860" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Generate SQL with documented schema</text>
 <text x="720" y="885" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="400" fill="#536477">Retry failed queries within a fixed budget</text>
 <text x="1200" y="797" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="23" font-weight="700" fill="#172B3A">Return an answer</text>
 <text x="1200" y="828" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#087E8B">Evidence included</text>

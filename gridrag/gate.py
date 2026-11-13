@@ -13,10 +13,10 @@ QUESTIONS = [
         "type": "predicate",
         "name": "relevant",
         "instructions": (
-            "Is the user asking about electric power systems or grid data rather than an unrelated subject? "
-            "Count demand, generation, grid prices, fuels, time series, ISO operations, interconnection queues, "
-            "and proposed projects as on topic. An ambiguous ISO, missing period, unsupported metric, or "
-            "unavailable historical data does not make a grid question off topic. "
+            "Is the user asking to query, analyze, or describe structured database records? "
+            "Include lookups, aggregates, comparisons, time series and questions about available data. "
+            "Ambiguous entities, missing periods, unsupported metrics or unavailable records do not "
+            "make an analytical database question off topic; schema selection determines availability. "
         ),
     },
     {
@@ -32,7 +32,7 @@ QUESTIONS = [
 
 
 def gate(question: str, llm: Model) -> Gate:
-    """{allowed, reason, relevance, malicious}. Lenient on relevance (an underspecified grid question still
+    """{allowed, reason, relevance, malicious}. Lenient on relevance (an underspecified data question still
     reaches SQL, which can explain coverage), strict on abuse."""
     answers = llm.decide(Stage.GATE, question, QUESTIONS)
     relevance = probability(answers, "relevant")
@@ -46,5 +46,5 @@ def gate(question: str, llm: Model) -> Gate:
     elif malicious >= settings.gate_max_malicious:
         reason = "Possible instruction-hijacking or unsafe database request"
     else:
-        reason = "Outside the available electricity data"
+        reason = "Not a database analysis request"
     return {"allowed": allowed, "reason": reason, "relevance": relevance, "malicious": malicious}

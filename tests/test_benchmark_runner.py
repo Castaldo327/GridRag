@@ -17,6 +17,18 @@ from gridrag.route import RoutingTooBroad
 
 
 class BenchmarkRunnerTests(unittest.TestCase):
+    def test_manifest_identifies_generic_fusion_for_new_results(self):
+        args = SimpleNamespace(live=False, repeats=1)
+        vector = SimpleNamespace(schema_sha256="test-schema", index_seconds=0.)
+        with patch.object(run.importlib.metadata, "version", return_value="test"):
+            manifest = run.benchmark_manifest(args, vector)
+        settings = manifest["hybrid"]
+        self.assertEqual(manifest["pipeline_version"], "schema-driven-v1")
+        self.assertFalse(manifest["grounding"]["curated_vocabulary"])
+        self.assertEqual(settings["fusion_version"], "semantic-bm25-v1")
+        self.assertNotIn("metadata", settings)
+        self.assertEqual(set(settings["weights"]), {"semantic", "keyword"})
+
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))
         actual = [(attempt.repeat, attempt.case.id, attempt.method) for attempt in attempts]

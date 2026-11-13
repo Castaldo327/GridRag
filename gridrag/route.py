@@ -15,7 +15,7 @@ from gridrag.records import Selection, Stage
 TABLE_QUESTION = (
     "Could this exact table contribute to answering any part of the request, including a comparison "
     "or denominator? Judge tables independently; multiple tables may be needed. Consider the table's "
-    "ISO, measures, grain, and coverage.\n"
+    "documented scope, fields, grain, and coverage.\n"
 )
 COLUMN_QUESTION = (
     "Could this column contribute to answering the request, including filtering, grouping, measuring, "
@@ -27,7 +27,7 @@ class RoutingTooBroad(RuntimeError):
     """The selection exceeds the table budget; retain it for diagnostics."""
 
     def __init__(self, selection: Selection):
-        super().__init__("Which region or data product should I focus on? That question needs more tables than "
+        super().__init__("Which subset of the data should I focus on? That question needs more tables than "
                          f"I can query at once ({len(selection['tables'])} of at most "
                          f"{config.settings.max_routed_tables}).")
         self.selection = selection

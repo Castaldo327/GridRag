@@ -29,7 +29,6 @@ from gridrag.warehouse.evals import Case, reference_result, reference_value
 from benchmarks.cases import BENCHMARK_CASES
 from benchmarks.vector import MODEL, VectorRetriever
 from benchmarks import hybrid
-from gridrag.grounding import demo_vocabulary
 
 
 def strict_evidence(result, expected, tolerance):
@@ -164,7 +163,7 @@ def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, ref
 
 def benchmark_manifest(args, vector):
     return {
-        "format_version": 5, "experiment": "capability-30-v1", "scoring_version": "strict-sql-evidence-v3",
+        "format_version": 6, "experiment": "capability-30-v1", "scoring_version": "strict-sql-evidence-v3",
         "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
         "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
         "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
@@ -176,13 +175,14 @@ def benchmark_manifest(args, vector):
         "max_routed_tables": config.settings.max_routed_tables,
         "sql_max_output_tokens": config.settings.answer_max_output_tokens,
         "vector_top_k": 21,
-        "grounding": {"version": "approved-dimensions-v1", "shared_by_all_methods": True,
-                      "sha256": hashlib.sha256(repr(demo_vocabulary()).encode()).hexdigest()},
+        "grounding": {"version": "schema-only-v1", "shared_by_all_methods": True,
+                      "curated_vocabulary": False},
+        "pipeline_version": "schema-driven-v1",
         "hybrid": {"dense_pool": hybrid.DENSE_POOL, "keyword_pool": hybrid.KEYWORD_POOL,
                    "rerank_pool": hybrid.RERANK_POOL, "final_k": hybrid.FINAL_K, "weights": hybrid.WEIGHTS,
                    "reranker": config.settings.decisions_model if args.live else "fusion-only",
                    "reranker_endpoint": "/v1/decisions" if args.live else None,
-                   "metadata": ["region", "measure", "cadence", "coverage"]},
+                   "fusion_version": hybrid.FUSION_VERSION},
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
         "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
                               for k, v in config.settings.prices.items()},

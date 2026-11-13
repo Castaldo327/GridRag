@@ -7,15 +7,15 @@ forecast cutoffs, UTC boundaries, storage, outages, curtailment, window rankings
 revenue, and multi-step comparisons. These inspected questions are not a held-out
 production test.
 
-## Shared grounding
+## Shared schema context
 
-The approved catalog vocabulary maps terminology to exact database values:
-California/California ISO → `CAISO`, Texas → `ERCOT`, and New England/ISO New
-England → `ISONE`, plus fuel codes, fictional price locations and queue statuses.
-A project's state is separate: `state = 'CA'` differs from `iso_code = 'CAISO'`.
-Only vocabulary for selected columns reaches SQL. Custom catalogs opt in with
-their own metadata. Grounding does not expand SQL permissions or alter the
-embedding documents.
+All three methods use the supplied schema documentation without curated entity
+vocabulary or demo-specific rules. The request gate classifies analytical database
+requests rather than a fixed industry. SQL instructions use documented units and
+time semantics rather than a predefined local clock or power-to-energy rule.
+Structural columns follow declared keys, references, and date/time types; column
+name suffixes do not grant special treatment. The synthetic warehouse and its
+independent reference queries remain evaluation fixtures, never routing rules.
 
 ## Retrieval settings
 
@@ -23,8 +23,10 @@ embedding documents.
 - **Dense (`vector-k21`):** BGE-small + Qdrant, top 21 tables, reference expansion,
   and all columns.
 - **Hybrid (`vector-hybrid-k25`):** retrieve 48 dense candidates and add up to 12
-  BM25 matches. Fuse semantic/keyword/metadata signals with weights 0.55/0.25/0.20.
-  Metadata covers region, physical measure, cadence and documented coverage.
+  BM25 matches over supplied schema documents. Fuse semantic/keyword scores with
+  weights 0.6875/0.3125, preserving their previous relative weighting. There are no
+  table-specific scoring rules or domain alias expansions. Region, measure,
+  cadence and coverage are interpreted from schema documentation by the reranker.
   Rerank the entire union (at most 60 tables) against the full question with one
   OpenAI Decisions API call (`POST /v1/decisions`, `gpt-6-luna`). Each candidate
   gets a predicate relevance probability; candidates are sorted by that probability,
@@ -34,13 +36,22 @@ embedding documents.
   for clarification and fails an answerable task. The reranker is paid and its
   calls, tokens, latency and estimated cost are included.
 
-All methods share the same gate, SQL model, grounding, repair budget, guard,
+All methods share the same gate, SQL model, schema-only context, repair budget, guard,
 **25-table total evaluation budget**, and **4,096 SQL output-token limit**.
 The playground's default limits remain unchanged. Mostly unusable reranker scores
 fail explicitly; partially unusable scores retain candidates conservatively.
 No reference SQL, expected values or required-table labels reach retrieval.
 The manifest records settings, versions, schema and case hashes. Settings stay
 fixed during the run; all failures are retained.
+
+Current runs record pipeline version `schema-driven-v1`, grounding version
+`schema-only-v1` and fusion version `semantic-bm25-v1`. Publication rejects older
+runs that used demo-specific rules or curated aliases. The checked-in results
+come from a fresh run of this pipeline.
+
+Removing these rules supports reuse of the query logic; this single synthetic
+domain does not establish cross-domain production accuracy or catalog-scale
+performance. BM25 currently scans schema documents per question.
 
 ## Scoring
 
@@ -62,8 +73,8 @@ comparison with earlier results.
 ```sh
 uv sync --locked --extra eval
 docker compose up -d qdrant
-uv run --extra eval python -m benchmarks.run --live --repeats 1 --max-tables 25
-uv run python -m scripts.publish_benchmark
+uv run --extra eval python -m benchmarks.run --live --repeats 1 --max-tables 25 --output artifacts/benchmark-schema-driven.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven.json
 docker compose stop qdrant
 ```
 

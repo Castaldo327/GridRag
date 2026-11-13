@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from benchmarks import hybrid
 from benchmarks.vector import VectorRetriever
-from gridrag.catalog import demo_catalog
+from gridrag.catalog import Catalog, Table, demo_catalog
 from gridrag import config
 from gridrag.answer import answer
 from gridrag.route import RoutingFailed
@@ -20,14 +20,22 @@ class HybridTests(unittest.TestCase):
         self.assertIn("core.fact_balance_hourly", names)
         self.assertLessEqual(len(names), hybrid.RERANK_POOL)
 
-    def test_metadata_rewards_matching_region_cadence_measure_and_coverage(self):
-        catalog = demo_catalog()
-        question = "Texas five-minute storage discharge on October 19, 2026"
-        score = lambda name: hybrid.metadata_score(question, catalog.tables[name])
-        self.assertGreater(score("core.ercot_storage_dispatch_5min"), score("core.caiso_storage_dispatch_5min"))
-        self.assertGreater(score("core.ercot_storage_dispatch_5min"), score("core.ercot_lmp_da_hub_hourly"))
-        self.assertGreater(score("core.ercot_storage_dispatch_5min"), hybrid.metadata_score(
-            "Texas five-minute storage discharge on August 8, 2025", catalog.tables["core.ercot_storage_dispatch_5min"]))
+    def test_custom_catalog_recovers_keyword_matches_without_domain_configuration(self):
+        tables = [Table.parse(ddl) for ddl in (
+            "CREATE TABLE sales.inventory (\n sku VARCHAR,\n available_units INTEGER\n);",
+            "CREATE TABLE sales.refunds (\n refund_id INTEGER,\n amount DOUBLE\n);",
+        )]
+        catalog = Catalog({table.name: table for table in tables})
+        names, _ = hybrid.shortlist("available inventory units", catalog, {"sales.refunds": .1})
+        self.assertEqual(names[0], "sales.inventory")
+        self.assertIn("sales.refunds", names)
+
+    def test_keywords_do_not_inject_demo_region_aliases_into_custom_catalogs(self):
+        table = Table.parse("CREATE TABLE records.caiso (\n value DOUBLE\n);")
+        catalog = Catalog({table.name: table})
+        self.assertEqual(hybrid.keyword_scores("California", catalog)[table.name], 0.)
+        self.assertEqual(hybrid.shortlist("California", catalog, {})[0], [])
+        self.assertEqual(hybrid.keyword_scores("CAISO", catalog)[table.name], 1.)
 
     def test_live_rerank_uses_complete_question_and_fails_on_unusable_scores(self):
         catalog = demo_catalog()
@@ -42,12 +50,6 @@ class HybridTests(unittest.TestCase):
         llm.decide.return_value = {}
         with self.assertRaises(RoutingFailed):
             hybrid.rerank(question, llm, catalog, names, dict.fromkeys(names, .5))
-
-    def test_forecast_publication_dates_do_not_restrict_delivery_coverage(self):
-        table = demo_catalog().tables["core.ercot_load_forecast_hourly"]
-        request = "Texas hourly load forecast for delivery on october 15, 2026 published by october {}, 2026"
-        self.assertEqual(hybrid.metadata_score(request.format(14), table),
-                         hybrid.metadata_score(request.format(16), table))
 
     def test_hybrid_expands_references_after_reranking_and_keeps_all_columns(self):
         catalog = demo_catalog()

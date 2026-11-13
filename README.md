@@ -65,11 +65,11 @@ retrieving embedded table definitions? What does that trade in latency and cost?
 
 The main pipeline:
 
-1. Check the question for domain relevance and misuse.
+1. Check for an analytical database request and misuse using domain-neutral instructions.
 2. Score all catalog tables in one decision-model call.
 3. Include referenced tables, then score selected tables' columns concurrently.
 4. Preserve structural keys and time fields in the reduced schema.
-5. Add approved dimension values to the SQL prompt, then generate SQL, validate it independently, and execute against a read-only warehouse.
+5. Generate SQL from the selected schema documentation, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
 
 The [architecture page](https://gridrag.vercel.app/#architecture)
@@ -82,18 +82,23 @@ accuracy/cost tradeoff; it does not establish a claim of research novelty.
 
 The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant**.
 Dense retrieval selects the top **21** tables. Hybrid retrieval combines **48**
-semantic candidates with up to **12** keyword matches, uses region, measure,
-cadence and coverage signals, then reranks the entire candidate union against the
-question. Both supply full columns after reference expansion. The hybrid method's
-second pass calls the OpenAI Decisions API (`gpt-6-luna`) once to score candidate
-relevance, then sorts those probabilities before reference expansion. Its time
+semantic candidates with up to **12** BM25 keyword matches over the supplied
+schema documents, then reranks the entire candidate union against the question.
+Retrieval contains no table-specific rules, domain alias expansion, or hand-coded
+region, measure, cadence, or coverage scoring. Both supply full columns after
+reference expansion. The hybrid method's second pass calls the OpenAI Decisions
+API (`gpt-6-luna`) once to score candidate relevance, then sorts those probabilities before reference expansion. Its time
 and estimated model cost are included.
 
-All three methods share the SQL model, approved entity vocabulary, gate, repair
+The fresh recorded comparison uses the schema-driven pipeline: no curated entity
+aliases, demo-specific relevance rules, grid-only gate, or special power/time SQL
+instructions. Declared keys and date/time types determine structural columns.
+
+All three methods share the SQL model, schema-only entity context, gate, repair
 budget, and SQL guard. Evaluation allows **25 tables including references** and
 **4,096 output tokens** per SQL-model call; the playground retains its existing
-limits. Grounding maps California → `CAISO`, Texas → `ERCOT`, New England → `ISONE`,
-and approved fuel, location, and queue-status terms to exact database values.
+limits. The model resolves terminology from supplied schema documentation. No
+hand-maintained entity vocabulary is injected into this comparison.
 See the [experiment specification](benchmarks/README.md) for settings and scoring.
 There is no full-schema prompt baseline.
 
@@ -214,7 +219,10 @@ in the target Vercel project before announcing the URL.
 ## Production boundary
 
 The code has explicit contracts, independent SQL safeguards, reproducible data,
-request-scoped credentials, security headers and regression tests. The application
+request-scoped credentials, security headers and regression tests. This synthetic
+dataset does not establish cross-domain accuracy or catalog-scale
+performance. BM25 currently scans schema documents per question; an indexed
+keyword backend and larger, independent datasets remain necessary. The application
 is still a demonstration. Authentication, tenant entitlements, distributed request
 limits, process isolation, operational monitoring and broader adversarial evaluation
 are necessary before connecting real organizational data.
