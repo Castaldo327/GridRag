@@ -153,3 +153,12 @@ test("demo-specific recorded retrieval is labeled historical without changing it
   api.paintBenchmark();
   assert.doesNotMatch(element("#benchmark-results").innerHTML, /Historical retrieval:/);
 });
+
+test("recorded ISO vocabulary is identified as shared SQL context", () => {
+  const {api, element} = page();
+  api.state.benchmark.manifest.grounding = {version:"iso-entities-v1", entries:7, shared_by_all_methods:true};
+  api.paintBenchmark();
+  assert.match(element("#benchmark-results").innerHTML,
+    /seven ISO entity mappings shared by all approaches; SQL generation only/);
+  assert.doesNotMatch(element("#benchmark-results").innerHTML, /no curated aliases/);
+});

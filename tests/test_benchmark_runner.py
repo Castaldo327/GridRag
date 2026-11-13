@@ -23,8 +23,10 @@ class BenchmarkRunnerTests(unittest.TestCase):
         with patch.object(run.importlib.metadata, "version", return_value="test"):
             manifest = run.benchmark_manifest(args, vector)
         settings = manifest["hybrid"]
-        self.assertEqual(manifest["pipeline_version"], "schema-driven-v1")
-        self.assertFalse(manifest["grounding"]["curated_vocabulary"])
+        self.assertEqual(manifest["pipeline_version"], "schema-driven-iso-entities-v1")
+        self.assertTrue(manifest["grounding"]["curated_vocabulary"])
+        self.assertTrue(manifest["grounding"]["shared_by_all_methods"])
+        self.assertEqual(manifest["grounding"]["entries"], 7)
         self.assertEqual(settings["fusion_version"], "semantic-bm25-v1")
         self.assertNotIn("metadata", settings)
         self.assertEqual(set(settings["weights"]), {"semantic", "keyword"})

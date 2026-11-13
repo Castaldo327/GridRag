@@ -7,6 +7,7 @@ from pathlib import Path
 from benchmarks.cases import BENCHMARK_CASES
 from benchmarks.run import LIVE_METHODS, summarize
 from gridrag.warehouse.evals import reference_result, reference_value
+from gridrag.catalog import demo_catalog
 from scripts.security_audit import local_secrets, scan
 
 
@@ -24,12 +25,16 @@ def public_report(report):
     actual = [(row["case"], row["method"], row["repeat"]) for row in rows]
     if not manifest["live"] or set(actual) != expected or len(actual) != len(expected):
         raise ValueError("Only a complete live run with every declared case/method/repetition can be published")
-    if (manifest.get("pipeline_version") != "schema-driven-v1"
-            or manifest.get("grounding", {}).get("version") != "schema-only-v1"
-            or manifest.get("grounding", {}).get("curated_vocabulary") is not False
+    if (manifest.get("pipeline_version") != "schema-driven-iso-entities-v1"
+            or manifest.get("grounding", {}).get("version") != "iso-entities-v1"
+            or manifest.get("grounding", {}).get("curated_vocabulary") is not True
+            or manifest.get("grounding", {}).get("shared_by_all_methods") is not True
+            or manifest.get("grounding", {}).get("entries") != 7
+            or manifest.get("grounding", {}).get("sha256")
+            != hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest()
             or manifest.get("hybrid", {}).get("fusion_version") != "semantic-bm25-v1"
             or manifest.get("hybrid", {}).get("metadata")):
-        raise ValueError("Publish a fresh schema-driven run without demo-specific rules or curated aliases")
+        raise ValueError("Publish a fresh schema-driven run with shared ISO-only entity grounding")
     fields = {"case", "method", "repeat", "split", "state", "correct", "checks_passed", "seconds", "cost_usd",
               "input_tokens", "output_tokens", "required_table_recall", "all_required_tables", "selected_tables",
               "schema_chars", "extra_tables", "strict_numeric_evidence"}

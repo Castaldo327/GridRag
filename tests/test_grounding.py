@@ -9,10 +9,18 @@ from gridrag.sql import agent
 
 
 class GroundingTests(unittest.TestCase):
-    def test_demo_has_no_curated_vocabulary_or_aliases(self):
-        self.assertEqual(demo_catalog().vocabulary, ())
-        self.assertEqual(render_grounding(demo_catalog().vocabulary,
-                                         {"core.dim_iso": ["iso_code"]}), "")
+    def test_demo_vocabulary_covers_only_the_seven_iso_entities(self):
+        catalog = demo_catalog()
+        self.assertEqual(len(catalog.vocabulary), 7)
+        self.assertEqual({v.value for v in catalog.vocabulary}, set(catalog.isos))
+        self.assertEqual({(v.table, v.column) for v in catalog.vocabulary}, {("core.dim_iso", "iso_code")})
+        prompt = render_grounding(catalog.vocabulary, {"core.dim_iso": ["iso_code"]})
+        self.assertIn("California, California ISO, CAISO => 'CAISO'", prompt)
+        self.assertIn("Texas, ERCOT => 'ERCOT'", prompt)
+        self.assertIn("New England, ISO New England, ISO-NE, ISONE => 'ISONE'", prompt)
+        self.assertNotIn("fuel_code", prompt)
+        self.assertNotIn("status_code", prompt)
+        self.assertEqual(render_grounding(catalog.vocabulary, {"core.dim_iso": ["iso_id"]}), "")
 
     def test_supplied_vocabulary_is_column_scoped_and_reaches_sql(self):
         values = (DimensionValue("sales.order", "status", "shipped", ("dispatched",)),

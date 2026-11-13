@@ -9,13 +9,18 @@ production test.
 
 ## Shared schema context
 
-All three methods use the supplied schema documentation without curated entity
-vocabulary or demo-specific rules. The request gate classifies analytical database
-requests rather than a fixed industry. SQL instructions use documented units and
-time semantics rather than a predefined local clock or power-to-energy rule.
-Structural columns follow declared keys, references, and date/time types; column
-name suffixes do not grant special treatment. The synthetic warehouse and its
-independent reference queries remain evaluation fixtures, never routing rules.
+All three methods use supplied schema documentation plus the same seven-ISO
+entity vocabulary in SQL generation. California → `CAISO`, Texas → `ERCOT`,
+New England → `ISONE`, and the remaining ISO names map to exact values in the
+ISO code column. These are catalog metadata, scoped to selected columns; custom
+catalogs receive no demo entities. There are no fuel, location, or queue-status
+aliases. The vocabulary is not used by embeddings, BM25, or reranking.
+
+The request gate classifies analytical database requests rather than a fixed
+industry. SQL instructions use documented units and time semantics. Structural
+columns follow declared keys, references, and date/time types. Table-specific
+relevance rules and custom metadata scorers remain removed. The synthetic
+warehouse and independent reference queries remain evaluation fixtures.
 
 ## Retrieval settings
 
@@ -36,7 +41,7 @@ independent reference queries remain evaluation fixtures, never routing rules.
   for clarification and fails an answerable task. The reranker is paid and its
   calls, tokens, latency and estimated cost are included.
 
-All methods share the same gate, SQL model, schema-only context, repair budget, guard,
+All methods share the same gate, SQL model, seven-ISO entity vocabulary, repair budget, guard,
 **25-table total evaluation budget**, and **4,096 SQL output-token limit**.
 The playground's default limits remain unchanged. Mostly unusable reranker scores
 fail explicitly; partially unusable scores retain candidates conservatively.
@@ -44,9 +49,10 @@ No reference SQL, expected values or required-table labels reach retrieval.
 The manifest records settings, versions, schema and case hashes. Settings stay
 fixed during the run; all failures are retained.
 
-Current runs record pipeline version `schema-driven-v1`, grounding version
-`schema-only-v1` and fusion version `semantic-bm25-v1`. Publication rejects older
-runs that used demo-specific rules or curated aliases. The checked-in results
+Current runs record pipeline version `schema-driven-iso-entities-v1`, grounding
+version `iso-entities-v1`, the seven-entry vocabulary hash, and fusion version
+`semantic-bm25-v1`. Publication requires a fresh run with this shared ISO-only
+vocabulary and no custom metadata scoring. The checked-in results
 come from a fresh run of this pipeline.
 
 Removing these rules supports reuse of the query logic; this single synthetic
@@ -77,8 +83,8 @@ comparison with earlier results.
 ```sh
 uv sync --locked --extra eval
 docker compose up -d qdrant
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-schema-driven-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-iso-entities-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-iso-entities-3trials.json
 docker compose stop qdrant
 ```
 

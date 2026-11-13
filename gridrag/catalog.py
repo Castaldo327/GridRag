@@ -258,9 +258,10 @@ def parse(script: str) -> list[Table]:
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
     from gridrag.warehouse import build, products
+    from gridrag.warehouse.vocabulary import ISO_ENTITIES
     isos = list(build.ISO_IDS)
     return Catalog.of(parse(build.schema_text()), [
         Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),
                MappingProxyType({iso: products.table_name(iso, product) for iso in isos}))
         for product in products.PRODUCTS
-    ])
+    ], vocabulary=ISO_ENTITIES)

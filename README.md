@@ -69,7 +69,7 @@ The main pipeline:
 2. Score all catalog tables in one decision-model call.
 3. Include referenced tables, then score selected tables' columns concurrently.
 4. Preserve structural keys and time fields in the reduced schema.
-5. Generate SQL from the selected schema documentation, validate it independently, and execute against a read-only warehouse.
+5. Add the catalog's optional entity vocabulary and generate SQL from the selected schema documentation, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
 
 The [architecture page](https://gridrag.vercel.app/#architecture)
@@ -90,15 +90,16 @@ reference expansion. The hybrid method's second pass calls the OpenAI Decisions
 API (`gpt-6-luna`) once to score candidate relevance, then sorts those probabilities before reference expansion. Its time
 and estimated model cost are included.
 
-The fresh recorded comparison uses the schema-driven pipeline: no curated entity
-aliases, demo-specific relevance rules, grid-only gate, or special power/time SQL
-instructions. Declared keys and date/time types determine structural columns.
+The fresh recorded comparison uses the schema-driven pipeline with a shared
+seven-ISO entity vocabulary. It has no demo-specific relevance rules, grid-only
+gate, or special power/time SQL instructions. Declared keys and date/time types determine structural columns.
 
-All three methods share the SQL model, schema-only entity context, gate, repair
+All three methods share the SQL model, seven-ISO entity context, gate, repair
 budget, and SQL guard. Evaluation allows **25 tables including references** and
 **4,096 output tokens** per SQL-model call; the playground retains its existing
-limits. The model resolves terminology from supplied schema documentation. No
-hand-maintained entity vocabulary is injected into this comparison.
+limits. The SQL prompt receives seven column-scoped ISO mappings, including California →
+`CAISO`, Texas → `ERCOT`, and New England → `ISONE`. No fuel, location or project-status
+aliases are injected. Custom catalogs supply their own optional vocabulary.
 See the [experiment specification](benchmarks/README.md) for settings and scoring.
 There is no full-schema prompt baseline.
 
@@ -110,8 +111,8 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-schema-driven-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-iso-entities-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-iso-entities-3trials.json
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -136,9 +137,9 @@ remain in the separate developer regression suite.
 
 | Method | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Required-table recall | Median time |
 | --- | --- | --- | --- | --- | --- | --- |
-| Routed schema | 27/30 | 27/30 | 27/30 | 81/90 · 90.0% | 100.0% | 4.82 s |
-| Qdrant → Decisions | 28/30 | 26/30 | 28/30 | 82/90 · 91.1% | 100.0% | 4.14 s |
-| Dense vector · top21 | 24/30 | 23/30 | 23/30 | 70/90 · 77.8% | 92.5% | 4.12 s |
+| Routed schema | 29/30 | 28/30 | 29/30 | 86/90 · 95.6% | 100.0% | 5.03 s |
+| Qdrant → Decisions | 29/30 | 28/30 | 28/30 | 85/90 · 94.4% | 100.0% | 4.43 s |
+| Dense vector · top21 | 22/30 | 24/30 | 24/30 | 70/90 · 77.8% | 92.5% | 3.94 s |
 
 Cumulative accuracy is correct answers divided by all 90 attempts for each method,
 including failed attempts. Trial scores show variation across the three runs.

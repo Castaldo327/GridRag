@@ -79,8 +79,10 @@ class BenchmarkTests(unittest.TestCase):
     def test_three_trial_publication_aggregates_all_attempts_and_keeps_trial_scores(self):
         report = {"manifest": {"live": True, "repeats": 3, "methods": list(LIVE_METHODS),
                   "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
-                  "pipeline_version": "schema-driven-v1",
-                  "grounding": {"version": "schema-only-v1", "curated_vocabulary": False},
+                  "pipeline_version": "schema-driven-iso-entities-v1",
+                  "grounding": {"version": "iso-entities-v1", "curated_vocabulary": True,
+                      "shared_by_all_methods": True, "entries": 7,
+                      "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest()},
                   "hybrid": {"fusion_version": "semantic-bm25-v1"}},
                   "paired_intervals": [], "runs": []}
         for repeat in range(3):
@@ -101,6 +103,10 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual([trial["trial"] for trial in public["trial_summaries"]], [1, 2, 3])
         for trial in public["trial_summaries"]:
             self.assertTrue(all(s["attempts"] == 30 for s in trial["summary"]))
+        report["manifest"]["grounding"]["curated_vocabulary"] = False
+        with self.assertRaisesRegex(ValueError, "ISO-only entity grounding"):
+            public_report(report)
+        report["manifest"]["grounding"]["curated_vocabulary"] = True
         report["runs"].pop()
         with self.assertRaisesRegex(ValueError, "complete live run"):
             public_report(report)
