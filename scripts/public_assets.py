@@ -1,13 +1,13 @@
 """Build explicit public JSON artifacts from fictional data; no settings or credentials."""
+
 import json
 import re
 from pathlib import Path
 
+from app.metadata import evaluation_metadata, presets
 from gridrag import db
 from gridrag.catalog import demo_catalog
 from gridrag.warehouse.evals import CASES, reference_value
-from gridrag.warehouse.evaluation import case_info
-from gridrag.warehouse.suite import EVALUATION_CASES, suite_info
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 
@@ -24,19 +24,35 @@ def build():
         "storage": "CAISO’s gross battery discharge energy on October 21, 2026 was **{value} MWh**. The query sums five-minute discharge readings in MW and divides by 12 to convert them to energy. This is gross discharge, not net discharge after charging.",
         "spread_forecast_error": "For CAISO’s hour with the highest signed price spread, the eligible load forecast minus actual demand was **{value} MW**. The selected hour was 08:00 local (15:00 UTC). The latest eligible forecast was 34,708.94 MW, compared with 35,127.47 MW actual demand.",
     }
-    demos = [{"id": c.id, "label": c.label, "question": c.question, "value": reference_value(c),
-              "unit": c.unit, "sql": c.sql, "concept": c.concept,
-              "tables": [name for name in catalog.tables if re.search(rf"\b{re.escape(name)}\b", c.sql)],
-              "evidence": db.run_model_sql(c.sql, 1)["csv"]} for c in cases]
+    demos = [
+        {
+            "id": c.id,
+            "label": c.label,
+            "question": c.question,
+            "value": reference_value(c),
+            "unit": c.unit,
+            "sql": c.sql,
+            "concept": c.concept,
+            "tables": [name for name in catalog.tables if re.search(rf"\b{re.escape(name)}\b", c.sql)],
+            "evidence": db.run_model_sql(c.sql, 1)["csv"],
+        }
+        for c in cases
+    ]
     for demo in demos:
         value = f"{demo['value']:,.0f}" if demo["unit"] == "projects" else f"{demo['value']:,.2f}"
         demo["answer"] = answers[demo["id"]].format(value=value) + " All measurements are from the fictional dataset."
-    payload = {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
-               "max_question_chars": 2000, "model_ready": False, "requires_api_key": True,
-               "presets": [{"id": c.id, "label": c.label, "concept": c.concept, "question": c.question}
-                           for c in CASES if c.label], "evaluation_cases": [case_info(case) for case in EVALUATION_CASES], "evaluation_suite": suite_info(), "demos": demos,
-               "catalog": [{"name": t.name, "ddl": t.ddl} for t in catalog.tables.values()]}
-    (STATIC / "demo.json").write_text(json.dumps(payload, indent=2) + "\n")
+    payload = {
+        "catalog_tables": len(catalog.tables),
+        "isos": list(catalog.isos),
+        "max_question_chars": 2000,
+        "model_ready": False,
+        "requires_api_key": True,
+        "presets": presets(),
+        **evaluation_metadata(),
+        "demos": demos,
+        "catalog": [{"name": t.name, "ddl": t.ddl} for t in catalog.tables.values()],
+    }
+    (STATIC / "demo.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

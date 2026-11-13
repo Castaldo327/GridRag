@@ -372,10 +372,10 @@ Example (`caiso_renewable_curtailment_5min`, one interval): solar 282.10 MW is a
 
 ## Approved dimension values
 
-The catalog attaches an explicit vocabulary from [`gridrag/grounding.py`](../grounding.py)
+The catalog attaches an explicit vocabulary from [`vocabulary.py`](vocabulary.py)
 to the shared SQL prompt, scoped to the selected columns. Region aliases include
 California/California ISO → `CAISO`, Texas → `ERCOT`, and New England/ISO New England
 → `ISONE`. Regional ISO codes are distinct from two-letter project states: `CA`
-is a possible project state, not an ISO code. The vocabulary also covers fuels,
-fictional price-location codes, and normalized queue statuses. Custom catalogs
-must opt in with their own approved vocabulary.
+is a possible project state, not an ISO code. The shared vocabulary covers only
+the seven ISO entities; it does not supply fuel, price-location or queue-status
+aliases. Custom catalogs must opt in with their own approved vocabulary.

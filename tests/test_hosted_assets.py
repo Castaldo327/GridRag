@@ -1,9 +1,10 @@
 """Public Markdown assets and the read-only evaluation boundary."""
+
 import unittest
 from unittest.mock import Mock, patch
 
 from api.index import handler
-from app.__main__ import ASSETS, Handler, STATIC
+from app.__main__ import ASSETS, STATIC, Handler
 
 
 class HostedAssetsTests(unittest.TestCase):
@@ -22,8 +23,10 @@ class HostedAssetsTests(unittest.TestCase):
                 self.assertEqual(kind, content_type)
 
     def test_markdown_browser_bundles_are_served(self):
-        for path, marker in [("/static/vendor/marked.umd.js", b"marked"),
-                             ("/static/vendor/purify.min.js", b"DOMPurify")]:
+        for path, marker in [
+            ("/static/vendor/marked.umd.js", b"marked"),
+            ("/static/vendor/purify.min.js", b"DOMPurify"),
+        ]:
             with self.subTest(path=path):
                 request = Handler.__new__(Handler)
                 request.path = path
@@ -35,7 +38,13 @@ class HostedAssetsTests(unittest.TestCase):
                 self.assertEqual(kind, "text/javascript; charset=utf-8")
 
     def test_hosted_evaluation_cannot_make_provider_calls(self):
-        for path in ("/api/evaluate", "/api/evaluate-case", "/api?route=evaluate-case"):
+        for path in (
+            "/api/evaluate",
+            "/api/evaluate-case",
+            "/api?route=evaluate-case",
+            "/api/evaluate?source=playground",
+            "/api/evaluate-case?source=playground",
+        ):
             with self.subTest(path=path), patch("app.__main__.LLM") as client:
                 request = handler.__new__(handler)
                 request.path = path

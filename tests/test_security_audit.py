@@ -1,4 +1,5 @@
 """Credential checks stay blocking for new files and modified historical blobs."""
+
 import base64
 import json
 import unittest
@@ -10,8 +11,10 @@ class SecretScanTests(unittest.TestCase):
     def test_jwt_credentials_are_detected_even_after_expiry(self):
         def encode(value):
             return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=")
-        token = b".".join((encode({"alg": "HS256", "typ": "JWT"}),
-                           encode({"exp": 1, "sub": "synthetic-test"}), b"x" * 32))
+
+        token = b".".join(
+            (encode({"alg": "HS256", "typ": "JWT"}), encode({"exp": 1, "sub": "synthetic-test"}), b"x" * 32)
+        )
         self.assertIn("JWT credential", scan(token))
         self.assertIn("copy of local secret", scan(token, [token]))
 

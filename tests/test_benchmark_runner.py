@@ -19,7 +19,7 @@ from gridrag.route import RoutingTooBroad
 class BenchmarkRunnerTests(unittest.TestCase):
     def test_manifest_identifies_generic_fusion_for_new_results(self):
         args = SimpleNamespace(live=False, repeats=1)
-        vector = SimpleNamespace(schema_sha256="test-schema", index_seconds=0.)
+        vector = SimpleNamespace(schema_sha256="test-schema", index_seconds=0.0)
         with patch.object(run.importlib.metadata, "version", return_value="test"):
             manifest = run.benchmark_manifest(args, vector)
         settings = manifest["hybrid"]
@@ -34,8 +34,9 @@ class BenchmarkRunnerTests(unittest.TestCase):
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))
         actual = [(attempt.repeat, attempt.case.id, attempt.method) for attempt in attempts]
-        expected = {(repeat, case.id, method) for repeat in range(2)
-                    for case in BENCHMARK_CASES for method in run.LIVE_METHODS}
+        expected = {
+            (repeat, case.id, method) for repeat in range(2) for case in BENCHMARK_CASES for method in run.LIVE_METHODS
+        }
         self.assertEqual(set(actual), expected)
         self.assertEqual(len(actual), len(expected))
         self.assertEqual(attempts, list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2)))
@@ -55,10 +56,14 @@ class BenchmarkRunnerTests(unittest.TestCase):
 
     def test_live_failure_remains_an_attempt_and_closes_the_client(self):
         case = BENCHMARK_CASES[0]
-        result = {"state": "failed", "answer": "Failed", "tool_calls": [],
-                  "usage": {"cost_usd": 0., "input_tokens": 0, "output_tokens": 0}}
+        result = {
+            "state": "failed",
+            "answer": "Failed",
+            "tool_calls": [],
+            "usage": {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0},
+        }
         with patch.object(run, "LLM") as model, patch.object(run, "answer", return_value=result):
-            row, selection = run.live_attempt(case, demo_catalog(), Mock(), {case.id: 0.})
+            row, selection = run.live_attempt(case, demo_catalog(), Mock(), {case.id: 0.0})
         self.assertFalse(row["correct"])
         self.assertEqual(row["state"], "failed")
         self.assertIsNone(selection)
@@ -82,23 +87,33 @@ class BenchmarkRunnerTests(unittest.TestCase):
             self.assertEqual(list(Path(directory).iterdir()), [output])
 
     def test_interruption_retains_completed_attempts(self):
-        row = {"case": "example", "method": "vector-k4", "repeat": 0,
-               "state": "retrieved", "correct": None, "seconds": 1.}
+        row = {
+            "case": "example",
+            "method": "vector-k4",
+            "repeat": 0,
+            "state": "retrieved",
+            "correct": None,
+            "seconds": 1.0,
+        }
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(live=False, repeats=1, output=Path(directory) / "report.json")
-            with (patch.object(run, "benchmark_manifest", return_value={"live": False}),
-                  patch.object(run, "run_attempt", side_effect=[row, KeyboardInterrupt]),
-                  patch("sys.stdout", io.StringIO())):
+            with (
+                patch.object(run, "benchmark_manifest", return_value={"live": False}),
+                patch.object(run, "run_attempt", side_effect=[row, KeyboardInterrupt]),
+                patch("sys.stdout", io.StringIO()),
+            ):
                 with self.assertRaises(KeyboardInterrupt):
                     run.run_benchmark(args, demo_catalog(), Mock(), {})
             self.assertEqual(json.loads(args.output.read_text())["runs"], [row])
 
     def test_initial_report_setup_failure_closes_the_retriever(self):
         original_settings = run.config.settings
-        with (patch("sys.argv", ["benchmarks.run"]),
-              patch.object(run, "reference_value", return_value=1.),
-              patch.object(run, "VectorRetriever") as vector,
-              patch.object(run, "benchmark_manifest", side_effect=RuntimeError)):
+        with (
+            patch("sys.argv", ["benchmarks.run"]),
+            patch.object(run, "reference_value", return_value=1.0),
+            patch.object(run, "VectorRetriever") as vector,
+            patch.object(run, "benchmark_manifest", side_effect=RuntimeError),
+        ):
             with self.assertRaises(RuntimeError):
                 run.main()
         vector.return_value.close.assert_called_once()

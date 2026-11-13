@@ -1,4 +1,5 @@
 """Caller-supplied vocabulary is generic, opt-in, and scoped to selected columns."""
+
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -23,14 +24,22 @@ class GroundingTests(unittest.TestCase):
         self.assertEqual(render_grounding(catalog.vocabulary, {"core.dim_iso": ["iso_id"]}), "")
 
     def test_supplied_vocabulary_is_column_scoped_and_reaches_sql(self):
-        values = (DimensionValue("sales.order", "status", "shipped", ("dispatched",)),
-                  DimensionValue("sales.order", "channel", "web", ("online",)))
+        values = (
+            DimensionValue("sales.order", "status", "shipped", ("dispatched",)),
+            DimensionValue("sales.order", "channel", "web", ("online",)),
+        )
         grounding = render_grounding(values, {"sales.order": ["status"]})
         self.assertIn("sales.order.status: dispatched => 'shipped'", grounding)
         self.assertNotIn("channel", grounding)
         self.assertNotIn("California", grounding)
-        model = SimpleNamespace(respond=Mock(return_value={"status": "completed", "output": [
-            {"type": "message", "content": [{"type": "output_text", "text": "No data."}]}]}))
+        model = SimpleNamespace(
+            respond=Mock(
+                return_value={
+                    "status": "completed",
+                    "output": [{"type": "message", "content": [{"type": "output_text", "text": "No data."}]}],
+                }
+            )
+        )
         agent.run(model, "How many orders were dispatched?", schema="schema", grounding=grounding)
         self.assertIn(grounding, model.respond.call_args.args[1])
         self.assertEqual(render_grounding(values, {"sales.order": ["order_id"]}), "")

@@ -57,7 +57,8 @@ come from a fresh run of this pipeline.
 
 Removing these rules supports reuse of the query logic; this single synthetic
 domain does not establish cross-domain production accuracy or catalog-scale
-performance. BM25 currently scans schema documents per question.
+performance. BM25 tokenizes schema documents once per retriever and scores matching
+postings per question. The scoring formula and candidate selection remain the same.
 
 ## Scoring
 

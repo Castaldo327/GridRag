@@ -6,7 +6,7 @@ import os
 import unittest
 
 from gridrag import answer, config
-from gridrag.warehouse.evaluation import assess, evidence_matches, states_value, evaluation_question
+from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, states_value
 from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 
 
@@ -20,20 +20,23 @@ class EvaluationChecks(unittest.TestCase):
         self.assertFalse(states_value("$1.09/MWh", -1.0858, 0.01))
 
 
-@unittest.skipUnless(os.environ.get("GRIDRAG_LIVE_TESTS") == "1" and config.settings.openai_api_key,
-                     "Set GRIDRAG_LIVE_TESTS=1 and an API key to run paid provider evaluations")
+@unittest.skipUnless(
+    os.environ.get("GRIDRAG_LIVE_TESTS") == "1" and config.settings.openai_api_key,
+    "Set GRIDRAG_LIVE_TESTS=1 and an API key to run paid provider evaluations",
+)
 class LiveTests(unittest.TestCase):
     def test_evaluation_cases(self):
         for case in CASES:
             with self.subTest(case=case.id):
                 res = answer.answer(evaluation_question(case))
                 tables = res["route"]["tables"] if res["route"] else []
-                print(f"\n{case.id}: {res['state']} in {res['timings']['total']:.1f}s · "
-                      f"{len(res['tool_calls'])} SQL queries · estimated ${res['usage']['cost_usd']:.6f}"
-                      f"\n{res['answer']}\n{tables}")
+                print(
+                    f"\n{case.id}: {res['state']} in {res['timings']['total']:.1f}s · "
+                    f"{len(res['tool_calls'])} SQL queries · estimated ${res['usage']['cost_usd']:.6f}"
+                    f"\n{res['answer']}\n{tables}"
+                )
                 assessment = assess(case, res)
                 self.assertTrue(assessment["passed"], assessment["diagnostics"]["failed_checks"])
-
 
 
 if __name__ == "__main__":

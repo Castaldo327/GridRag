@@ -17,7 +17,9 @@ from pydantic.dataclasses import dataclass
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
 
-_VALIDATION = ConfigDict(strict=True, validate_default=True, extra="forbid", allow_inf_nan=False, hide_input_in_errors=True)
+_VALIDATION = ConfigDict(
+    strict=True, validate_default=True, extra="forbid", allow_inf_nan=False, hide_input_in_errors=True
+)
 Probability = Annotated[float, Field(ge=0, le=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveSeconds = Annotated[float, Field(gt=0)]
@@ -43,10 +45,14 @@ class Settings:
     call_timeout_s: PositiveSeconds = 30
     api_max_retries: Annotated[int, Field(ge=0)] = 1
 
-    prices: Mapping[str, Rates] = field(default_factory=lambda: MappingProxyType({
-        "decisions": Rates(input=0.10, cached_input=0.01, output=0.0),
-        "responses": Rates(input=0.10, cached_input=0.01, output=0.50),
-    }))
+    prices: Mapping[str, Rates] = field(
+        default_factory=lambda: MappingProxyType(
+            {
+                "decisions": Rates(input=0.10, cached_input=0.01, output=0.0),
+                "responses": Rates(input=0.10, cached_input=0.01, output=0.50),
+            }
+        )
+    )
 
     max_question_chars: PositiveInt = 2000
     gate_min_relevance: Probability = 0.3
@@ -72,7 +78,7 @@ class Settings:
 def _read_env_file(path: Path) -> dict[str, str]:
     env = {}
     if path.exists():
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue

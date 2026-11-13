@@ -11,21 +11,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from app.assets import ASSETS
+from app.metadata import evaluation_metadata, presets
 from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
 from gridrag.llm import LLM
-from gridrag.warehouse.evaluation import assess, case_info, evaluation_question
-from gridrag.warehouse.evals import CASES as PRESET_CASES
-from gridrag.warehouse.suite import EVALUATION_CASES as CASES, suite_info
+from gridrag.warehouse.evaluation import assess, evaluation_question
+from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 
-PRESETS = [{"id": case.id, "label": case.label, "concept": case.concept, "question": case.question}
-           for case in PRESET_CASES if case.label]
+PRESETS = presets()
 STATIC = Path(__file__).parent / "static"
 RUN_LOCK = threading.Lock()
 MAX_BODY_BYTES = 16384
 
+
 class Handler(BaseHTTPRequestHandler):
+    timeout = 30  # Bound slow/incomplete request bodies and stalled response writes.
     # Hosting always requires a visitor key, even if an owner key is configured.
     require_visitor_key = os.environ.get("VERCEL") == "1"
 
@@ -35,13 +36,20 @@ class Handler(BaseHTTPRequestHandler):
             logging.info("HTTP status %s", args[1])
 
     def same_origin(self):
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            return False
+        origin = origins[0] if origins else None
         schemes = ("https",) if self.require_visitor_key else ("http", "https")
         return not origin or origin in {f"{scheme}://{self.headers.get('Host')}" for scheme in schemes}
 
     def authorize_model(self):
-        authorization = self.headers.get("Authorization", "")
+        authorizations = self.headers.get_all("Authorization", [])
         self.visitor_key = None
+        if len(authorizations) > 1:
+            self.send(401, {"error": "Expected one Authorization header."})
+            return False
+        authorization = authorizations[0] if authorizations else ""
         if authorization:
             match = re.fullmatch(r"Bearer (sk-[A-Za-z0-9_-]{10,500})", authorization)
             if not match:
@@ -104,14 +112,22 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/meta":
             try:
                 catalog = demo_catalog()
-                self.send(200, {"catalog_tables": len(catalog.tables), "isos": list(catalog.isos),
-                                "max_question_chars": config.settings.max_question_chars,
-                                "model_ready": bool(config.settings.openai_api_key) and not self.require_visitor_key,
-                                "requires_api_key": self.require_visitor_key,
-                                "models": {"decisions": config.settings.decisions_model,
-                                           "answer": config.settings.answer_model},
-                                "presets": PRESETS,
-                                "evaluation_cases": [case_info(case) for case in CASES], "evaluation_suite": suite_info()})
+                self.send(
+                    200,
+                    {
+                        "catalog_tables": len(catalog.tables),
+                        "isos": list(catalog.isos),
+                        "max_question_chars": config.settings.max_question_chars,
+                        "model_ready": bool(config.settings.openai_api_key) and not self.require_visitor_key,
+                        "requires_api_key": self.require_visitor_key,
+                        "models": {
+                            "decisions": config.settings.decisions_model,
+                            "answer": config.settings.answer_model,
+                        },
+                        "presets": PRESETS,
+                        **evaluation_metadata(CASES),
+                    },
+                )
             except Exception:
                 logging.error("Could not load the catalog")
                 self.send(503, {"error": "Catalog unavailable. See the server log for details."})
@@ -130,13 +146,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(415, {"error": "Expected application/json"})
         try:
             question = clean_question(self.read_json().get("question"))
+        except TimeoutError:
+            return self.send(408, {"error": "Request body timed out. Please retry."})
         except (ValueError, AttributeError, UnicodeDecodeError):
             return self.send(400, {"error": f"Enter a question of 1–{config.settings.max_question_chars} characters"})
         if not self.authorize_model():
             return
         streaming = self.headers.get("Accept") == "application/x-ndjson"
         self.execute_request(
-            lambda: self.answer_question(question, streaming), streaming=streaming,
+            lambda: self.answer_question(question, streaming),
+            streaming=streaming,
             failure_message="Could not complete the question. See the server log for details.",
             label="Demo request failed",
         )
@@ -205,14 +224,17 @@ class Handler(BaseHTTPRequestHandler):
                 cases = tuple(case for case in CASES if case.id == case_id)
                 if not cases:
                     raise ValueError()
+            except TimeoutError:
+                return self.send(408, {"error": "Request body timed out. Please retry."})
             except (ValueError, AttributeError, UnicodeDecodeError):
                 return self.send(400, {"error": "Choose a valid evaluation case."})
-        elif self.headers.get("Content-Length", "0") != "0":
+        elif self.headers.get("Transfer-Encoding") or self.headers.get_all("Content-Length", ["0"]) != ["0"]:
             return self.send(400, {"error": "Evaluation requests must not include a body"})
         if not self.authorize_model():
             return
         self.execute_request(
-            lambda: self.evaluate_cases(cases), streaming=True,
+            lambda: self.evaluate_cases(cases),
+            streaming=True,
             failure_message="Evaluation stopped. See the server log for details.",
             label="Evaluation run failed",
         )
@@ -220,8 +242,7 @@ class Handler(BaseHTTPRequestHandler):
     def evaluate_case(self, index, case):
         def progress(update):
             if "stage" in update:
-                self.emit({"type": "case_progress", "index": index, "id": case.id,
-                           "stage": update["stage"]})
+                self.emit({"type": "case_progress", "index": index, "id": case.id, "stage": update["stage"]})
 
         self.emit({"type": "case_start", "index": index, "id": case.id})
         try:
@@ -234,8 +255,14 @@ class Handler(BaseHTTPRequestHandler):
             raise
         except Exception as exc:
             logging.error("Evaluation case %s failed (%s)", case.id, type(exc).__name__)
-            self.emit({"type": "case_error", "index": index, "id": case.id,
-                       "error": "Could not complete this case. See the server log for details."})
+            self.emit(
+                {
+                    "type": "case_error",
+                    "index": index,
+                    "id": case.id,
+                    "error": "Could not complete this case. See the server log for details.",
+                }
+            )
             return False, 0.0
 
     def evaluate_cases(self, cases):
@@ -246,10 +273,17 @@ class Handler(BaseHTTPRequestHandler):
             case_passed, case_cost = self.evaluate_case(index, case)
             passed += case_passed
             cost += case_cost
-        self.emit({"type": "done", "summary": {
-            "passed": passed, "total": len(cases), "cost_usd": round(cost, 6),
-            "seconds": round(time.perf_counter() - started, 3),
-        }})
+        self.emit(
+            {
+                "type": "done",
+                "summary": {
+                    "passed": passed,
+                    "total": len(cases),
+                    "cost_usd": round(cost, 6),
+                    "seconds": round(time.perf_counter() - started, 3),
+                },
+            }
+        )
 
 
 def main():

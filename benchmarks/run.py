@@ -4,6 +4,7 @@ Without --live, evaluate dense retrieval and deterministic hybrid fusion (no Ope
 requests). Settings are fixed within each run. This is a development comparison,
 not a held-out test. All attempts are retained.
 """
+
 import argparse
 import hashlib
 import importlib.metadata
@@ -11,24 +12,24 @@ import json
 import math
 import random
 import statistics
-import time
 import tempfile
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from benchmarks import hybrid
+from benchmarks.cases import BENCHMARK_CASES
+from benchmarks.vector import MODEL, VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.llm import LLM
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, table_evidence_matches
 from gridrag.warehouse.evals import Case, reference_result, reference_value
-from benchmarks.cases import BENCHMARK_CASES
-from benchmarks.vector import MODEL, VectorRetriever
-from benchmarks import hybrid
+from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, table_evidence_matches
 
 
 def strict_evidence(result, expected, tolerance):
@@ -38,32 +39,46 @@ def strict_evidence(result, expected, tolerance):
 def retrieval_metrics(case, selection, catalog):
     selected = set(selection.get("tables", []))
     required = _with_references(catalog, set(case.tables)) if case.tables else set()
-    schema = "\n\n".join(catalog.tables[t].selected_schema(selection["columns"][t]) for t in selected if t in selection.get("columns", {}))
+    schema = "\n\n".join(
+        catalog.tables[t].selected_schema(selection["columns"][t])
+        for t in selected
+        if t in selection.get("columns", {})
+    )
     return {
         "required_table_recall": len(required & selected) / len(required) if required else None,
         "all_required_tables": required <= selected if required else None,
-        "selected_tables": len(selected), "schema_chars": len(schema),
+        "selected_tables": len(selected),
+        "schema_chars": len(schema),
         # Other tables may be valid alternatives; do not label this value precision.
         "extra_tables": len(selected - required) if required else None,
     }
+
+
+def _mean(rows: Sequence[dict], key: str) -> float | None:
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return statistics.mean(values) if values else None
 
 
 def summarize(rows):
     summary = []
     for name in sorted({r["method"] for r in rows}):
         group = [r for r in rows if r["method"] == name]
-        def mean(key):
-            values = [r[key] for r in group if r.get(key) is not None]
-            return statistics.mean(values) if values else None
         seconds = sorted(r["seconds"] for r in group)
-        summary.append({"method": name, "attempts": len(group), "accuracy": mean("correct"),
-                        "required_table_recall": mean("required_table_recall"),
-                        "all_required_tables": mean("all_required_tables"),
-                        "median_seconds": statistics.median(seconds),
-                        "p95_seconds": seconds[math.ceil(.95 * len(seconds)) - 1],
-                        "mean_cost_usd": mean("cost_usd"), "mean_schema_chars": mean("schema_chars"),
-                        "mean_input_tokens": mean("input_tokens"),
-                        "failures": sum(r.get("state") == "failed" for r in group)})
+        summary.append(
+            {
+                "method": name,
+                "attempts": len(group),
+                "accuracy": _mean(group, "correct"),
+                "required_table_recall": _mean(group, "required_table_recall"),
+                "all_required_tables": _mean(group, "all_required_tables"),
+                "median_seconds": statistics.median(seconds),
+                "p95_seconds": seconds[math.ceil(0.95 * len(seconds)) - 1],
+                "mean_cost_usd": _mean(group, "cost_usd"),
+                "mean_schema_chars": _mean(group, "schema_chars"),
+                "mean_input_tokens": _mean(group, "input_tokens"),
+                "failures": sum(r.get("state") == "failed" for r in group),
+            }
+        )
     return summary
 
 
@@ -73,16 +88,24 @@ def paired_intervals(rows):
     for baseline in ("vector-k21", "vector-hybrid-k25"):
         differences = []
         for case in BENCHMARK_CASES:
-            by_method = {name: [r["correct"] for r in rows if r["case"] == case.id and r["method"] == name]
-                         for name in ("routed", baseline)}
+            by_method = {
+                name: [r["correct"] for r in rows if r["case"] == case.id and r["method"] == name]
+                for name in ("routed", baseline)
+            }
             if all(by_method.values()):
                 differences.append(statistics.mean(by_method["routed"]) - statistics.mean(by_method[baseline]))
         if not differences:
             continue
         rng = random.Random(42)
         samples = sorted(statistics.mean(rng.choices(differences, k=len(differences))) for _ in range(2000))
-        results.append({"comparison": "routed minus " + baseline, "accuracy_delta": statistics.mean(differences),
-                        "ci95": [samples[50], samples[1949]], "independent_cases": len(differences)})
+        results.append(
+            {
+                "comparison": "routed minus " + baseline,
+                "accuracy_delta": statistics.mean(differences),
+                "ci95": [samples[50], samples[1949]],
+                "independent_cases": len(differences),
+            }
+        )
     return results
 
 
@@ -123,10 +146,15 @@ def live_attempt(case, catalog, retriever, references):
         numeric = compare(result, references[case.id], case.tolerance)
     # Accuracy and diagnostic checks share the evaluation suite's scoring contract.
     row = {
-        "state": result["state"], "correct": checks["correct"], "checks_passed": checks["passed"],
-        "cost_usd": result["usage"]["cost_usd"], "input_tokens": result["usage"]["input_tokens"],
-        "output_tokens": result["usage"]["output_tokens"], "result": result,
-        "strict_numeric_evidence": numeric, "checks": checks["checks"],
+        "state": result["state"],
+        "correct": checks["correct"],
+        "checks_passed": checks["passed"],
+        "cost_usd": result["usage"]["cost_usd"],
+        "input_tokens": result["usage"]["input_tokens"],
+        "output_tokens": result["usage"]["output_tokens"],
+        "result": result,
+        "strict_numeric_evidence": numeric,
+        "checks": checks["checks"],
     }
     return row, result.get("route")
 
@@ -142,65 +170,91 @@ def retrieval_attempt(case, catalog, retriever):
 
 def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, references, *, live: bool):
     case, method = attempt.case, attempt.method
-    retriever = (route if method == "routed" else vector.retrieve_hybrid
-                 if method == "vector-hybrid-k25" else vector.retrieve)
+    retriever = (
+        route if method == "routed" else vector.retrieve_hybrid if method == "vector-hybrid-k25" else vector.retrieve
+    )
     vector.top_k = 21
     started = time.perf_counter()
     if live:
         row, selection = live_attempt(case, catalog, retriever, references)
     else:
         row, selection = retrieval_attempt(case, catalog, retriever)
-    row.update({
-        "case": case.id, "split": "development",
-        "method": method, "repeat": attempt.repeat, "seconds": time.perf_counter() - started,
-    })
+    row.update(
+        {
+            "case": case.id,
+            "split": "development",
+            "method": method,
+            "repeat": attempt.repeat,
+            "seconds": time.perf_counter() - started,
+        }
+    )
     if selection:
         row.update(retrieval_metrics(case, selection, catalog))
     elif case.tables:
-        row.update(required_table_recall=0., all_required_tables=False, schema_chars=0)
+        row.update(required_table_recall=0.0, all_required_tables=False, schema_chars=0)
     return row
 
 
 def benchmark_manifest(args, vector):
     return {
-        "format_version": 6, "experiment": "capability-30-v1", "scoring_version": "strict-sql-evidence-v3",
-        "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
-        "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
+        "format_version": 6,
+        "experiment": "capability-30-v1",
+        "scoring_version": "strict-sql-evidence-v3",
+        "created_utc": datetime.now(UTC).isoformat(),
+        "live": args.live,
+        "repeats": args.repeats,
+        "cases": len(BENCHMARK_CASES),
+        "embedding_model": MODEL,
         "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
         "versions": {p: importlib.metadata.version(p) for p in ("qdrant-client", "fastembed", "openai", "duckdb")},
         "schema_sha256": vector.schema_sha256,
         "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
-        "index_seconds": vector.index_seconds, "seed": SEED,
+        "index_seconds": vector.index_seconds,
+        "seed": SEED,
         "methods": list(LIVE_METHODS if args.live else RETRIEVAL_METHODS),
         "max_routed_tables": config.settings.max_routed_tables,
         "sql_max_output_tokens": config.settings.answer_max_output_tokens,
         "vector_top_k": 21,
-        "grounding": {"version": "iso-entities-v1", "shared_by_all_methods": True,
-                      "curated_vocabulary": True, "scope": "ISO entities only",
-                      "entries": len(demo_catalog().vocabulary),
-                      "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest()},
+        "grounding": {
+            "version": "iso-entities-v1",
+            "shared_by_all_methods": True,
+            "curated_vocabulary": True,
+            "scope": "ISO entities only",
+            "entries": len(demo_catalog().vocabulary),
+            "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest(),
+        },
         "pipeline_version": "schema-driven-iso-entities-v1",
-        "hybrid": {"dense_pool": hybrid.DENSE_POOL, "keyword_pool": hybrid.KEYWORD_POOL,
-                   "rerank_pool": hybrid.RERANK_POOL, "final_k": hybrid.FINAL_K, "weights": hybrid.WEIGHTS,
-                   "reranker": config.settings.decisions_model if args.live else "fusion-only",
-                   "reranker_endpoint": "/v1/decisions" if args.live else None,
-                   "fusion_version": hybrid.FUSION_VERSION},
+        "hybrid": {
+            "dense_pool": hybrid.DENSE_POOL,
+            "keyword_pool": hybrid.KEYWORD_POOL,
+            "rerank_pool": hybrid.RERANK_POOL,
+            "final_k": hybrid.FINAL_K,
+            "weights": hybrid.WEIGHTS,
+            "reranker": config.settings.decisions_model if args.live else "fusion-only",
+            "reranker_endpoint": "/v1/decisions" if args.live else None,
+            "fusion_version": hybrid.FUSION_VERSION,
+        },
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
-        "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
-                              for k, v in config.settings.prices.items()},
+        "rates_per_million": {
+            k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
+            for k, v in config.settings.prices.items()
+        },
     }
 
 
 def save_report(output: Path, manifest, rows):
     """Replace the report atomically without sharing a temporary path with other runs."""
     report = {
-        "manifest": manifest, "summary": summarize(rows),
-        "paired_intervals": paired_intervals(rows) if manifest["live"] else [], "runs": rows,
+        "manifest": manifest,
+        "summary": summarize(rows),
+        "paired_intervals": paired_intervals(rows) if manifest["live"] else [],
+        "runs": rows,
     }
     payload = json.dumps(report, indent=2) + "\n"
     output.parent.mkdir(parents=True, exist_ok=True)
-    stream = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
-                                         prefix=output.name + ".", suffix=".tmp", delete=False)
+    stream = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=output.parent, prefix=output.name + ".", suffix=".tmp", delete=False
+    )
     temporary = Path(stream.name)
     try:
         with stream:
@@ -218,8 +272,11 @@ def run_benchmark(args, catalog, vector, references):
         row = run_attempt(attempt, catalog, vector, references, live=args.live)
         rows.append(row)
         save_report(args.output, manifest, rows)
-        print(f"{len(rows)} {attempt.method} {attempt.case.id}: {row['state']} "
-              f"correct={row['correct']} {row['seconds']:.2f}s", flush=True)
+        print(
+            f"{len(rows)} {attempt.method} {attempt.case.id}: {row['state']} "
+            f"correct={row['correct']} {row['seconds']:.2f}s",
+            flush=True,
+        )
     print(f"Saved {len(rows)} attempts to {args.output}", flush=True)
 
 
@@ -229,8 +286,12 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--url", default="http://127.0.0.1:6333")
     parser.add_argument("--output", type=Path, default=Path("artifacts/benchmark.json"))
-    parser.add_argument("--max-tables", type=int, default=25,
-                        help="Shared evaluation-only table budget, including references (default: 25)")
+    parser.add_argument(
+        "--max-tables",
+        type=int,
+        default=25,
+        help="Shared evaluation-only table budget, including references (default: 25)",
+    )
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be positive")
@@ -240,8 +301,11 @@ def main():
         parser.error("Set OPENAI_API_KEY locally before using --live")
     catalog = demo_catalog()
     # Preflight every reference before incurring model usage.
-    references = {case.id: reference_result(case) if case.result_kind == "table" else reference_value(case)
-                  for case in BENCHMARK_CASES if case.sql}
+    references = {
+        case.id: reference_result(case) if case.result_kind == "table" else reference_value(case)
+        for case in BENCHMARK_CASES
+        if case.sql
+    }
     original_settings = config.settings
     try:
         # All compared methods share the larger context budget. The app's default stays unchanged.

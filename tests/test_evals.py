@@ -30,17 +30,24 @@ class EvalTests(unittest.TestCase):
     def test_assessment_checks_answer_and_behavior_cases(self):
         peak = evals.CASES[0]
         expected = evals.reference_value(peak)
-        result = {"state": "answered", "route": {"tables": list(peak.tables)},
-                  "tool_calls": [{"query": "SELECT max(demand_mw)", "csv": f"value\n{expected}\n"}],
-                  "answer": f"Peak demand was {expected:,.2f} MW."}
+        result = {
+            "state": "answered",
+            "route": {"tables": list(peak.tables)},
+            "tool_calls": [{"query": "SELECT max(demand_mw)", "csv": f"value\n{expected}\n"}],
+            "answer": f"Peak demand was {expected:,.2f} MW.",
+        }
         self.assertTrue(assess(peak, result)["passed"])
         wrong = {**result, "tool_calls": [{"query": "SELECT 1", "csv": "value\n1\n"}]}
         self.assertFalse(assess(peak, wrong)["passed"])
-        self.assertTrue(assess(evals.CASES[-2], {"state": "declined", "route": None,
-                                                  "tool_calls": [], "answer": "Off topic."})["passed"])
+        self.assertTrue(
+            assess(evals.CASES[-2], {"state": "declined", "route": None, "tool_calls": [], "answer": "Off topic."})[
+                "passed"
+            ]
+        )
 
     def test_hard_case_warehouse_verification(self):
         case = next(case for case in evals.CASES if case.id == "spread_forecast_error")
+
         def row(sql):
             result = db.run_model_sql(sql, 1)
             self.assertNotIn("error", result)
@@ -62,8 +69,10 @@ class EvalTests(unittest.TestCase):
                 WHERE interval_start_utc = TIMESTAMP '2026-10-21 15:00'
                   AND publish_time_utc <= TIMESTAMP '2026-10-21 12:00'
                 ORDER BY publish_time_utc DESC LIMIT 1""")
-        actual = float(row("""SELECT demand_mw FROM core.fact_balance_hourly
-                WHERE iso_id = 1 AND interval_start_utc = TIMESTAMP '2026-10-21 15:00'""")[0])
+        actual = float(
+            row("""SELECT demand_mw FROM core.fact_balance_hourly
+                WHERE iso_id = 1 AND interval_start_utc = TIMESTAMP '2026-10-21 15:00'""")[0]
+        )
         self.assertEqual(forecast[0], "2026-10-21 09:00:00")
         self.assertAlmostEqual(float(forecast[1]), 34708.94)
         self.assertAlmostEqual(actual, 35127.47)

@@ -21,9 +21,14 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual((missing.openai_api_key, missing.decisions_model), (None, Settings().decisions_model))
 
     def test_invalid_limits_and_scores_fail_before_requests_start(self):
-        for changes in ({"route_column_workers": 0}, {"route_column_workers": True},
-                        {"route_min_probability": "0.2"}, {"route_min_column_probability": 1.1},
-                        {"route_max_unscored": float("nan")}, {"sql_timeout_s": -1}):
+        for changes in (
+            {"route_column_workers": 0},
+            {"route_column_workers": True},
+            {"route_min_probability": "0.2"},
+            {"route_min_column_probability": 1.1},
+            {"route_max_unscored": float("nan")},
+            {"sql_timeout_s": -1},
+        ):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(Settings(), **changes)
 

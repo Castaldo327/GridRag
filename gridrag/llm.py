@@ -24,8 +24,15 @@ class Model(Protocol):
 
     def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]: ...
 
-    def respond(self, stage: Stage, instructions: str, input_items: str | list[dict], *,
-                on_text: Callable[[str], None] | None = None, **kwargs: Any) -> dict: ...
+    def respond(
+        self,
+        stage: Stage,
+        instructions: str,
+        input_items: str | list[dict],
+        *,
+        on_text: Callable[[str], None] | None = None,
+        **kwargs: Any,
+    ) -> dict: ...
 
     def totals(self) -> Usage: ...
 
@@ -37,8 +44,9 @@ def client() -> OpenAI:
             settings = config.settings
             if not settings.openai_api_key:
                 raise RuntimeError("OPENAI_API_KEY is not set; put it in .env or export it")
-            _client = OpenAI(api_key=settings.openai_api_key, timeout=settings.call_timeout_s,
-                             max_retries=settings.api_max_retries)
+            _client = OpenAI(
+                api_key=settings.openai_api_key, timeout=settings.call_timeout_s, max_retries=settings.api_max_retries
+            )
         return _client
 
 
@@ -77,8 +85,9 @@ def call_cost(kind: str, usage: dict) -> float:
     rates = config.settings.prices[kind]
     cached = (usage.get("input_tokens_details") or {}).get("cached_tokens") or 0
     uncached = (usage.get("input_tokens") or 0) - cached
-    return (uncached * rates.input + cached * rates.cached_input
-            + (usage.get("output_tokens") or 0) * rates.output) / 1e6
+    return (
+        uncached * rates.input + cached * rates.cached_input + (usage.get("output_tokens") or 0) * rates.output
+    ) / 1e6
 
 
 class LLM:
@@ -88,8 +97,11 @@ class LLM:
         self.calls: list[ModelCall] = []
         self._lock = threading.Lock()  # protect per-request usage if callers share an LLM
         # Visitor credentials belong to this request, never the shared process client.
-        self._provider = (OpenAI(api_key=api_key, timeout=config.settings.call_timeout_s,
-                                 max_retries=config.settings.api_max_retries) if api_key else None)
+        self._provider = (
+            OpenAI(api_key=api_key, timeout=config.settings.call_timeout_s, max_retries=config.settings.api_max_retries)
+            if api_key
+            else None
+        )
 
     def close(self) -> None:
         if self._provider is not None:
@@ -102,39 +114,62 @@ class LLM:
         with self._lock:
             self.calls.append(call)
 
-    def _request(self, kind: Literal["decisions", "responses"], stage: Stage,
-                 method: Callable[..., Any], **kwargs: Any) -> dict:
+    def _request(
+        self, kind: Literal["decisions", "responses"], stage: Stage, method: Callable[..., Any], **kwargs: Any
+    ) -> dict:
         t = time.perf_counter()
         try:
             resp = method(**kwargs).model_dump(mode="json")
         except Exception as exc:
-            self._record({"kind": kind, "stage": stage, "seconds": round(time.perf_counter() - t, 3),
-                          "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
-                          "error": type(exc).__name__})
+            self._record(
+                {
+                    "kind": kind,
+                    "stage": stage,
+                    "seconds": round(time.perf_counter() - t, 3),
+                    "input_tokens": 0,
+                    "cached_tokens": 0,
+                    "output_tokens": 0,
+                    "cost_usd": 0.0,
+                    "error": type(exc).__name__,
+                }
+            )
             raise
         usage = resp.get("usage") or {}
-        self._record({
-            "kind": kind,
-            "stage": stage,
-            "seconds": round(time.perf_counter() - t, 3),
-            "input_tokens": usage.get("input_tokens") or 0,
-            "cached_tokens": (usage.get("input_tokens_details") or {}).get("cached_tokens") or 0,
-            "output_tokens": usage.get("output_tokens") or 0,
-            "cost_usd": call_cost(kind, usage),
-            "error": None,
-        })
+        self._record(
+            {
+                "kind": kind,
+                "stage": stage,
+                "seconds": round(time.perf_counter() - t, 3),
+                "input_tokens": usage.get("input_tokens") or 0,
+                "cached_tokens": (usage.get("input_tokens_details") or {}).get("cached_tokens") or 0,
+                "output_tokens": usage.get("output_tokens") or 0,
+                "cost_usd": call_cost(kind, usage),
+                "error": None,
+            }
+        )
         return resp
 
     def decide(self, stage: Stage, input_text: str, questions: list[dict]) -> dict[str, dict]:
         """One Decisions request; answers keyed by question name (a refused question is absent)."""
         resp = self._request(
-            "decisions", stage, self._client().decisions.create,
-            model=config.settings.decisions_model, input=input_text, questions=questions,
+            "decisions",
+            stage,
+            self._client().decisions.create,
+            model=config.settings.decisions_model,
+            input=input_text,
+            questions=questions,
         )
         return {a.get("name"): a for a in resp.get("answers", []) if a.get("type") != "refusal"}
 
-    def respond(self, stage: Stage, instructions: str, input_items: str | list[dict], *,
-                on_text: Callable[[str], None] | None = None, **kwargs: Any) -> dict:
+    def respond(
+        self,
+        stage: Stage,
+        instructions: str,
+        input_items: str | list[dict],
+        *,
+        on_text: Callable[[str], None] | None = None,
+        **kwargs: Any,
+    ) -> dict:
         """One Responses request (tools, tool_choice and previous_response_id pass through)."""
         settings = config.settings
         responses = self._client().responses
@@ -148,7 +183,9 @@ class LLM:
                 return stream.get_final_response()
 
         return self._request(
-            "responses", stage, stream_response if on_text is not None else responses.create,
+            "responses",
+            stage,
+            stream_response if on_text is not None else responses.create,
             model=settings.answer_model,
             instructions=instructions,
             input=input_items,

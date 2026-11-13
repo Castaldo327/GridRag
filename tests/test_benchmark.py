@@ -1,26 +1,28 @@
 """Benchmark integrity checks, without embeddings, network calls, or model use."""
+
 import csv
+import hashlib
 import io
 import unittest
-import hashlib
 from collections import Counter
 
-from benchmarks.run import LIVE_METHODS, strict_evidence, retrieval_metrics, summarize
 from benchmarks.cases import BENCHMARK_CASES, DIFFICULTIES
+from benchmarks.run import LIVE_METHODS, retrieval_metrics, strict_evidence, summarize
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.route import _with_references
 from gridrag.warehouse.evals import reference_result, reference_value
+from scripts.public_release import ROOT, release_files
 from scripts.publish_benchmark import public_report
 from scripts.security_audit import scan
-from scripts.public_release import release_files, ROOT
 
 
 class BenchmarkTests(unittest.TestCase):
     def test_capability_suite_covers_thirty_answerable_questions_in_difficulty_order(self):
         self.assertEqual(len(BENCHMARK_CASES), 30)
-        self.assertEqual(Counter(case.difficulty for case in BENCHMARK_CASES),
-                         {"easy": 7, "medium": 8, "hard": 8, "very_hard": 7})
+        self.assertEqual(
+            Counter(case.difficulty for case in BENCHMARK_CASES), {"easy": 7, "medium": 8, "hard": 8, "very_hard": 7}
+        )
         order = [DIFFICULTIES.index(case.difficulty) for case in BENCHMARK_CASES]
         self.assertEqual(order, sorted(order))
         for case in BENCHMARK_CASES:
@@ -35,27 +37,37 @@ class BenchmarkTests(unittest.TestCase):
         result = reference_result(case)
         rows = list(csv.DictReader(io.StringIO(result["csv"])))
         self.assertEqual(len(rows), 21)
-        expected = {(iso, product) for iso in demo_catalog().isos
-                    for product in ("real_time_bus", "real_time_hub", "day_ahead_hub")}
+        expected = {
+            (iso, product)
+            for iso in demo_catalog().isos
+            for product in ("real_time_bus", "real_time_hub", "day_ahead_hub")
+        }
         self.assertEqual({(row["iso_code"], row["product"]) for row in rows}, expected)
         self.assertLessEqual(len(_with_references(demo_catalog(), set(case.tables))), 25)
 
     def test_scalar_check_rejects_coincidental_numbers_and_truncation(self):
         def result(csv, **kwargs):
             return {"tool_calls": [{"csv": csv, **kwargs}]}
-        self.assertTrue(strict_evidence(result("answer\n12.5\n"), 12.5, .01))
-        for csv in ("a,b\n0,12.5\n", "a\n12.5\n0\n", "a\nnan\n", "a\ninf\n", "a\n12.6\n"):
-            self.assertFalse(strict_evidence(result(csv), 12.5, .01))
-        self.assertFalse(strict_evidence(result("a\n12.5\n", truncated="limit"), 12.5, .01))
-        self.assertFalse(strict_evidence({"tool_calls": [{"csv": "a\n12.5\n"}, {"csv": "a\n9\n"}]}, 12.5, .01))
+
+        self.assertTrue(strict_evidence(result("answer\n12.5\n"), 12.5, 0.01))
+        for csv_text in ("a,b\n0,12.5\n", "a\n12.5\n0\n", "a\nnan\n", "a\ninf\n", "a\n12.6\n"):
+            self.assertFalse(strict_evidence(result(csv_text), 12.5, 0.01))
+        self.assertFalse(strict_evidence(result("a\n12.5\n", truncated="limit"), 12.5, 0.01))
+        self.assertFalse(strict_evidence({"tool_calls": [{"csv": "a\n12.5\n"}, {"csv": "a\n9\n"}]}, 12.5, 0.01))
 
     def test_partial_or_duplicate_benchmarks_cannot_be_published(self):
-        report = {"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
-                               "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest()}, "runs": []}
+        report = {
+            "manifest": {
+                "live": True,
+                "repeats": 1,
+                "methods": list(LIVE_METHODS),
+                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+            },
+            "runs": [],
+        }
         with self.assertRaises(ValueError):
             public_report(report)
-        rows = [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES
-                for method in LIVE_METHODS]
+        rows = [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES for method in LIVE_METHODS]
         report["runs"] = rows + [rows[0]]
         with self.assertRaises(ValueError):
             public_report(report)
@@ -65,41 +77,69 @@ class BenchmarkTests(unittest.TestCase):
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, "positive integer"):
                 public_report({"manifest": {"live": True, "repeats": count}, "runs": []})
         with self.assertRaisesRegex(ValueError, "questions do not match"):
-            public_report({"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
-                                        "cases_sha256": "stale"}, "runs": []})
+            public_report(
+                {
+                    "manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS), "cases_sha256": "stale"},
+                    "runs": [],
+                }
+            )
 
     def test_complete_demo_tuned_run_cannot_be_republished_as_current(self):
-        report = {"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
-                  "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest()},
-                  "runs": [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES
-                           for method in LIVE_METHODS]}
+        report = {
+            "manifest": {
+                "live": True,
+                "repeats": 1,
+                "methods": list(LIVE_METHODS),
+                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+            },
+            "runs": [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES for method in LIVE_METHODS],
+        }
         with self.assertRaisesRegex(ValueError, "fresh schema-driven run"):
             public_report(report)
 
     def test_three_trial_publication_aggregates_all_attempts_and_keeps_trial_scores(self):
-        report = {"manifest": {"live": True, "repeats": 3, "methods": list(LIVE_METHODS),
-                  "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
-                  "pipeline_version": "schema-driven-iso-entities-v1",
-                  "grounding": {"version": "iso-entities-v1", "curated_vocabulary": True,
-                      "shared_by_all_methods": True, "entries": 7,
-                      "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest()},
-                  "hybrid": {"fusion_version": "semantic-bm25-v1"}},
-                  "paired_intervals": [], "runs": []}
+        report = {
+            "manifest": {
+                "live": True,
+                "repeats": 3,
+                "methods": list(LIVE_METHODS),
+                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+                "pipeline_version": "schema-driven-iso-entities-v1",
+                "grounding": {
+                    "version": "iso-entities-v1",
+                    "curated_vocabulary": True,
+                    "shared_by_all_methods": True,
+                    "entries": 7,
+                    "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest(),
+                },
+                "hybrid": {"fusion_version": "semantic-bm25-v1"},
+            },
+            "paired_intervals": [],
+            "runs": [],
+        }
         for repeat in range(3):
             for case in BENCHMARK_CASES:
                 for method in LIVE_METHODS:
                     correct = repeat < {"routed": 2, "vector-k21": 1, "vector-hybrid-k25": 3}[method]
-                    report["runs"].append({"case": case.id, "method": method, "repeat": repeat,
-                        "correct": correct, "seconds": 1., "state": "answered" if correct else "failed",
-                        "result": {"answer": "Recorded attempt", "timings": {}, "tool_calls": []}})
+                    report["runs"].append(
+                        {
+                            "case": case.id,
+                            "method": method,
+                            "repeat": repeat,
+                            "correct": correct,
+                            "seconds": 1.0,
+                            "state": "answered" if correct else "failed",
+                            "result": {"answer": "Recorded attempt", "timings": {}, "tool_calls": []},
+                        }
+                    )
         public = public_report(report)
         self.assertEqual(len(public["runs"]), 270)
         summaries = {s["method"]: s for s in public["summary"]}
         self.assertTrue(all(s["attempts"] == 90 for s in summaries.values()))
-        self.assertAlmostEqual(summaries["routed"]["accuracy"], 2/3)
+        self.assertAlmostEqual(summaries["routed"]["accuracy"], 2 / 3)
         self.assertEqual(summaries["routed"]["failures"], 30)
-        self.assertAlmostEqual(summaries["vector-k21"]["accuracy"], 1/3)
-        self.assertEqual(summaries["vector-hybrid-k25"]["accuracy"], 1.)
+        self.assertAlmostEqual(summaries["vector-k21"]["accuracy"], 1 / 3)
+        self.assertEqual(summaries["vector-hybrid-k25"]["accuracy"], 1.0)
         self.assertEqual([trial["trial"] for trial in public["trial_summaries"]], [1, 2, 3])
         for trial in public["trial_summaries"]:
             self.assertTrue(all(s["attempts"] == 30 for s in trial["summary"]))
@@ -122,8 +162,15 @@ class BenchmarkTests(unittest.TestCase):
                         self.assertIsInstance(reference_value(case), float)
 
     def test_current_experiment_cannot_omit_the_hybrid_method(self):
-        report = {"manifest": {"format_version": 4, "live": True, "repeats": 1,
-                               "methods": ["routed", "vector-k4", "vector-k6"]}, "runs": []}
+        report = {
+            "manifest": {
+                "format_version": 4,
+                "live": True,
+                "repeats": 1,
+                "methods": ["routed", "vector-k4", "vector-k6"],
+            },
+            "runs": [],
+        }
         with self.assertRaisesRegex(ValueError, "three declared methods"):
             public_report(report)
 
@@ -135,10 +182,12 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(metrics["required_table_recall"], 1)
 
     def test_summary_keeps_failures_in_denominator(self):
-        rows = [{"method": "a", "seconds": i+1, "correct": i == 0, "state": "answered" if i == 0 else "failed"}
-                for i in range(2)]
+        rows = [
+            {"method": "a", "seconds": i + 1, "correct": i == 0, "state": "answered" if i == 0 else "failed"}
+            for i in range(2)
+        ]
         summary = summarize(rows)[0]
-        self.assertEqual(summary["accuracy"], .5)
+        self.assertEqual(summary["accuracy"], 0.5)
         self.assertEqual(summary["failures"], 1)
         self.assertEqual(summary["p95_seconds"], 2)
 
@@ -151,6 +200,8 @@ class BenchmarkTests(unittest.TestCase):
     def test_public_snapshot_has_no_private_or_generated_directories(self):
         paths = [p.relative_to(ROOT) for p in release_files()]
         for path in paths:
-            self.assertFalse(set(path.parts) & {".git", ".vercel", ".cache", "experimental", "output", "data", "artifacts"})
+            self.assertFalse(
+                set(path.parts) & {".git", ".vercel", ".cache", "experimental", "output", "data", "artifacts"}
+            )
             self.assertNotIn(path.name, {".env", ".env.local"})
         self.assertTrue(any(str(p) == "app/static/demo.json" for p in paths))

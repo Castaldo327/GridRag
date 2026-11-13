@@ -30,6 +30,7 @@ def clean_question(question: object) -> str:
 
 class _Trace:
     """What one question has produced so far: stage results, query evidence, and seconds per stage."""
+
     def __init__(self, question: str, llm: Model, on_progress: Callable[[Progress], None] | None):
         self.question, self.llm, self.on_progress = question, llm, on_progress
         self.gate: Gate | None = None
@@ -58,15 +59,26 @@ class _Trace:
             self.timings[stage] = round(time.perf_counter() - started, 3)
 
     def record(self, state: State, text: str) -> Answer:
-        return {"question": self.question, "state": state, "answer": text, "gate": self.gate, "route": self.route,
-                "tool_calls": self.tool_calls,
-                "timings": {**self.timings, "total": round(time.perf_counter() - self.started, 3)},
-                "usage": self.llm.totals()}
+        return {
+            "question": self.question,
+            "state": state,
+            "answer": text,
+            "gate": self.gate,
+            "route": self.route,
+            "tool_calls": self.tool_calls,
+            "timings": {**self.timings, "total": round(time.perf_counter() - self.started, 3)},
+            "usage": self.llm.totals(),
+        }
 
 
-def answer(question: str, llm: Model | None = None, on_progress: Callable[[Progress], None] | None = None, *,
-           catalog: Catalog | None = None,
-           retriever: Callable[[str, Model, Catalog], Selection] | None = None) -> Answer:
+def answer(
+    question: str,
+    llm: Model | None = None,
+    on_progress: Callable[[Progress], None] | None = None,
+    *,
+    catalog: Catalog | None = None,
+    retriever: Callable[[str, Model, Catalog], Selection] | None = None,
+) -> Answer:
     """The answer record (gridrag.records.Answer). state is answered, abstained, write_failed, declined (gate),
     clarification (routing too broad) or failed, which adds error and stage. catalog is trusted schema
     documentation, the demo warehouse's by default; on_progress receives synchronous JSON-compatible updates.
@@ -88,9 +100,13 @@ def answer(question: str, llm: Model | None = None, on_progress: Callable[[Progr
             if isinstance(exc, AuthenticationError):
                 message = "Your API key was not accepted. Replace it and try again."
             elif isinstance(exc, PermissionDeniedError):
-                message = "Your API key does not have access to the configured model or API. Check your project permissions."
+                message = (
+                    "Your API key does not have access to the configured model or API. Check your project permissions."
+                )
             elif isinstance(exc, RateLimitError):
-                message = "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
+                message = (
+                    "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
+                )
         else:
             logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
         record = trace.record(State.FAILED, message)
@@ -114,9 +130,14 @@ def _run(trace: _Trace, catalog: Catalog, retriever: Callable[[str, Model, Catal
         return trace.record(State.ABSTAINED, "No matching warehouse tables were found for this question.")
 
     with trace.timed(Stage.SQL, {"route": trace.route}):
-        schema = "\n\n".join(catalog.tables[table].selected_schema(trace.route["columns"][table])
-                             for table in tables)
-        output = agent.run(llm, question, schema=schema, allowed_tables=tables, on_progress=trace.report,
-                           grounding=render_grounding(catalog.vocabulary, trace.route["columns"]))
+        schema = "\n\n".join(catalog.tables[table].selected_schema(trace.route["columns"][table]) for table in tables)
+        output = agent.run(
+            llm,
+            question,
+            schema=schema,
+            allowed_tables=tables,
+            on_progress=trace.report,
+            grounding=render_grounding(catalog.vocabulary, trace.route["columns"]),
+        )
     trace.tool_calls = output["tool_calls"]
     return trace.record(output["state"], output["answer"])

@@ -1,5 +1,6 @@
 """Model-written SQL runs read-only, guarded and bounded. Needs data/: python -m gridrag.warehouse.build."""
 
+import time
 import unittest
 from dataclasses import replace
 from unittest.mock import patch
@@ -14,18 +15,48 @@ def limits(**changes):
 
 
 class GuardTests(unittest.TestCase):
+    def test_timeout_during_idle_validation_gap_still_interrupts_the_next_query(self):
+        check = db._check
+
+        def delayed_check(*args):
+            normalized = check(*args)
+            time.sleep(0.05)  # The watchdog first fires while no SQL is executing.
+            return normalized
+
+        with limits(sql_timeout_s=0.02), patch.object(db, "_check", side_effect=delayed_check):
+            result = db.run_model_sql("SELECT sum(sin(i)) FROM range(1000000000) t(i)", 1)
+        self.assertIn("execution budget", result["error"])
+        self.assertEqual(db.run_model_sql("SELECT 1 AS n", 1)["csv"], "n\n1\n")
+
+    def test_result_byte_cap_counts_utf8_and_stops_fetching_when_exceeded(self):
+        def rows():
+            yield ("é" * 4,)
+            raise AssertionError("Oversized results must stop consuming rows")
+
+        with limits(sql_max_result_bytes=14), patch.object(db, "_fetch", return_value=(["value"], rows())):
+            self.assertIn("result exceeds", db.run_model_sql("SELECT 1", 10)["error"])
+        with limits(sql_max_result_bytes=15):
+            self.assertEqual(db.run_model_sql("SELECT repeat('é', 4) AS value", 1)["csv"], "value\néééé\n")
+
     def test_configuration_and_side_effect_functions_are_rejected_in_subqueries(self):
-        for sql in ("SELECT write_log('untrusted text')", "SELECT sleep_ms(1)",
-                    "SELECT current_setting('temp_directory')",
-                    "SELECT * FROM (SELECT setseed(0.5)) nested",
-                    "WITH x AS (SELECT getvariable('example')) SELECT * FROM x"):
+        for sql in (
+            "SELECT write_log('untrusted text')",
+            "SELECT sleep_ms(1)",
+            "SELECT current_setting('temp_directory')",
+            "SELECT * FROM (SELECT setseed(0.5)) nested",
+            "WITH x AS (SELECT getvariable('example')) SELECT * FROM x",
+        ):
             with self.subTest(sql=sql):
                 self.assertIn("not allowed", db.run_model_sql(sql, 1)["error"])
         self.assertEqual(db.run_model_sql("SELECT round(1.234, 2) AS n", 1)["csv"], "n\n1.23\n")
 
     def test_engine_cannot_reenable_external_access_or_load_extensions(self):
-        for sql in ("SET enable_external_access = true", "SET lock_configuration = false",
-                    "INSTALL httpfs", "LOAD httpfs"):
+        for sql in (
+            "SET enable_external_access = true",
+            "SET lock_configuration = false",
+            "INSTALL httpfs",
+            "LOAD httpfs",
+        ):
             with self.subTest(sql=sql), self.assertRaises(duckdb.Error):
                 db._database().cursor().execute(sql)
 
@@ -49,10 +80,12 @@ class GuardTests(unittest.TestCase):
 
     def test_comments_and_semicolons_cannot_break_the_row_limit(self):
         # The guard runs the query as the parser regenerates it, so a trailing comment cannot swallow the wrapper.
-        for sql in ["SELECT count(*) AS n FROM core.dim_iso -- count ISOs",
-                    "SELECT count(*) AS n FROM core.dim_iso; -- done",
-                    "SELECT count(*) AS n /* how many */ FROM core.dim_iso",
-                    "SELECT 7 AS n -- FROM core.queue_project"]:
+        for sql in [
+            "SELECT count(*) AS n FROM core.dim_iso -- count ISOs",
+            "SELECT count(*) AS n FROM core.dim_iso; -- done",
+            "SELECT count(*) AS n /* how many */ FROM core.dim_iso",
+            "SELECT 7 AS n -- FROM core.queue_project",
+        ]:
             with self.subTest(sql=sql):
                 self.assertEqual(db.run_model_sql(sql, 1, {"core.dim_iso"}), {"rows": 1, "csv": "n\n7\n"})
 
@@ -70,20 +103,26 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(db.run_model_sql(allowed, 10, routed)["rows"], 1)
 
     def test_table_and_cte_names_are_case_insensitive_like_duckdb(self):
-        for sql in ["SELECT count(*) AS n FROM Core.Dim_Iso",
-                    "WITH Isos AS (SELECT * FROM CORE.DIM_ISO) SELECT count(*) AS n FROM isos"]:
+        for sql in [
+            "SELECT count(*) AS n FROM Core.Dim_Iso",
+            "WITH Isos AS (SELECT * FROM CORE.DIM_ISO) SELECT count(*) AS n FROM isos",
+        ]:
             with self.subTest(sql=sql):
                 self.assertEqual(db.run_model_sql(sql, 1, {"core.dim_iso"})["csv"], "n\n7\n")
 
     def test_fractions_keep_their_digits_and_large_values_keep_cents(self):
-        out = db.run_model_sql("SELECT 0.42072033::DOUBLE AS share, 70979.2216::DOUBLE AS mw, "
-                               "-0.000123456::DOUBLE AS tiny, NULL::DOUBLE AS missing", 1)
+        out = db.run_model_sql(
+            "SELECT 0.42072033::DOUBLE AS share, 70979.2216::DOUBLE AS mw, "
+            "-0.000123456::DOUBLE AS tiny, NULL::DOUBLE AS missing",
+            1,
+        )
         self.assertEqual(out["csv"], "share,mw,tiny,missing\n0.42072033,70979.2216,-0.000123456,\n")
 
     def test_exact_decimals_and_nullable_large_integers_survive_serialization(self):
         out = db.run_model_sql(
             "SELECT 12345678901234567890.123456789::DECIMAL(38,9) AS amount, "
-            "9007199254740993::BIGINT AS id UNION ALL SELECT NULL, NULL", 2,
+            "9007199254740993::BIGINT AS id UNION ALL SELECT NULL, NULL",
+            2,
         )
         self.assertEqual(out["csv"], "amount,id\n12345678901234567890.123456789,9007199254740993\n,\n")
 

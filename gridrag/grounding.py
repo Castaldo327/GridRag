@@ -23,7 +23,9 @@ def render_grounding(values: tuple[DimensionValue, ...], columns) -> str:
             lines.append(f"{entry.table}.{entry.column}: {', '.join(entry.aliases)} => {literal}")
     if not lines:
         return ""
-    return ("Approved dimension/entity vocabulary (use these exact database values):\n"
-            "Resolve terminology using the column-specific mappings below. "
-            + "Do not invent codes or infer an unlisted entity. Ask for clarification when ambiguous.\n"
-            + "\n".join(lines))
+    return (
+        "Approved dimension/entity vocabulary (use these exact database values):\n"
+        "Resolve terminology using the column-specific mappings below. "
+        + "Do not invent codes or infer an unlisted entity. Ask for clarification when ambiguous.\n"
+        + "\n".join(lines)
+    )

@@ -9,6 +9,7 @@ import math
 import re
 from collections import Counter
 
+from gridrag.catalog import Catalog
 from gridrag.llm import probability
 from gridrag.records import Stage
 from gridrag.route import TABLE_QUESTION, _check_scores
@@ -24,43 +25,65 @@ FUSION_VERSION = "semantic-bm25-v1"
 STOP = frozenset("a an the of in on at to for and or what was were is how much many give use local time".split())
 
 
-def tokens(text):
+def tokens(text: str) -> list[str]:
     return [word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in STOP]
 
 
-def keyword_scores(question, catalog):
-    """BM25 over supplied catalog documents, without domain-specific query expansion."""
-    query = set(tokens(question))
-    documents = {name: Counter(tokens(table.ddl)) for name, table in catalog.tables.items()}
-    average = sum(sum(doc.values()) for doc in documents.values()) / len(documents)
-    scores = dict.fromkeys(documents, 0.)
-    for term in sorted(query):
-        frequency = sum(term in doc for doc in documents.values())
-        idf = math.log(1 + (len(documents) - frequency + .5) / (frequency + .5))
-        for name, doc in documents.items():
-            count = doc[term]
-            scores[name] += idf * count * 2.2 / (count + 1.2 * (.25 + .75 * sum(doc.values()) / average))
-    maximum = max(scores.values(), default=0.)
-    return {name: score / maximum if maximum else 0. for name, score in scores.items()}
+class KeywordIndex:
+    """Reusable BM25 postings over one immutable catalog, without query expansion."""
+
+    def __init__(self, catalog: Catalog) -> None:
+        self.catalog = catalog
+        documents = {name: Counter(tokens(table.ddl)) for name, table in catalog.tables.items()}
+        lengths = {name: sum(document.values()) for name, document in documents.items()}
+        average = sum(lengths.values()) / len(documents)
+        self.normalizers = {name: 1.2 * (0.25 + 0.75 * length / average) for name, length in lengths.items()}
+        self.postings: dict[str, list[tuple[str, int]]] = {}
+        for name, document in documents.items():
+            for term, count in document.items():
+                self.postings.setdefault(term, []).append((name, count))
+
+    def scores(self, question: str) -> dict[str, float]:
+        scores = dict.fromkeys(self.catalog.tables, 0.0)
+        for term in sorted(set(tokens(question))):
+            matches = self.postings.get(term, ())
+            frequency = len(matches)
+            idf = math.log(1 + (len(scores) - frequency + 0.5) / (frequency + 0.5))
+            for name, count in matches:
+                scores[name] += idf * count * 2.2 / (count + self.normalizers[name])
+        maximum = max(scores.values(), default=0.0)
+        return {name: score / maximum if maximum else 0.0 for name, score in scores.items()}
 
 
-def shortlist(question, catalog, dense):
-    lexical = keyword_scores(question, catalog)
+def keyword_scores(question: str, catalog: Catalog) -> dict[str, float]:
+    """Score a standalone question; retrievers reuse KeywordIndex across questions."""
+    return KeywordIndex(catalog).scores(question)
+
+
+def shortlist(question, catalog, dense, *, index: KeywordIndex | None = None):
+    if index is not None and index.catalog is not catalog:
+        raise ValueError("Keyword index must use the supplied catalog")
+    lexical = keyword_scores(question, catalog) if index is None else index.scores(question)
     keyword_names = sorted(lexical, key=lambda name: (-lexical[name], name))[:KEYWORD_POOL]
     candidates = set(dense) | {name for name in keyword_names if lexical[name] > 0}
-    fused = {name: WEIGHTS["semantic"] * max(0., dense.get(name, 0.))
-             + WEIGHTS["keyword"] * lexical[name] for name in sorted(candidates)}
+    fused = {
+        name: WEIGHTS["semantic"] * max(0.0, dense.get(name, 0.0)) + WEIGHTS["keyword"] * lexical[name]
+        for name in sorted(candidates)
+    }
     ranked = sorted(fused, key=lambda name: (-fused[name], name))[:RERANK_POOL]
     return ranked, fused
 
 
 def rerank(question, llm, catalog, names, fused):
-    answers = llm.decide(Stage.ROUTE, question, [
-        {"type": "predicate", "name": f"h{i}", "instructions": TABLE_QUESTION + catalog.tables[name].ddl}
-        for i, name in enumerate(names)
-    ])
+    answers = llm.decide(
+        Stage.ROUTE,
+        question,
+        [
+            {"type": "predicate", "name": f"h{i}", "instructions": TABLE_QUESTION + catalog.tables[name].ddl}
+            for i, name in enumerate(names)
+        ],
+    )
     scores = {name: probability(answers, f"h{i}") for i, name in enumerate(names)}
     fallback = _check_scores(scores, "hybrid reranker")
-    ranked = sorted(names, key=lambda name: (-(scores[name] if scores[name] is not None else 1.),
-                                            -fused[name], name))
+    ranked = sorted(names, key=lambda name: (-(scores[name] if scores[name] is not None else 1.0), -fused[name], name))
     return ranked, scores, fallback

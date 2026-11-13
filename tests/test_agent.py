@@ -12,22 +12,39 @@ from gridrag.sql import agent
 
 
 def tool(arguments='{"query": "SELECT 1"}'):
-    return {"id": "query", "status": "completed", "output": [{"type": "function_call", "name": "run_sql",
-            "call_id": "call", "arguments": arguments}]}
+    return {
+        "id": "query",
+        "status": "completed",
+        "output": [{"type": "function_call", "name": "run_sql", "call_id": "call", "arguments": arguments}],
+    }
 
 
-TEXT = {"id": "answer", "status": "completed", "output": [{"type": "message", "content": [
-    {"type": "output_text", "text": "A claimed answer."},
-]}]}
+TEXT = {
+    "id": "answer",
+    "status": "completed",
+    "output": [
+        {
+            "type": "message",
+            "content": [
+                {"type": "output_text", "text": "A claimed answer."},
+            ],
+        }
+    ],
+}
 
 
 class AgentTests(unittest.TestCase):
     def test_bad_arguments_can_be_repaired_without_running_them(self):
-        model = SimpleNamespace(respond=Mock(side_effect=[tool('[]'), tool(), TEXT]))
+        model = SimpleNamespace(respond=Mock(side_effect=[tool("[]"), tool(), TEXT]))
         progress = []
         with patch.object(agent.db, "run_model_sql", return_value={"rows": 1, "csv": "n\n1\n"}) as execute:
-            result = agent.run(model, "question", schema="CREATE TABLE core.example (n INTEGER);",
-                               allowed_tables={"core.example"}, on_progress=progress.append)
+            result = agent.run(
+                model,
+                "question",
+                schema="CREATE TABLE core.example (n INTEGER);",
+                allowed_tables={"core.example"},
+                on_progress=progress.append,
+            )
         execute.assert_called_once_with("SELECT 1", config.settings.sql_max_rows, {"core.example"})
         self.assertEqual(result["state"], State.ANSWERED)
         self.assertIn("bad arguments", result["tool_calls"][0]["error"])
@@ -66,17 +83,28 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn("claimed", result["answer"])
 
     def test_aggregate_binder_error_gives_the_model_a_repair_hint(self):
-        bad_sql = "SELECT d.iso_code, MAX(b.demand_mw) FROM core.fact_balance_hourly b JOIN core.dim_iso d USING (iso_id)"
+        bad_sql = (
+            "SELECT d.iso_code, MAX(b.demand_mw) FROM core.fact_balance_hourly b JOIN core.dim_iso d USING (iso_id)"
+        )
         corrected_sql = "SELECT MAX(b.demand_mw) FROM core.fact_balance_hourly b JOIN core.dim_iso d USING (iso_id)"
         error = 'BinderException: column "iso_code" must appear in the GROUP BY clause'
-        model = SimpleNamespace(respond=Mock(side_effect=[
-            tool(json.dumps({"query": bad_sql})),
-            tool(json.dumps({"query": corrected_sql})),
-            TEXT,
-        ]))
-        with patch.object(agent.db, "run_model_sql", side_effect=[
-            {"error": error}, {"rows": 1, "csv": "max_demand\n47517\n"},
-        ]) as execute:
+        model = SimpleNamespace(
+            respond=Mock(
+                side_effect=[
+                    tool(json.dumps({"query": bad_sql})),
+                    tool(json.dumps({"query": corrected_sql})),
+                    TEXT,
+                ]
+            )
+        )
+        with patch.object(
+            agent.db,
+            "run_model_sql",
+            side_effect=[
+                {"error": error},
+                {"rows": 1, "csv": "max_demand\n47517\n"},
+            ],
+        ) as execute:
             result = agent.run(model, "Peak demand?", schema="")
         self.assertEqual(execute.call_count, 2)
         self.assertEqual(result["state"], State.ANSWERED)
@@ -89,10 +117,12 @@ class AgentTests(unittest.TestCase):
         multiple = tool()
         multiple["output"] *= 2
         for response, rounds in ((tool(), 1), (multiple, 5), ({**tool(), "status": "incomplete"}, 5)):
-            with (self.subTest(rounds=rounds, response=response),
-                  patch.object(config, "settings", replace(config.settings, sql_max_rounds=rounds)),
-                  patch.object(agent.db, "run_model_sql") as execute,
-                  self.assertRaises(RuntimeError)):
+            with (
+                self.subTest(rounds=rounds, response=response),
+                patch.object(config, "settings", replace(config.settings, sql_max_rounds=rounds)),
+                patch.object(agent.db, "run_model_sql") as execute,
+                self.assertRaises(RuntimeError),
+            ):
                 agent.run(SimpleNamespace(respond=Mock(return_value=response)), "question", schema="")
             execute.assert_not_called()
 
@@ -100,14 +130,21 @@ class AgentTests(unittest.TestCase):
         responses = [{**tool(), "id": value} for value in (None, "", " ", 1)]
         responses += [{**tool(), "status": value} for value in (None, "queued", "in_progress", "cancelled")]
         for response in responses:
-            with (self.subTest(response=response),
-                  patch.object(agent.db, "run_model_sql") as execute,
-                  self.assertRaises(RuntimeError)):
+            with (
+                self.subTest(response=response),
+                patch.object(agent.db, "run_model_sql") as execute,
+                self.assertRaises(RuntimeError),
+            ):
                 agent.run(SimpleNamespace(respond=Mock(return_value=response)), "question", schema="")
             execute.assert_not_called()
 
     def test_invalid_argument_shapes_are_repairable_and_records_remain_serializable(self):
-        for arguments in (None, {"query": "SELECT 1"}, '{"query": "SELECT 1", "extra": true}'):
+        for arguments in (
+            None,
+            {"query": "SELECT 1"},
+            '{"query": "SELECT 1", "extra": true}',
+            "[" * 1500 + "0" + "]" * 1500,
+        ):
             with self.subTest(arguments=arguments), patch.object(agent.db, "run_model_sql") as execute:
                 model = SimpleNamespace(respond=Mock(side_effect=[tool(arguments), TEXT]))
                 result = agent.run(model, "question", schema="")

@@ -8,6 +8,16 @@ from gridrag.catalog import Catalog, Family, Table, demo_catalog, parse
 
 
 class CatalogTests(unittest.TestCase):
+    def test_literals_cannot_invent_references_or_structural_columns(self):
+        table = Table.parse(
+            "CREATE TABLE audit.event (id INT, clock TIME, stamp TIMESTAMP_NS, zoned TIMETZ, "
+            "note VARCHAR DEFAULT 'TIMESTAMP REFERENCES audit.missing (id) UNIQUE PRIMARY KEY (id)');"
+        )
+        self.assertEqual(table.references, frozenset())
+        self.assertEqual(table.structural_columns, {"clock", "stamp", "zoned"})
+        self.assertNotIn("-- Primary key:", table.selected_schema(["note"]))
+        self.assertEqual(list(Catalog.of([table]).tables), ["audit.event"])
+
     def test_demo_catalog_preserves_complete_executable_definitions(self):
         tables = demo_catalog().tables
         with duckdb.connect() as connection:
@@ -15,7 +25,8 @@ class CatalogTests(unittest.TestCase):
             for table in tables.values():
                 connection.execute(table.ddl)
             count = connection.execute(
-                "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'core'").fetchone()[0]
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'core'"
+            ).fetchone()[0]
         self.assertEqual(count, len(tables))
         # The UTC column comment contains a semicolon; it must not truncate the DDL.
         self.assertIn("PRIMARY KEY", tables["core.ercot_load_forecast_hourly"].ddl)
@@ -34,13 +45,17 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(catalog.tables["core.ercot_lmp_rt_hub_5min"].references, {"core.dim_iso", "core.dim_location"})
 
     def test_references_come_from_code_not_comments_and_ignore_case(self):
-        table = Table.parse("-- Formerly REFERENCES core.legacy\nCREATE TABLE Core.Station (\n"
-                            "    region INTEGER references CORE.Region (id)  -- see REFERENCES core.other\n);")
+        table = Table.parse(
+            "-- Formerly REFERENCES core.legacy\nCREATE TABLE Core.Station (\n"
+            "    region INTEGER references CORE.Region (id)  -- see REFERENCES core.other\n);"
+        )
         self.assertEqual((table.name, table.references), ("core.station", {"core.region"}))
 
     def test_scripts_split_into_statements_with_their_comments(self):
-        tables = parse("-- Regions\nCREATE TABLE core.region (\n    id INTEGER\n);\n\n"
-                       "CREATE TABLE core.site (\n    region INTEGER REFERENCES core.region (id),\n\n    x INT\n);")
+        tables = parse(
+            "-- Regions\nCREATE TABLE core.region (\n    id INTEGER\n);\n\n"
+            "CREATE TABLE core.site (\n    region INTEGER REFERENCES core.region (id),\n\n    x INT\n);"
+        )
         self.assertEqual([table.name for table in tables], ["core.region", "core.site"])
         self.assertTrue(tables[0].ddl.startswith("-- Regions\n"))
         self.assertTrue(tables[1].ddl.endswith("x INT\n);"))  # blank lines inside the statement are kept
@@ -56,14 +71,15 @@ class CatalogTests(unittest.TestCase):
         self.assertNotIn("demand_forecast_mw", excerpt)
 
     def test_compact_column_parser_handles_commas_inside_types(self):
-        table = Table.parse("CREATE TABLE core.sample (id INT, amount DECIMAL(12,3), "
-                            "name VARCHAR, PRIMARY KEY (id));")
+        table = Table.parse("CREATE TABLE core.sample (id INT, amount DECIMAL(12,3), name VARCHAR, PRIMARY KEY (id));")
         self.assertEqual(list(table.columns), ["id", "amount", "name"])
 
     def test_declared_keys_survive_pruning_and_literals_do_not_split_columns(self):
-        table = Table.parse("CREATE TABLE core.sample (code VARCHAR UNIQUE, parent VARCHAR, "
-                            "stamp TIMESTAMPTZ, note VARCHAR DEFAULT 'a,b(--x)', "
-                            "FOREIGN KEY (parent) REFERENCES core.sample (code));")
+        table = Table.parse(
+            "CREATE TABLE core.sample (code VARCHAR UNIQUE, parent VARCHAR, "
+            "stamp TIMESTAMPTZ, note VARCHAR DEFAULT 'a,b(--x)', "
+            "FOREIGN KEY (parent) REFERENCES core.sample (code));"
+        )
         self.assertEqual(list(table.columns), ["code", "parent", "stamp", "note"])
         self.assertEqual(table.structural_columns, {"code", "parent", "stamp"})
         excerpt = table.selected_schema(table.structural_columns)
@@ -77,9 +93,11 @@ class CatalogTests(unittest.TestCase):
             Table.parse("CREATE TABLE core.broken (value INTEGER")
 
     def test_structural_columns_follow_declarations_instead_of_name_suffixes(self):
-        table = Table.parse("CREATE TABLE retail.item (sku VARCHAR PRIMARY KEY, "
-                            "department VARCHAR REFERENCES retail.department (name), "
-                            "updated TIMESTAMP, optional_id INTEGER, optional_code VARCHAR);")
+        table = Table.parse(
+            "CREATE TABLE retail.item (sku VARCHAR PRIMARY KEY, "
+            "department VARCHAR REFERENCES retail.department (name), "
+            "updated TIMESTAMP, optional_id INTEGER, optional_code VARCHAR);"
+        )
         self.assertEqual(table.structural_columns, {"sku", "department", "updated"})
 
     def test_inconsistent_catalogs_are_rejected(self):

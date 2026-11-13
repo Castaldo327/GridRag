@@ -23,8 +23,10 @@ def main() -> None:
     if g := res.get("gate"):
         print(f"Gate: {g['reason']}")
     if r := res.get("route"):
-        print(f"Schema: {len(r['tables'])} of {len(demo_catalog().tables)} tables selected"
-              + (" (includes uncertain matches)" if r["fallback"] else ""))
+        print(
+            f"Schema: {len(r['tables'])} of {len(demo_catalog().tables)} tables selected"
+            + (" (includes uncertain matches)" if r["fallback"] else "")
+        )
         print(f"  {', '.join(r['tables']) or 'No matching tables'}")
     for c in res["tool_calls"]:
         print(f"\nSQL: {c['query']}\n  -> {c['error'] or str(c['rows']) + ' rows'}")
@@ -47,8 +49,10 @@ def main() -> None:
         print("Timings:", ", ".join(f"{name} {s:.2f}s" for name, s in res["timings"].items()))
         print(f"Tokens: {u['input_tokens']:,} in ({u['cached_tokens']:,} cached) · {u['output_tokens']:,} out")
         for call in u["per_call"]:
-            print(f"  {call['stage']:<6} {call['kind']:<9} {call['seconds']:.2f}s {call['input_tokens']:>6,} in "
-                  f"{call['output_tokens']:>5,} out" + (f"  {call['error']}" if call["error"] else ""))
+            print(
+                f"  {call['stage']:<6} {call['kind']:<9} {call['seconds']:.2f}s {call['input_tokens']:>6,} in "
+                f"{call['output_tokens']:>5,} out" + (f"  {call['error']}" if call["error"] else "")
+            )
         if res["state"] == State.FAILED:
             print(f"Failed during {res.get('stage')}: {res.get('error')}")
     if res["state"] in {State.FAILED, State.WRITE_FAILED}:

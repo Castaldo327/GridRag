@@ -3,6 +3,7 @@
 Reports locations and categories only, never matched values. This is a focused
 release guard, not a guarantee that every possible credential format is detected.
 """
+
 import argparse
 import json
 import re
@@ -11,7 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATTERNS = {
-    "provider credential": re.compile(rb"(?:sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,})"),
+    "provider credential": re.compile(
+        rb"(?:sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,})"
+    ),
     "JWT credential": re.compile(rb"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{16,}\b"),
     "private key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "personal filesystem path": re.compile(rb"/(?:Users|home)/[A-Za-z][^/\s]+/"),
@@ -33,17 +36,24 @@ def local_secrets():
     values = []
     for path in (ROOT / ".env", ROOT / ".env.local"):
         if path.exists():
-            for line in path.read_text().splitlines():
+            for line in path.read_text(encoding="utf-8").splitlines():
                 key, sep, value = line.partition("=")
                 value = value.strip().strip("\"'")
-                if sep and len(value) > 16 and any(word in key.upper() for word in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+                if (
+                    sep
+                    and len(value) > 16
+                    and any(word in key.upper() for word in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
+                ):
                     values.append(value.encode())
     return values
 
 
 def scan(data, secrets=()):
-    categories = [label for label, pattern in PATTERNS.items()
-                  if any(match[0] not in FIXTURES for match in pattern.finditer(data))]
+    categories = [
+        label
+        for label, pattern in PATTERNS.items()
+        if any(match[0] not in FIXTURES for match in pattern.finditer(data))
+    ]
     if any(value in data for value in secrets):
         categories.append("copy of local secret")
     return categories
@@ -61,8 +71,9 @@ def main():
     secrets = local_secrets()
     findings, advisories, count = [], [], 0
     if args.directory:
-        candidates = [(str(p.relative_to(args.directory)), p.read_bytes())
-                      for p in args.directory.rglob("*") if p.is_file()]
+        candidates = [
+            (str(p.relative_to(args.directory)), p.read_bytes()) for p in args.directory.rglob("*") if p.is_file()
+        ]
     else:
         names = git("ls-files", "--cached", "--others", "--exclude-standard", "-z").decode().split("\0")
         candidates = [(name, (ROOT / name).read_bytes()) for name in names if name and (ROOT / name).is_file()]
@@ -82,8 +93,17 @@ def main():
                     advisories.append({**item, "reason": "Reviewed expired Vercel OIDC token; see SECURITY.md"})
                 else:
                     findings.append(item)
-    print(json.dumps({"scanned": count, "findings": findings, "advisories": advisories,
-                      "history_note": "Git commits contain author metadata; clean exports omit Git history."}, indent=2))
+    print(
+        json.dumps(
+            {
+                "scanned": count,
+                "findings": findings,
+                "advisories": advisories,
+                "history_note": "Git commits contain author metadata; clean exports omit Git history.",
+            },
+            indent=2,
+        )
+    )
     raise SystemExit(bool(findings))
 
 

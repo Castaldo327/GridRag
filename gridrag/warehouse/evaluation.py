@@ -1,4 +1,5 @@
 """Deterministic scoring shared by browser evaluations, tests, and benchmarks."""
+
 import csv
 import io
 import math
@@ -8,17 +9,27 @@ from gridrag.records import State
 from gridrag.warehouse.evals import Case, reference_result, reference_value
 
 NUMBER = re.compile(r"[-−]?\$?\d[\d,]*(?:\.(\d+))?")
-UNIT_PATTERNS = {"MW": r"\bMW\b", "MWh": r"\bMWh\b", "%": r"%|\bpercent(?:age)?\b",
-                 "projects": r"\bprojects?\b", "readings": r"\breadings?\b",
-                 "USD/MWh": r"(?:USD|\$)\s*(?:/|per)\s*MWh\b|\bUSD/MWh\b",
-                 "USD/MW-hour": r"(?:USD|\$)\s*(?:/|per)\s*MW[ -]hour\b"}
+UNIT_PATTERNS = {
+    "MW": r"\bMW\b",
+    "MWh": r"\bMWh\b",
+    "%": r"%|\bpercent(?:age)?\b",
+    "projects": r"\bprojects?\b",
+    "readings": r"\breadings?\b",
+    "USD/MWh": r"(?:USD|\$)\s*(?:/|per)\s*MWh\b|\bUSD/MWh\b",
+    "USD/MW-hour": r"(?:USD|\$)\s*(?:/|per)\s*MW[ -]hour\b",
+}
 
 
 def evaluation_question(case: Case) -> str:
     """State the scalar formatting contract without exposing reference evidence."""
     if case.result_kind == "table":
-        return case.question + " Return the complete comparison in the final SQL result, with columns iso_code, product, average_energy_price."
-    return case.question + (" Return the final SQL result as one row and one numeric answer column." if case.sql else "")
+        return (
+            case.question
+            + " Return the complete comparison in the final SQL result, with columns iso_code, product, average_energy_price."
+        )
+    return case.question + (
+        " Return the final SQL result as one row and one numeric answer column." if case.sql else ""
+    )
 
 
 def states_value(text: str, expected: float, tolerance: float) -> bool:
@@ -91,22 +102,40 @@ def table_evidence_matches(result: dict, expected: dict, tolerance: float) -> bo
         expected_headers, reference = _keyed_rows(expected["csv"])
     except (ValueError, csv.Error, TypeError):
         return False
-    return (headers == expected_headers and actual.keys() == reference.keys()
-            and final.get("rows", len(actual)) == len(actual)
-            and all(math.isclose(actual[key], value, rel_tol=0, abs_tol=tolerance + 1e-9)
-                    for key, value in reference.items()))
+    return (
+        headers == expected_headers
+        and actual.keys() == reference.keys()
+        and final.get("rows", len(actual)) == len(actual)
+        and all(
+            math.isclose(actual[key], value, rel_tol=0, abs_tol=tolerance + 1e-9) for key, value in reference.items()
+        )
+    )
 
 
 def case_info(case: Case) -> dict:
     """Public expectations; reference SQL is never passed to the live model."""
-    return {"id": case.id, "label": case.label or case.id.replace("_", " ").title(),
-            "question": case.question, "expected_state": case.state,
-            "expected": reference_value(case) if case.sql and case.result_kind == "scalar" else None, "unit": case.unit,
-            "verification": case.verification, "category": case.category, "difficulty": case.difficulty,
-            "tolerance": case.tolerance, "required_tables": list(case.tables),
-            "excluded_tables": list(case.excluded), "forbidden_sql": list(case.avoid),
-            "result_contract": ("Complete keyed comparison table" if case.result_kind == "table" else
-                                "One row, one numeric column; complete final query" if case.sql else "No SQL calls")}
+    return {
+        "id": case.id,
+        "label": case.label or case.id.replace("_", " ").title(),
+        "question": case.question,
+        "expected_state": case.state,
+        "expected": reference_value(case) if case.sql and case.result_kind == "scalar" else None,
+        "unit": case.unit,
+        "verification": case.verification,
+        "category": case.category,
+        "difficulty": case.difficulty,
+        "tolerance": case.tolerance,
+        "required_tables": list(case.tables),
+        "excluded_tables": list(case.excluded),
+        "forbidden_sql": list(case.avoid),
+        "result_contract": (
+            "Complete keyed comparison table"
+            if case.result_kind == "table"
+            else "One row, one numeric column; complete final query"
+            if case.sql
+            else "No SQL calls"
+        ),
+    }
 
 
 def assess(case: Case, result: dict) -> dict:
@@ -118,42 +147,96 @@ def assess(case: Case, result: dict) -> dict:
 
     state_ok = result.get("state") == case.state
     check("End state", state_ok, f"Expected {case.state}; got {result.get('state', 'unknown')}.", "behavior")
-    check("Answer present", bool((result.get("answer") or "").strip()), "The response must include an explanation or answer.", "answer")
+    check(
+        "Answer present",
+        bool((result.get("answer") or "").strip()),
+        "The response must include an explanation or answer.",
+        "answer",
+    )
     route = result.get("route") or {}
     tables = set(route.get("tables") or [])
     missing, unexpected = set(case.tables) - tables, set(case.excluded) & tables
     if case.tables:
-        check("Required tables", not missing, "Missing: " + ", ".join(sorted(missing)) if missing else "All required tables selected.", "routing")
+        check(
+            "Required tables",
+            not missing,
+            "Missing: " + ", ".join(sorted(missing)) if missing else "All required tables selected.",
+            "routing",
+        )
     if case.excluded:
-        check("Excluded tables", not unexpected, "Unexpected: " + ", ".join(sorted(unexpected)) if unexpected else "Excluded tables absent.", "routing")
+        check(
+            "Excluded tables",
+            not unexpected,
+            "Unexpected: " + ", ".join(sorted(unexpected)) if unexpected else "Excluded tables absent.",
+            "routing",
+        )
     calls = result.get("tool_calls") or []
     queries = " ".join(call.get("query") or "" for call in calls).casefold()
     found = [text for text in case.avoid if text.casefold() in queries]
     if case.avoid:
-        check("Forbidden SQL", not found, "Found: " + ", ".join(found) if found else "Forbidden SQL absent.", "evidence")
+        check(
+            "Forbidden SQL", not found, "Found: " + ", ".join(found) if found else "Forbidden SQL absent.", "evidence"
+        )
     table_result = case.result_kind == "table"
     expected = reference_result(case) if table_result else reference_value(case) if case.sql else None
     evidence = scalar_evidence(result)
-    numeric_ok = (table_evidence_matches(result, expected, case.tolerance) if table_result
-                  else evidence_matches(result, expected, case.tolerance) if expected is not None else None)
+    numeric_ok = (
+        table_evidence_matches(result, expected, case.tolerance)
+        if table_result
+        else evidence_matches(result, expected, case.tolerance)
+        if expected is not None
+        else None
+    )
     if case.state != State.ANSWERED:
-        check("No SQL executed", not calls, f"{len(calls)} SQL calls; none are allowed for this behavior case.", "behavior")
+        check(
+            "No SQL executed",
+            not calls,
+            f"{len(calls)} SQL calls; none are allowed for this behavior case.",
+            "behavior",
+        )
     if table_result:
-        check("Complete table evidence", numeric_ok,
-              "Every region/product key and numeric value must match the independent reference, with no missing or extra rows.", "evidence")
+        check(
+            "Complete table evidence",
+            numeric_ok,
+            "Every region/product key and numeric value must match the independent reference, with no missing or extra rows.",
+            "evidence",
+        )
     elif expected is not None:
         check("Scalar evidence contract", evidence["valid"], evidence["reason"], "evidence")
-        check("Numeric evidence", numeric_ok,
-              f"Expected {expected:.8g} {case.unit} ± {case.tolerance:g}; observed {evidence['value'] if evidence['valid'] else 'no valid scalar'}.", "evidence")
-        check("Answer value", states_value(result.get("answer") or "", expected, case.tolerance),
-              f"Answer must state {expected:.8g} {case.unit}, allowing rounding at the displayed precision.", "answer")
+        check(
+            "Numeric evidence",
+            numeric_ok,
+            f"Expected {expected:.8g} {case.unit} ± {case.tolerance:g}; observed {evidence['value'] if evidence['valid'] else 'no valid scalar'}.",
+            "evidence",
+        )
+        check(
+            "Answer value",
+            states_value(result.get("answer") or "", expected, case.tolerance),
+            f"Answer must state {expected:.8g} {case.unit}, allowing rounding at the displayed precision.",
+            "answer",
+        )
         pattern = UNIT_PATTERNS.get(case.unit, re.escape(case.unit))
-        check("Answer unit", bool(re.search(pattern, result.get("answer") or "", re.IGNORECASE)),
-              f"Answer must include the unit {case.unit}; this checks the label, not prose semantics.", "answer")
+        check(
+            "Answer unit",
+            bool(re.search(pattern, result.get("answer") or "", re.IGNORECASE)),
+            f"Answer must include the unit {case.unit}; this checks the label, not prose semantics.",
+            "answer",
+        )
     correct = state_ok and (numeric_ok if expected is not None else not calls)
-    return {"id": case.id, "passed": all(item["passed"] for item in checks), "correct": bool(correct),
-            "expected": expected, "observed": evidence["value"], "unit": case.unit,
-            "checks": checks, "result": result,
-            "diagnostics": {"selected_tables": len(tables), "required_table_recall": (len(set(case.tables) & tables) / len(case.tables)) if case.tables else None,
-                            "sql_calls": len(calls), "sql_errors": sum(bool(c.get("error")) for c in calls),
-                            "failed_checks": [item["name"] for item in checks if not item["passed"]]}}
+    return {
+        "id": case.id,
+        "passed": all(item["passed"] for item in checks),
+        "correct": bool(correct),
+        "expected": expected,
+        "observed": evidence["value"],
+        "unit": case.unit,
+        "checks": checks,
+        "result": result,
+        "diagnostics": {
+            "selected_tables": len(tables),
+            "required_table_recall": (len(set(case.tables) & tables) / len(case.tables)) if case.tables else None,
+            "sql_calls": len(calls),
+            "sql_errors": sum(bool(c.get("error")) for c in calls),
+            "failed_checks": [item["name"] for item in checks if not item["passed"]],
+        },
+    }

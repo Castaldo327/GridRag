@@ -13,6 +13,22 @@ from gridrag.warehouse import build, products
 
 
 class BuildTests(unittest.TestCase):
+    def test_failed_rebuild_preserves_previous_snapshot_and_cleans_temporary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "warehouse.duckdb"
+            with duckdb.connect(str(database)) as connection:
+                connection.execute("CREATE TABLE previous AS SELECT 42 AS value")
+            previous = database.read_bytes()
+            with (
+                patch.object(config, "settings", replace(config.settings, db_path=database)),
+                patch.object(build, "_frames", return_value={}),
+                patch.object(build, "schema_text", return_value="INVALID SQL"),
+            ):
+                with self.assertRaises(duckdb.Error):
+                    build.build()
+            self.assertEqual(database.read_bytes(), previous)
+            self.assertEqual(list(Path(directory).iterdir()), [database])
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -49,8 +65,9 @@ class BuildTests(unittest.TestCase):
             with self.subTest(iso=iso.code):
                 table = products.table_name(iso.code, products.PRODUCTS[0])
                 self.assertEqual(self.con.execute(f"SELECT DISTINCT iso_id FROM {table}").fetchall(), [(iso.id,)])
-                locations = self.con.execute("SELECT min(location_id) FROM core.dim_location WHERE iso_id = ?",
-                                             [iso.id]).fetchone()[0]
+                locations = self.con.execute(
+                    "SELECT min(location_id) FROM core.dim_location WHERE iso_id = ?", [iso.id]
+                ).fetchone()[0]
                 self.assertEqual(locations, iso.id * 10 + 1)
 
     def test_every_product_generates_rows_for_every_iso(self):

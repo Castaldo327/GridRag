@@ -184,6 +184,8 @@ automatically expose it to the model or SQL guard.
 
 ```sh
 # Offline: no provider requests, even with a key present.
+uv run ruff check .
+uv run ruff format --check .
 uv run python -m unittest discover -s tests
 node --check app/static/app.js
 node --test tests/test_*.js
@@ -210,7 +212,7 @@ owner key was configured accidentally.
 
 Set **Root Directory** to the repository root (`.`) and **Framework Preset** to
 **Other**. Leave build and output overrides disabled: `vercel.json` sets the build
-command to `uv run --locked python -m scripts.vercel_build` and output to `public`.
+command to `uv run --locked --no-dev python -m scripts.vercel_build` and output to `public`.
 
 The Vercel build generates the fictional warehouse and copies only approved frontend
 assets into `public/`. The DuckDB file is bundled privately with the Python function,
@@ -228,8 +230,9 @@ in the target Vercel project before announcing the URL.
 The code has explicit contracts, independent SQL safeguards, reproducible data,
 request-scoped credentials, security headers and regression tests. This synthetic
 dataset does not establish cross-domain accuracy or catalog-scale
-performance. BM25 currently scans schema documents per question; an indexed
-keyword backend and larger, independent datasets remain necessary. The application
+performance. Hybrid retrieval indexes schema tokens once per retriever and scores
+matching keyword postings per question; larger, independent datasets and a
+production retrieval service still need evaluation. The application
 is still a demonstration. Authentication, tenant entitlements, distributed request
 limits, process isolation, operational monitoring and broader adversarial evaluation
 are necessary before connecting real organizational data.

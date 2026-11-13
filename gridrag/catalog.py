@@ -20,12 +20,14 @@ _COLUMN_NAME = re.compile(r"^([A-Za-z_]\w*)\s+", re.IGNORECASE)
 _SQL_TEXT = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")
 
 
-def _code(ddl: str) -> str:
-    """Remove comments without altering quoted SQL literals."""
+def _code(ddl: str, *, strip_literals: bool = False) -> str:
+    """Mask comments, and optionally literals, without shifting metadata offsets."""
+
     def strip_comment(match: re.Match) -> str:
         token = match[0]
         # Preserve offsets so names located in cleaned SQL still index the original documentation.
-        return re.sub(r"[^\n]", " ", token) if token.startswith(("--", "/*")) else token
+        masked = token.startswith(("--", "/*")) or strip_literals
+        return re.sub(r"[^\n]", " ", token) if masked else token
 
     return _SQL_TEXT.sub(strip_comment, ddl)
 
@@ -125,12 +127,13 @@ class Table:
         """
         keys = set()
         for definition in self.definitions:
-            code = _code(definition)
+            code = _code(definition, strip_literals=True)
             for match in re.finditer(r"\b(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I):
                 keys.update(name.strip().lower() for name in match[1].split(","))
         for name, definition in self.columns.items():
-            if re.search(
-                r"\b(?:DATE|TIMESTAMP|TIMESTAMPTZ|REFERENCES|PRIMARY KEY|UNIQUE)\b", _code(definition), re.I
+            code = _code(definition, strip_literals=True).strip()
+            if re.match(r"\w+\s+(?:DATE|TIME|TIMETZ|DATETIME|TIMESTAMP(?:TZ|_S|_MS|_NS)?)\b", code, re.I) or re.search(
+                r"\b(?:REFERENCES|PRIMARY KEY|UNIQUE)\b", code, re.I
             ):
                 keys.add(name)
         return frozenset(keys & self.columns.keys())
@@ -140,26 +143,27 @@ class Table:
         selected = set(columns)
         if unknown := selected - self.columns.keys():
             raise ValueError(f"Unknown columns for {self.name}: {sorted(unknown)}")
-        preamble = self.ddl[:_NAME.search(_code(self.ddl)).start()].strip()
+        preamble = self.ddl[: _NAME.search(_code(self.ddl)).start()].strip()
         definitions = [description for name, description in self.columns.items() if name in selected]
         if not definitions:
             raise ValueError(f"No columns selected for {self.name}")
         # Retain declared join/key constraints when their local columns are present.
         for definition in self.definitions:
             code = _code(definition).strip()
-            if constraint := re.match(r"(?:CONSTRAINT\s+\w+\s+)?(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I):
+            if constraint := re.match(
+                r"(?:CONSTRAINT\s+\w+\s+)?(?:PRIMARY KEY|FOREIGN KEY|UNIQUE)\s*\(([^)]*)\)", code, re.I
+            ):
                 names = {name.strip().lower() for name in constraint[1].split(",")}
                 if names <= selected:
                     definitions.append(definition)
         lines = []
         for index, definition in enumerate(definitions):
             code = _code(definition).strip()
-            comments = [match[0] for match in _SQL_TEXT.finditer(definition)
-                        if match[0].startswith(("--", "/*"))]
+            comments = [match[0] for match in _SQL_TEXT.finditer(definition) if match[0].startswith(("--", "/*"))]
             suffix = "," if index < len(definitions) - 1 else ""
             lines.append(f"    {code}{suffix}{'  ' + ' '.join(comments) if comments else ''}")
         header = f"{preamble}\n" if preamble else ""
-        if primary_key := re.search(r"\bPRIMARY KEY\s*\(([^)]*)\)", _code(self.ddl), re.I):
+        if primary_key := re.search(r"\bPRIMARY KEY\s*\(([^)]*)\)", _code(self.ddl, strip_literals=True), re.I):
             header += f"-- Primary key: ({primary_key[1]})\n"
         return f"{header}CREATE TABLE {self.name} (\n" + "\n".join(lines) + "\n);"
 
@@ -167,7 +171,7 @@ class Table:
     def parse(cls, ddl: str) -> "Table":
         """A table from one documented CREATE TABLE statement. References come from its code, not its comments;
         names are lower-cased, as DuckDB resolves them case-insensitively."""
-        code = _code(ddl)
+        code = _code(ddl, strip_literals=True)
         if not (name := _NAME.search(code)):
             raise ValueError(f"Not a schema-qualified CREATE TABLE statement: {ddl.strip()[:80]!r}")
         return cls(name[1].lower(), ddl.strip(), frozenset(table.lower() for table in _REFERENCE.findall(code)))
@@ -221,8 +225,9 @@ class Catalog:
                 members.add(table)
 
     @classmethod
-    def of(cls, tables: Iterable[Table], families: Iterable[Family] = (), *,
-           vocabulary: Iterable[DimensionValue] = ()) -> "Catalog":
+    def of(
+        cls, tables: Iterable[Table], families: Iterable[Family] = (), *, vocabulary: Iterable[DimensionValue] = ()
+    ) -> "Catalog":
         """A read-only catalog, in the given order. Duplicate table names are an error."""
         by_name: dict[str, Table] = {}
         for table in tables:
@@ -244,8 +249,10 @@ class Catalog:
     def units(self) -> dict[str, str]:
         """A compact product-level catalog view for display and inspection."""
         members = {name for family in self.families.values() for name in family.tables.values()}
-        return {**{name: table.ddl for name, table in self.tables.items() if name not in members},
-                **{name: family.ddl for name, family in self.families.items()}}
+        return {
+            **{name: table.ddl for name, table in self.tables.items() if name not in members},
+            **{name: family.ddl for name, family in self.families.items()},
+        }
 
 
 def parse(script: str) -> list[Table]:
@@ -259,9 +266,17 @@ def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
     from gridrag.warehouse import build, products
     from gridrag.warehouse.vocabulary import ISO_ENTITIES
+
     isos = list(build.ISO_IDS)
-    return Catalog.of(parse(build.schema_text()), [
-        Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),
-               MappingProxyType({iso: products.table_name(iso, product) for iso in isos}))
-        for product in products.PRODUCTS
-    ], vocabulary=ISO_ENTITIES)
+    return Catalog.of(
+        parse(build.schema_text()),
+        [
+            Family(
+                f"core.<iso>_{product.suffix}",
+                products.family_ddl(product, isos, build.FIVE_START, build.END),
+                MappingProxyType({iso: products.table_name(iso, product) for iso in isos}),
+            )
+            for product in products.PRODUCTS
+        ],
+        vocabulary=ISO_ENTITIES,
+    )

@@ -19,14 +19,17 @@ class UsageTests(unittest.TestCase):
         for provider in providers:
             provider.decisions.create.return_value = reply(answers=[], usage={})
         shared = llm._client
-        with (patch.object(llm, "OpenAI", side_effect=providers) as create,
-              patch.object(llm, "client", side_effect=AssertionError("shared client used"))):
+        with (
+            patch.object(llm, "OpenAI", side_effect=providers) as create,
+            patch.object(llm, "client", side_effect=AssertionError("shared client used")),
+        ):
             first = llm.LLM(api_key="sk-first-visitor")
             second = llm.LLM(api_key="sk-second-visitor")
             first.decide(Stage.GATE, "first", [])
             second.decide(Stage.GATE, "second", [])
-            self.assertEqual([call.kwargs["api_key"] for call in create.call_args_list],
-                             ["sk-first-visitor", "sk-second-visitor"])
+            self.assertEqual(
+                [call.kwargs["api_key"] for call in create.call_args_list], ["sk-first-visitor", "sk-second-visitor"]
+            )
             self.assertEqual(providers[0].decisions.create.call_args.kwargs["input"], "first")
             self.assertEqual(providers[1].decisions.create.call_args.kwargs["input"], "second")
             first.close()
@@ -44,6 +47,7 @@ class UsageTests(unittest.TestCase):
     def test_stream_delivers_text_before_final_usage_and_closes_on_disconnect(self):
         closed = []
         deltas = []
+
         class Stream(list):
             def get_final_response(self):
                 self_result = reply(output=[], usage={"input_tokens": 10, "output_tokens": 2})
@@ -52,22 +56,30 @@ class UsageTests(unittest.TestCase):
         @contextmanager
         def stream(**kwargs):
             try:
-                yield Stream([SimpleNamespace(type="response.output_text.delta", delta="Hello"),
-                              SimpleNamespace(type="response.output_text.delta", delta=" world")])
+                yield Stream(
+                    [
+                        SimpleNamespace(type="response.output_text.delta", delta="Hello"),
+                        SimpleNamespace(type="response.output_text.delta", delta=" world"),
+                    ]
+                )
             finally:
                 closed.append(True)
 
         fake = SimpleNamespace(responses=SimpleNamespace(stream=stream))
         model = llm.LLM()
+
         def receive(delta):
             self.assertEqual(model.totals()["calls"], 0)
             deltas.append(delta)
+
         with patch.object(llm, "client", return_value=fake):
             model.respond(Stage.SQL, "instructions", "question", on_text=receive)
             self.assertEqual(deltas, ["Hello", " world"])
             self.assertEqual(model.totals()["output_tokens"], 2)
+
             def disconnected(delta):
                 raise BrokenPipeError()
+
             with self.assertRaises(BrokenPipeError):
                 model.respond(Stage.SQL, "instructions", "question", on_text=disconnected)
         self.assertEqual(len(closed), 2)
@@ -78,12 +90,22 @@ class UsageTests(unittest.TestCase):
             raise TimeoutError("provider timed out")
 
         fake = SimpleNamespace(
-            decisions=SimpleNamespace(create=lambda **kw: reply(
-                answers=[{"name": "relevant", "probability": 0.9}], usage={"input_tokens": 1000, "output_tokens": 0},
-            )),
-            responses=SimpleNamespace(create=lambda **kw: reply(output=[], usage={
-                "input_tokens": 3000, "input_tokens_details": {"cached_tokens": 2000}, "output_tokens": 100,
-            })),
+            decisions=SimpleNamespace(
+                create=lambda **kw: reply(
+                    answers=[{"name": "relevant", "probability": 0.9}],
+                    usage={"input_tokens": 1000, "output_tokens": 0},
+                )
+            ),
+            responses=SimpleNamespace(
+                create=lambda **kw: reply(
+                    output=[],
+                    usage={
+                        "input_tokens": 3000,
+                        "input_tokens_details": {"cached_tokens": 2000},
+                        "output_tokens": 100,
+                    },
+                )
+            ),
         )
         model = llm.LLM()
         with patch.object(llm, "client", return_value=fake):
@@ -93,8 +115,10 @@ class UsageTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 model.respond(Stage.SQL, "instructions", "question")
         totals = model.totals()
-        self.assertEqual([(c["stage"], c["kind"]) for c in totals["per_call"]],
-                         [("gate", "decisions"), ("sql", "responses"), ("sql", "responses")])
+        self.assertEqual(
+            [(c["stage"], c["kind"]) for c in totals["per_call"]],
+            [("gate", "decisions"), ("sql", "responses"), ("sql", "responses")],
+        )
         self.assertEqual((totals["calls"], totals["failed_calls"]), (3, 1))
         self.assertEqual((totals["input_tokens"], totals["cached_tokens"], totals["output_tokens"]), (4000, 2000, 100))
         # decisions: 1000 × $0.10/M; responses: 1000 uncached × $0.10 + 2000 cached × $0.01 + 100 out × $0.50

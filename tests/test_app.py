@@ -2,16 +2,16 @@
 
 import io
 import json
-import unittest
 import tempfile
-from pathlib import Path
+import unittest
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.__main__ import PRESETS, RUN_LOCK, Handler
 from gridrag import config
-from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 from gridrag.warehouse.evaluation import evaluation_question
+from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 
 
 def send(head, body=b""):
@@ -19,6 +19,9 @@ def send(head, body=b""):
 
     class Connection:
         output = b""
+
+        def settimeout(self, timeout):
+            pass
 
         def makefile(self, *args):
             return io.BytesIO(request)
@@ -30,30 +33,70 @@ def send(head, body=b""):
     with patch.object(Handler, "log_message"):
         Handler(connection, ("127.0.0.1", 1234), None)
     headers, result = connection.output.split(b"\r\n\r\n", 1)
-    return int(headers.split()[1]), ([json.loads(line) for line in result.splitlines()]
-                                  if b"application/x-ndjson" in headers else json.loads(result))
+    return int(headers.split()[1]), (
+        [json.loads(line) for line in result.splitlines()] if b"application/x-ndjson" in headers else json.loads(result)
+    )
 
 
 def post(payload, origin="http://localhost:8000", stream=False, api_key=None):
     body = json.dumps(payload).encode()
     accept = "application/x-ndjson" if stream else "application/json"
     auth = f"Authorization: Bearer {api_key}\r\n" if api_key is not None else ""
-    return send(f"POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\nAccept: {accept}\r\n{auth}"
-                f"Content-Type: application/json\r\nContent-Length: {len(body)}", body)
+    return send(
+        f"POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\nAccept: {accept}\r\n{auth}"
+        f"Content-Type: application/json\r\nContent-Length: {len(body)}",
+        body,
+    )
 
 
 def post_evaluation(origin="http://localhost:8000"):
-    return send(f"POST /api/evaluate HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\n"
-                "Accept: application/x-ndjson\r\nContent-Length: 0")
+    return send(
+        f"POST /api/evaluate HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: {origin}\r\n"
+        "Accept: application/x-ndjson\r\nContent-Length: 0"
+    )
 
 
 class AppTests(unittest.TestCase):
+    def test_ambiguous_origin_and_authorization_headers_never_reach_model(self):
+        body = b'{"question":"demand?"}'
+        base = (
+            "POST /api/ask HTTP/1.1\r\nHost: localhost:8000\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+        )
+        headers = (
+            ("Origin: http://localhost:8000\r\nOrigin: https://elsewhere.example", 403),
+            ("Authorization: Bearer sk-first-visitor-key\r\nAuthorization: Bearer sk-second-visitor-key", 401),
+        )
+        with patch("app.__main__.answer") as model:
+            for extra, expected in headers:
+                with self.subTest(status=expected):
+                    self.assertEqual(send(base + extra, body)[0], expected)
+            model.assert_not_called()
+
+    def test_request_body_timeout_does_not_start_paid_work(self):
+        with patch.object(Handler, "read_json", side_effect=TimeoutError), patch("app.__main__.answer") as model:
+            self.assertEqual(post({"question": "demand?"})[0], 408)
+            model.assert_not_called()
+
+    def test_full_evaluation_rejects_ambiguous_or_chunked_bodies(self):
+        base = "POST /api/evaluate HTTP/1.1\r\nHost: localhost:8000\r\nAccept: application/x-ndjson\r\n"
+        with patch("app.__main__.answer") as model:
+            for headers in (
+                "Content-Length: 0\r\nContent-Length: 0",
+                "Content-Length: 0\r\nTransfer-Encoding: chunked",
+            ):
+                self.assertEqual(send(base + headers)[0], 400)
+            model.assert_not_called()
+
     def test_failed_requests_release_admission_lock_and_redact_errors(self):
         for streaming in (False, True):
-            with (self.subTest(streaming=streaming),
-                  patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
-                  patch("app.__main__.answer", side_effect=RuntimeError("private provider detail")),
-                  patch("app.__main__.logging.error") as log):
+            with (
+                self.subTest(streaming=streaming),
+                patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+                patch("app.__main__.answer", side_effect=RuntimeError("private provider detail")),
+                patch("app.__main__.logging.error") as log,
+            ):
                 status, body = post({"question": "demand?"}, stream=streaming)
             self.assertFalse(RUN_LOCK.locked())
             self.assertNotIn("private provider detail", json.dumps(body))
@@ -68,8 +111,9 @@ class AppTests(unittest.TestCase):
                     request = Handler.__new__(Handler)
                     request.start_stream = Mock()
                     request.send_failure = Mock()
-                    request.execute_request(Mock(side_effect=failure), streaming=streaming,
-                                            failure_message="Failed", label="Request failed")
+                    request.execute_request(
+                        Mock(side_effect=failure), streaming=streaming, failure_message="Failed", label="Request failed"
+                    )
                     self.assertFalse(RUN_LOCK.locked())
                     request.send_failure.assert_not_called()
 
@@ -82,18 +126,21 @@ class AppTests(unittest.TestCase):
 
     def test_evaluation_continues_after_a_case_failure(self):
         cases = CASES[:2]
-        result = {"usage": {"cost_usd": .01}}
-        with (patch("app.__main__.CASES", cases),
-              patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
-              patch("app.__main__.answer", side_effect=[RuntimeError("private"), result]),
-              patch("app.__main__.assess", return_value={"passed": True}),
-              patch("app.__main__.logging.error")):
+        result = {"usage": {"cost_usd": 0.01}}
+        with (
+            patch("app.__main__.CASES", cases),
+            patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+            patch("app.__main__.answer", side_effect=[RuntimeError("private"), result]),
+            patch("app.__main__.assess", return_value={"passed": True}),
+            patch("app.__main__.logging.error"),
+        ):
             _, events = post_evaluation()
-        self.assertEqual([event["type"] for event in events],
-                         ["case_start", "case_error", "case_start", "case_done", "done"])
+        self.assertEqual(
+            [event["type"] for event in events], ["case_start", "case_error", "case_start", "case_done", "done"]
+        )
         self.assertEqual(events[-1]["summary"]["total"], 2)
         self.assertEqual(events[-1]["summary"]["passed"], 1)
-        self.assertEqual(events[-1]["summary"]["cost_usd"], .01)
+        self.assertEqual(events[-1]["summary"]["cost_usd"], 0.01)
         self.assertFalse(RUN_LOCK.locked())
 
     def test_invalid_http_framing_and_nested_json_never_reach_model(self):
@@ -103,12 +150,12 @@ class AppTests(unittest.TestCase):
             ("Content-Length: -1", body),
             ("Content-Length: 999999", body),
             ("Content-Length: nope", body),
-            (f"Content-Length: {len(body)+1}", body),
+            (f"Content-Length: {len(body) + 1}", body),
             (f"Content-Length: {len(body)}\r\nContent-Length: {len(body)}", body),
             (f"Content-Length: {len(body)}\r\nTransfer-Encoding: chunked", body),
             ("", body),
         ]
-        nested = b'{"question":' + b'[' * 1500 + b'0' + b']' * 1500 + b'}'
+        nested = b'{"question":' + b"[" * 1500 + b"0" + b"]" * 1500 + b"}"
         requests.append((f"Content-Length: {len(nested)}", nested))
         with patch("app.__main__.answer") as model:
             for headers, payload in requests:
@@ -121,8 +168,14 @@ class AppTests(unittest.TestCase):
             self.assertEqual(send("GET /static/benchmark.json HTTP/1.1\r\nHost: localhost:8000")[0], 404)
 
     def test_private_files_and_path_traversal_are_not_served(self):
-        for path in ("/.env", "/.env.local", "/.git/config", "/.vercel/project.json",
-                     "/data/warehouse.duckdb", "/static/../../.env"):
+        for path in (
+            "/.env",
+            "/.env.local",
+            "/.git/config",
+            "/.vercel/project.json",
+            "/data/warehouse.duckdb",
+            "/static/../../.env",
+        ):
             with self.subTest(path=path):
                 self.assertEqual(send(f"GET {path} HTTP/1.1\r\nHost: localhost:8000")[0], 404)
 
@@ -173,9 +226,14 @@ class AppTests(unittest.TestCase):
         self.assertNotIn("sql", meta["evaluation_cases"][0])
 
     def test_answers_return_whole_or_as_a_progress_stream(self):
-        result = {"state": "answered", "answer": "14 projects", "tool_calls": [
-            {"query": "SELECT count(*)", "csv": "projects\n14\n", "rows": 1, "error": None},
-        ]}
+        result = {
+            "state": "answered",
+            "answer": "14 projects",
+            "tool_calls": [
+                {"query": "SELECT count(*)", "csv": "projects\n14\n", "rows": 1, "error": None},
+            ],
+        }
+
         def fake_answer(question, on_progress=None):
             self.assertEqual(question, PRESETS[2]["question"])
             if on_progress:
@@ -186,9 +244,11 @@ class AppTests(unittest.TestCase):
             return result
 
         for stream in (False, True):
-            with (self.subTest(stream=stream),
-                  patch("app.__main__.answer", side_effect=fake_answer),
-                  patch.object(config, "settings", replace(config.settings, openai_api_key="test"))):
+            with (
+                self.subTest(stream=stream),
+                patch("app.__main__.answer", side_effect=fake_answer),
+                patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+            ):
                 status, body = post({"question": PRESETS[2]["question"]}, stream=stream)
                 self.assertEqual(status, 200)
                 if stream:
@@ -201,23 +261,32 @@ class AppTests(unittest.TestCase):
 
     def test_full_evaluation_stream_runs_every_shared_case(self):
         questions = []
+
         def fake_answer(question, on_progress=None):
             questions.append(question)
             on_progress({"stage": "gate"})
-            return {"state": "answered", "answer": "example", "usage": {"cost_usd": 0.01},
-                    "tool_calls": [], "timings": {"total": 0.1}}
+            return {
+                "state": "answered",
+                "answer": "example",
+                "usage": {"cost_usd": 0.01},
+                "tool_calls": [],
+                "timings": {"total": 0.1},
+            }
 
         def fake_assess(case, result):
             return {"id": case.id, "passed": True, "checks": [], "result": result}
 
-        with (patch("app.__main__.answer", side_effect=fake_answer),
-              patch("app.__main__.assess", side_effect=fake_assess),
-              patch.object(config, "settings", replace(config.settings, openai_api_key="test"))):
+        with (
+            patch("app.__main__.answer", side_effect=fake_answer),
+            patch("app.__main__.assess", side_effect=fake_assess),
+            patch.object(config, "settings", replace(config.settings, openai_api_key="test")),
+        ):
             status, events = post_evaluation()
         self.assertEqual(status, 200)
         self.assertEqual(questions, [evaluation_question(case) for case in CASES])
-        self.assertEqual([event["id"] for event in events if event["type"] == "case_start"],
-                         [case.id for case in CASES])
+        self.assertEqual(
+            [event["id"] for event in events if event["type"] == "case_start"], [case.id for case in CASES]
+        )
         self.assertEqual(len([event for event in events if event["type"] == "case_done"]), len(CASES))
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(events[-1]["summary"]["passed"], len(CASES))
@@ -231,9 +300,11 @@ class AppTests(unittest.TestCase):
             model.assert_not_called()
 
     def test_hosted_requests_require_a_visitor_key_even_with_an_owner_key(self):
-        with (patch.object(Handler, "require_visitor_key", True),
-              patch.object(config, "settings", replace(config.settings, openai_api_key="owner-secret")),
-              patch("app.__main__.answer") as model):
+        with (
+            patch.object(Handler, "require_visitor_key", True),
+            patch.object(config, "settings", replace(config.settings, openai_api_key="owner-secret")),
+            patch("app.__main__.answer") as model,
+        ):
             status, meta = send("GET /api/meta HTTP/1.1\r\nHost: localhost:8000")
             self.assertEqual(status, 200)
             self.assertFalse(meta["model_ready"])
@@ -244,9 +315,11 @@ class AppTests(unittest.TestCase):
             model.assert_not_called()
 
     def test_visitor_credentials_are_request_scoped_and_clients_are_closed(self):
-        with (patch.object(Handler, "require_visitor_key", True),
-              patch("app.__main__.LLM") as factory,
-              patch("app.__main__.answer", return_value={"state": "answered", "answer": "example"}) as model):
+        with (
+            patch.object(Handler, "require_visitor_key", True),
+            patch("app.__main__.LLM") as factory,
+            patch("app.__main__.answer", return_value={"state": "answered", "answer": "example"}) as model,
+        ):
             for key in ("sk-first-visitor-key", "sk-second-visitor-key"):
                 status, _ = post({"question": "demand?"}, "https://localhost:8000", api_key=key)
                 self.assertEqual(status, 200)
@@ -260,24 +333,31 @@ class AppTests(unittest.TestCase):
         with patch("app.__main__.answer") as model:
             for key in ("bad", "sk-", "sk-" + "x" * 501, "sk-with spaces in it"):
                 self.assertEqual(post({"question": "demand?"}, api_key=key)[0], 401)
-            self.assertEqual(post({"question": "demand?"}, "https://elsewhere.example",
-                                  api_key="sk-valid-shaped-test-key")[0], 403)
+            self.assertEqual(
+                post({"question": "demand?"}, "https://elsewhere.example", api_key="sk-valid-shaped-test-key")[0], 403
+            )
             model.assert_not_called()
 
     def test_one_evaluation_case_streams_using_the_visitor_key(self):
         body = json.dumps({"id": CASES[0].id}).encode()
-        headers = ("POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
-                   "Origin: https://localhost:8000\r\nAuthorization: Bearer sk-visitor-test-key\r\n"
-                   "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
-                   f"Content-Length: {len(body)}")
+        headers = (
+            "POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
+            "Origin: https://localhost:8000\r\nAuthorization: Bearer sk-visitor-test-key\r\n"
+            "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}"
+        )
+
         def fake_answer(question, llm, on_progress):
             self.assertEqual(question, evaluation_question(CASES[0]))
             on_progress({"stage": "gate"})
             return {"usage": {"cost_usd": 0.01}}
-        with (patch.object(Handler, "require_visitor_key", True),
-              patch("app.__main__.LLM") as factory,
-              patch("app.__main__.answer", side_effect=fake_answer),
-              patch("app.__main__.assess", return_value={"id": CASES[0].id, "passed": True})):
+
+        with (
+            patch.object(Handler, "require_visitor_key", True),
+            patch("app.__main__.LLM") as factory,
+            patch("app.__main__.answer", side_effect=fake_answer),
+            patch("app.__main__.assess", return_value={"id": CASES[0].id, "passed": True}),
+        ):
             status, events = send(headers, body)
             self.assertEqual(status, 200)
             self.assertEqual(events[-1]["summary"]["total"], 1)
@@ -289,8 +369,11 @@ class AppTests(unittest.TestCase):
         for payload in ({"id": "missing"}, {"id": "off_topic"}, {"id": "unrelated_task"}, [], {}):
             body = json.dumps(payload).encode()
             with patch("app.__main__.answer") as model:
-                status, _ = send("POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
-                                 "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
-                                 f"Content-Length: {len(body)}", body)
+                status, _ = send(
+                    "POST /api/evaluate-case HTTP/1.1\r\nHost: localhost:8000\r\n"
+                    "Accept: application/x-ndjson\r\nContent-Type: application/json\r\n"
+                    f"Content-Length: {len(body)}",
+                    body,
+                )
                 self.assertEqual(status, 400)
                 model.assert_not_called()

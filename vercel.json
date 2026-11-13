@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "uv run --locked python -m scripts.vercel_build",
+  "buildCommand": "uv run --locked --no-dev python -m scripts.vercel_build",
   "outputDirectory": "public",
   "functions": {
     "api/index.py": {

@@ -10,7 +10,8 @@ import csv
 import io
 import json
 import threading
-from collections.abc import Collection, Iterator
+import time
+from collections.abc import Collection, Iterable, Iterator
 from contextlib import contextmanager
 
 import duckdb
@@ -22,8 +23,9 @@ from gridrag.records import QueryResult
 SAFE_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
 # These have no role in warehouse analytics. In particular write_log could place
 # attacker-controlled text in infrastructure logs, and sleep_ms needlessly holds a worker.
-BLOCKED_FUNCTIONS = frozenset({"write_log", "sleep_ms", "nextval", "currval", "setval", "setseed",
-                               "getenv", "getvariable", "current_setting"})
+BLOCKED_FUNCTIONS = frozenset(
+    {"write_log", "sleep_ms", "nextval", "currval", "setval", "setseed", "getenv", "getvariable", "current_setting"}
+)
 ONE_SELECT = "only a single SELECT (or WITH ... SELECT) query is allowed"
 
 _db: duckdb.DuckDBPyConnection | None = None
@@ -41,9 +43,15 @@ def _database() -> duckdb.DuckDBPyConnection:
             settings = config.settings
             if not settings.db_path.exists():
                 raise FileNotFoundError(f"warehouse missing: {settings.db_path}; run python -m gridrag.warehouse.build")
-            connection = duckdb.connect(str(settings.db_path), read_only=True, config={
-                "memory_limit": settings.db_memory_limit, "threads": settings.db_threads, "temp_directory": "",
-            })
+            connection = duckdb.connect(
+                str(settings.db_path),
+                read_only=True,
+                config={
+                    "memory_limit": settings.db_memory_limit,
+                    "threads": settings.db_threads,
+                    "temp_directory": "",
+                },
+            )
             try:
                 # Configure resources before locking external access and settings.
                 connection.execute("SET allow_persistent_secrets = false")
@@ -105,48 +113,88 @@ def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed: set[str]) -> str:
 
 @contextmanager
 def _timed_cursor(seconds: float) -> Iterator[duckdb.DuckDBPyConnection]:
-    """A cursor that is interrupted after `seconds`, and always cleaned up."""
+    """Bound validation, execution and fetching, including gaps between SQL statements."""
     cur = _database().cursor()
-    timer = threading.Timer(seconds, cur.interrupt)
-    timer.daemon = True
-    timer.start()
+    finished, expired = threading.Event(), threading.Event()
+    deadline = time.monotonic() + seconds
+
+    def interrupt() -> None:
+        if finished.wait(max(0, deadline - time.monotonic())):
+            return
+        expired.set()
+        # An interrupt while the cursor is idle does not cancel its next query.
+        # Keep interrupting until the owner stops, so validation cannot consume
+        # the deadline and leave the actual query running without a watchdog.
+        while not finished.is_set():
+            cur.interrupt()
+            finished.wait(0.01)
+
+    watchdog = threading.Thread(target=interrupt, daemon=True)
+    watchdog.start()
     try:
-        yield cur
+        try:
+            yield cur
+        except duckdb.InterruptException as exc:
+            raise QueryRejected(f"query exceeded the {seconds:g}-second execution budget") from exc
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise QueryRejected(f"query exceeded the {seconds:g}-second execution budget")
     finally:
-        timer.cancel()
-        timer.join()
+        finished.set()
+        watchdog.join()
         cur.close()
 
 
-def _fetch(cur: duckdb.DuckDBPyConnection, sql: str, allowed: set[str], max_rows: int):
-    """The column names and native rows, one more than max_rows so truncation is detectable. Raises QueryRejected
-    with a message the model can act on."""
+def _fetch(
+    cur: duckdb.DuckDBPyConnection,
+    sql: str,
+    allowed: set[str],
+    max_rows: int,
+) -> tuple[list[str], Iterator[tuple]]:
+    """Validate and execute, then fetch rows lazily within the cursor's lifetime."""
     try:
         normalized = _check(cur, sql, allowed)
+    except duckdb.InterruptException:
+        raise
     except (duckdb.Error, RecursionError) as exc:  # QueryRejected is not a duckdb.Error, so it passes through
         raise QueryRejected(f"invalid query: {type(exc).__name__}") from exc
     try:
         cur.execute(f"SELECT * FROM ({normalized}) AS result LIMIT {max_rows + 1}")
-        return [column[0] for column in cur.description], cur.fetchall()
-    except duckdb.InterruptException as exc:
-        raise QueryRejected(f"query exceeded the {config.settings.sql_timeout_s:g}-second execution budget") from exc
+        return [column[0] for column in cur.description], iter(cur.fetchone, None)
+    except duckdb.InterruptException:
+        raise
     except duckdb.Error as exc:
         raise QueryRejected(f"{type(exc).__name__}: {exc}"[:600]) from exc
 
 
-def _result(columns: list[str], rows: list[tuple], max_rows: int) -> QueryResult:
+def _result(columns: list[str], rows: Iterable[tuple], max_rows: int) -> QueryResult:
     """The rows as CSV, flagged when truncated, or an error when the CSV is too large."""
     settings = config.settings
     # Native values preserve DECIMAL and large integers without DataFrame float coercion.
-    buffer = io.StringIO(newline="")
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(columns)
-    writer.writerows(rows[:max_rows])
-    csv_text = buffer.getvalue()
-    if len(csv_text.encode("utf-8")) > settings.sql_max_result_bytes:
-        return {"error": f"result exceeds {settings.sql_max_result_bytes} bytes; aggregate or select fewer columns"}
-    out: QueryResult = {"rows": min(len(rows), max_rows), "csv": csv_text}
-    if len(rows) > max_rows:
+    parts: list[str] = []
+    size = 0
+
+    def append(row: Iterable) -> None:
+        nonlocal size
+        buffer = io.StringIO(newline="")
+        csv.writer(buffer, lineterminator="\n").writerow(row)
+        text = buffer.getvalue()
+        size += len(text.encode("utf-8"))
+        if size > settings.sql_max_result_bytes:
+            raise QueryRejected(
+                f"result exceeds {settings.sql_max_result_bytes} bytes; aggregate or select fewer columns"
+            )
+        parts.append(text)
+
+    append(columns)
+    count, truncated = 0, False
+    for row in rows:
+        if count == max_rows:
+            truncated = True
+            break
+        append(row)
+        count += 1
+    out: QueryResult = {"rows": count, "csv": "".join(parts)}
+    if truncated:
         out["truncated"] = f"more than {max_rows} rows; aggregate or filter in SQL"
     return out
 
@@ -163,6 +211,7 @@ def run_model_sql(sql: str, max_rows: int, allowed_tables: Collection[str] | Non
     try:
         with _timed_cursor(settings.sql_timeout_s) as cur:
             columns, rows = _fetch(cur, sql.strip(), allowed, max_rows)
+            result = _result(columns, rows, max_rows)
     except QueryRejected as exc:
         return {"error": str(exc)}
-    return _result(columns, rows, max_rows)
+    return result

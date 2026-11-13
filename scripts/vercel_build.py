@@ -1,4 +1,5 @@
 """Generate the fictional warehouse and publish only the demo's frontend assets."""
+
 import shutil
 from pathlib import Path
 
