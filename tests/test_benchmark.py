@@ -76,6 +76,35 @@ class BenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fresh schema-driven run"):
             public_report(report)
 
+    def test_three_trial_publication_aggregates_all_attempts_and_keeps_trial_scores(self):
+        report = {"manifest": {"live": True, "repeats": 3, "methods": list(LIVE_METHODS),
+                  "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+                  "pipeline_version": "schema-driven-v1",
+                  "grounding": {"version": "schema-only-v1", "curated_vocabulary": False},
+                  "hybrid": {"fusion_version": "semantic-bm25-v1"}},
+                  "paired_intervals": [], "runs": []}
+        for repeat in range(3):
+            for case in BENCHMARK_CASES:
+                for method in LIVE_METHODS:
+                    correct = repeat < {"routed": 2, "vector-k21": 1, "vector-hybrid-k25": 3}[method]
+                    report["runs"].append({"case": case.id, "method": method, "repeat": repeat,
+                        "correct": correct, "seconds": 1., "state": "answered" if correct else "failed",
+                        "result": {"answer": "Recorded attempt", "timings": {}, "tool_calls": []}})
+        public = public_report(report)
+        self.assertEqual(len(public["runs"]), 270)
+        summaries = {s["method"]: s for s in public["summary"]}
+        self.assertTrue(all(s["attempts"] == 90 for s in summaries.values()))
+        self.assertAlmostEqual(summaries["routed"]["accuracy"], 2/3)
+        self.assertEqual(summaries["routed"]["failures"], 30)
+        self.assertAlmostEqual(summaries["vector-k21"]["accuracy"], 1/3)
+        self.assertEqual(summaries["vector-hybrid-k25"]["accuracy"], 1.)
+        self.assertEqual([trial["trial"] for trial in public["trial_summaries"]], [1, 2, 3])
+        for trial in public["trial_summaries"]:
+            self.assertTrue(all(s["attempts"] == 30 for s in trial["summary"]))
+        report["runs"].pop()
+        with self.assertRaisesRegex(ValueError, "complete live run"):
+            public_report(report)
+
     def test_reference_cases_are_valid_and_unique(self):
         self.assertEqual(len({c.id for c in BENCHMARK_CASES}), len(BENCHMARK_CASES))
         for case in BENCHMARK_CASES:

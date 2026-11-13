@@ -110,7 +110,8 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 1 --max-tables 25
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-schema-driven-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven-3trials.json
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -121,8 +122,9 @@ and removes only that collection afterward. The eval dependencies are optional
 and are not installed for the Vercel app.
 
 The capability benchmark contains **30 answerable questions**: 7 easy, 8 medium,
-8 hard, and 7 very hard. One attempt per question and method produces **90 recorded
-attempts**, in seeded shuffled order. Difficult questions combine forecast vintages,
+8 hard, and 7 very hard. Three trials per question and method produce **270 recorded
+attempts**, with **90 attempts per method**, in seeded shuffled order. Difficult
+questions combine forecast vintages,
 window rankings, dimensional joins, interval alignment, energy conversion, and
 cross-region comparisons. Independent reference SQL never reaches the models.
 
@@ -132,24 +134,28 @@ and their values; partial answers and missing-series claims fail. Clarification 
 not counted as a correct analytical answer. Refusal and table-budget behavior
 remain in the separate developer regression suite.
 
-| Method | Correct answers | Required-table recall | Median time |
-| --- | --- | --- | --- |
-| Routed schema | 96.7% | 100.0% | 4.45 s |
-| Qdrant → Decisions | 96.7% | 100.0% | 3.77 s |
-| Dense vector · top21 | 80.0% | 92.5% | 3.81 s |
+| Method | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Required-table recall | Median time |
+| --- | --- | --- | --- | --- | --- | --- |
+| Routed schema | 27/30 | 27/30 | 27/30 | 81/90 · 90.0% | 100.0% | 4.82 s |
+| Qdrant → Decisions | 28/30 | 26/30 | 28/30 | 82/90 · 91.1% | 100.0% | 4.14 s |
+| Dense vector · top21 | 24/30 | 23/30 | 23/30 | 70/90 · 77.8% | 92.5% | 4.12 s |
 
-This is a small synthetic development suite with one attempt per method, not a
-held-out test or a production-accuracy estimate. Required-table recall, query
+Cumulative accuracy is correct answers divided by all 90 attempts for each method,
+including failed attempts. Trial scores show variation across the three runs.
+This small synthetic development suite does not estimate production accuracy.
+Required-table recall, query
 results, latency, schema size, tokens, and estimated costs are recorded separately.
 
 ### Read the recorded answers
 
 The [evaluation page](https://gridrag.vercel.app/#evaluation) shows all 30 questions,
-with filters from easy to very hard. Each question displays one recorded answer
-from routed schema, top-21 vectors, and hybrid reranking, with selected tables,
+with filters from easy to very hard. Each question has Trial 1, Trial 2, and Trial 3
+controls for routed schema, top-21 vectors, and hybrid reranking, with selected tables,
 SQL, CSV evidence, time, and estimated cost. Complete table references are visible
 for comparison questions. Scores include failed attempts and cover the selected
-questions. Browsing never makes paid model calls.
+questions across all three trials. Selecting a trial changes the displayed
+evidence while cumulative scores continue to include every attempt. Browsing
+never makes paid model calls.
 
 The separate 26-case regression suite in `gridrag/warehouse/suite.py` remains
 available for explicit local testing, including scope and safety behavior.

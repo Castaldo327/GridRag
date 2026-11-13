@@ -8,7 +8,14 @@ function page() {
   const scopes = ["all", "easy", "medium", "hard", "very_hard"].map(scope => ({dataset: {scoreScope: scope}}));
   const element = id => {
     if (!elements.has(id)) elements.set(id, {innerHTML: "", focus() {},
-      querySelectorAll() { return []; }, querySelector() { return {focus() {}}; }});
+      querySelectorAll(selector) {
+        if (selector !== "[data-recorded-trial]") return [];
+        this.trialButtons ??= new Map();
+        return [...this.innerHTML.matchAll(/data-recorded-case="([^"]+)" data-recorded-trial="(\d+)"/g)].map(([, id, trial]) => {
+          if (!this.trialButtons.has(trial)) this.trialButtons.set(trial, {dataset: {recordedCase:id, recordedTrial:trial}});
+          return this.trialButtons.get(trial);
+        });
+      }, querySelector() { return {focus() {}}; }});
     return elements.get(id);
   };
   const context = vm.createContext({
@@ -49,8 +56,8 @@ test("difficulty filters recompute all methods' scores and retain failures", () 
   const {api, element, scopes} = page();
   api.paintBenchmark();
   const summary = () => element("#benchmark-results").innerHTML;
-  assert.match(summary(), /4 questions shown · 1 recorded attempt per approach/);
-  assert.equal((summary().match(/<td>75\.0%<\/td>/g) || []).length, 3);
+  assert.match(summary(), /4 questions shown · 1 recorded trial per question and approach · 12 total attempts shown/);
+  assert.equal((summary().match(/<td>3\/4 · 75\.0%<\/td>/g) || []).length, 3);
   assert.match(summary(), /Top 21 tables/);
   assert.match(summary(), /Qdrant → Decisions/);
   assert.match(summary(), /OpenAI Decisions API \(test-reranker\)/);
@@ -61,7 +68,7 @@ test("difficulty filters recompute all methods' scores and retain failures", () 
     scopes[index+1].onclick();
     assert.match(summary(), /1 question shown/);
     const expected = difficulty === "medium" ? "0.0" : "100.0";
-    assert.match(summary(), new RegExp(`<td>${expected.replace(".", "\\.")}%<\\/td>`));
+    assert.match(summary(), new RegExp(`<td>${difficulty === "medium" ? 0 : 1}/1 · ${expected.replace(".", "\\.")}%<\\/td>`));
     const id = difficulty === "very_hard" ? "all_iso_prices" : difficulty;
     assert.match(element("#recorded-answers").innerHTML, new RegExp(`id="recorded-${id}"`));
     assert.doesNotMatch(summary(), /NaN/);
@@ -91,6 +98,39 @@ test("one attempt shows all three answers without trial controls and escapes evi
   assert.equal((table.match(/Matches reference/g) || []).length, 3);
 });
 
+test("three trials contribute to cumulative scores while selectors change only the evidence", () => {
+  const {api, element, scopes} = page();
+  const b = api.state.benchmark, original = b.runs;
+  b.manifest.repeats = 3;
+  b.runs = [0,1,2].flatMap(repeat => original.map(row => ({...row, repeat,
+    correct: row.case === "easy" ? repeat !== 1 : row.case === "medium" ? false : repeat === 0,
+    answer: `${row.method} trial ${repeat+1} answer`,
+  })));
+  api.paintBenchmark();
+  const summary = element("#benchmark-results").innerHTML;
+  assert.match(summary, /3 recorded trials per question and approach · 36 total attempts shown/);
+  assert.equal((summary.match(/<td>4\/12 · 33\.3%<\/td>/g) || []).length, 3);
+  assert.match(summary, /Accuracy by trial/);
+  for (const score of ["3/4 · 75.0%", "0/4 · 0.0%", "1/4 · 25.0%"])
+    assert.equal(summary.split(`<td>${score}</td>`).length - 1, 3);
+  const question = element("recorded-easy");
+  assert.equal((question.innerHTML.match(/Cumulative: 2\/3 correct across all trials/g) || []).length, 3);
+  for (const trial of [0,1,2]) {
+    const buttons = question.querySelectorAll("[data-recorded-trial]");
+    assert.equal(buttons.length, 3);
+    buttons[trial].onclick();
+    assert.equal(api.state.recordedTrials.get("easy"), trial);
+    assert.match(question.innerHTML, new RegExp(`routed trial ${trial+1} answer`));
+    assert.equal((question.innerHTML.match(/Cumulative: 2\/3 correct across all trials/g) || []).length, 3);
+    assert.equal(element("#benchmark-results").innerHTML, summary);
+  }
+  scopes[1].onclick();
+  const filtered = element("#benchmark-results").innerHTML;
+  assert.match(filtered, /1 question shown · 3 recorded trials per question and approach · 9 total attempts shown/);
+  assert.equal((filtered.match(/<td>2\/3 · 66\.7%<\/td>/g) || []).length, 3);
+  assert.match(element("recorded-easy").innerHTML, /routed trial 3 answer/);
+});
+
 test("earlier data cannot appear as results of the new capability suite", () => {
   const {api, element} = page();
   delete api.state.benchmark.manifest.experiment;
@@ -107,7 +147,7 @@ test("demo-specific recorded retrieval is labeled historical without changing it
   const summary = element("#benchmark-results").innerHTML;
   assert.match(summary, /Historical retrieval:/);
   assert.match(summary, /These scores do not evaluate the current generic retriever/);
-  assert.equal((summary.match(/<td>75\.0%<\/td>/g) || []).length, 3);
+  assert.equal((summary.match(/<td>3\/4 · 75\.0%<\/td>/g) || []).length, 3);
   delete api.state.benchmark.manifest.hybrid.metadata;
   api.state.benchmark.manifest.hybrid.fusion_version = "semantic-bm25-v1";
   api.paintBenchmark();

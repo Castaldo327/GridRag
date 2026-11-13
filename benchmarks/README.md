@@ -55,15 +55,19 @@ performance. BM25 currently scans schema documents per question.
 
 ## Scoring
 
-Each of the 30 questions runs once for each of 3 methods: 90 attempts. Scalar
+Each of the 30 questions runs three times for each of 3 methods: 270 attempts.
+Each method has 90 attempts. Cumulative accuracy is the number of correct
+answers divided by all 90 attempts, including failures. Each trial also has a
+separate 30-question score per method; no best-trial or best-answer selection is used. Scalar
 questions require one finite numeric value in the complete final SQL result,
 matching the independent reference within the case tolerance. The seven-ISO price
 comparison requires all 21 ISO/product keys and numeric values, without duplicates,
 missing or extra rows, in any row order. Its expected result is an answer, not a
 budget refusal. Table recall and prose diagnostics are separate from correctness.
 
-One attempt cannot estimate model variability. Case-bootstrap intervals describe
-uncertainty over these questions, not repeated-trial reliability. Safety/refusal
+The three observed trial scores show run-to-run variation. Case-bootstrap
+intervals keep repeated attempts clustered within each question and describe
+uncertainty over these questions; three trials do not establish model reliability. Safety/refusal
 checks remain in the separate 26-case regression suite and are not mixed into the
 capability accuracy score. Changing the suite or budgets prevents direct causal
 comparison with earlier results.
@@ -73,19 +77,20 @@ comparison with earlier results.
 ```sh
 uv sync --locked --extra eval
 docker compose up -d qdrant
-uv run --extra eval python -m benchmarks.run --live --repeats 1 --max-tables 25 --output artifacts/benchmark-schema-driven.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-schema-driven-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-schema-driven-3trials.json
 docker compose stop qdrant
 ```
 
 Reports checkpoint every completed attempt. The publisher requires a complete
 live report and writes the sanitized local `app/static/benchmark.json`; it does
-not deploy. Retrieval-only runs omit `--live`; hybrid then uses fusion without
+not deploy. The exported JSON includes cumulative summaries, per-trial summaries,
+and every recorded attempt. Retrieval-only runs omit `--live`; hybrid then uses fusion without
 the paid reranker and may exceed the table budget. Those diagnostics are not
 substitutes for live capability scores.
 
 Each live trace records the Decisions endpoint and configured model. Repeated
-one-attempt runs can differ with identical retrieval settings; score differences
+trials can differ with identical retrieval settings; score differences
 alone do not establish an algorithmic improvement. See the
 [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 for the predicate relevance-scoring contract.

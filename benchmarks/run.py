@@ -1,4 +1,4 @@
-"""Run a paired comparison: python -m benchmarks.run --live --repeats 1.
+"""Run a paired comparison: python -m benchmarks.run --live --repeats 3.
 
 Without --live, evaluate dense retrieval and deterministic hybrid fusion (no OpenAI
 requests). Settings are fixed within each run. This is a development comparison,
@@ -224,7 +224,7 @@ def run_benchmark(args, catalog, vector, references):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Make paid model calls with the local configured key")
-    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--url", default="http://127.0.0.1:6333")
     parser.add_argument("--output", type=Path, default=Path("artifacts/benchmark.json"))
     parser.add_argument("--max-tables", type=int, default=25,

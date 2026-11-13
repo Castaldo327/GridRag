@@ -46,6 +46,9 @@ def public_report(report):
                                    "rerank_scores": result["route"]["scores"]}
     numeric = {case.id for case in BENCHMARK_CASES if case.sql}
     return {"manifest": manifest, "summary": summarize(rows), "paired_intervals": report["paired_intervals"],
+            "trial_summaries": [{"trial": repeat + 1,
+                                 "summary": summarize([row for row in rows if row["repeat"] == repeat])}
+                                for repeat in range(manifest["repeats"])],
             "numeric_summary": summarize([row for row in rows if row["case"] in numeric]),
             "behavior_summary": summarize([row for row in rows if row["case"] not in numeric]),
             "cases": [{"id": case.id, "question": case.question, "type": case.result_kind,
