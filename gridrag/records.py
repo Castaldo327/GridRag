@@ -40,6 +40,7 @@ class Selection(TypedDict):
     column_scores: dict[str, dict[str, float | None]]  # selected table -> column -> probability
     columns: dict[str, list[str]]  # selected table -> columns supplied to SQL
     fallback: bool  # at least one unusable score retained context
+    retrieval: NotRequired[dict]  # optional hybrid candidate and reranking diagnostics
 
 
 class QueryResult(TypedDict, total=False):

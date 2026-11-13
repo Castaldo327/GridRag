@@ -368,3 +368,14 @@ Example (`caiso_renewable_curtailment_5min`, one interval): solar 282.10 MW is a
 6. `lmp` already includes the three components; don't add them again.
 7. Hub and bus `location_id`s are different grains. Don't mix them in an average.
 8. Fuel shares: divide `fact_generation_*` by `net_generation_mw` (hourly), not `demand_mw`.
+
+
+## Approved dimension values
+
+The catalog attaches an explicit vocabulary from [`gridrag/grounding.py`](../grounding.py)
+to the shared SQL prompt, scoped to the selected columns. Region aliases include
+California/California ISO → `CAISO`, Texas → `ERCOT`, and New England/ISO New England
+→ `ISONE`. Regional ISO codes are distinct from two-letter project states: `CA`
+is a possible project state, not an ISO code. The vocabulary also covers fuels,
+fictional price-location codes, and normalized queue statuses. Custom catalogs
+must opt in with their own approved vocabulary.

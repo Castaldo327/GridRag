@@ -1,16 +1,45 @@
 """Benchmark integrity checks, without embeddings, network calls, or model use."""
+import csv
+import io
 import unittest
+import hashlib
+from collections import Counter
 
-from benchmarks.run import strict_evidence, retrieval_metrics, summarize
-from benchmarks.cases import BENCHMARK_CASES
+from benchmarks.run import LIVE_METHODS, strict_evidence, retrieval_metrics, summarize
+from benchmarks.cases import BENCHMARK_CASES, DIFFICULTIES
 from gridrag.catalog import demo_catalog
-from gridrag.warehouse.evals import reference_value
+from gridrag.records import State
+from gridrag.route import _with_references
+from gridrag.warehouse.evals import reference_result, reference_value
 from scripts.publish_benchmark import public_report
 from scripts.security_audit import scan
 from scripts.public_release import release_files, ROOT
 
 
 class BenchmarkTests(unittest.TestCase):
+    def test_capability_suite_covers_thirty_answerable_questions_in_difficulty_order(self):
+        self.assertEqual(len(BENCHMARK_CASES), 30)
+        self.assertEqual(Counter(case.difficulty for case in BENCHMARK_CASES),
+                         {"easy": 7, "medium": 8, "hard": 8, "very_hard": 7})
+        order = [DIFFICULTIES.index(case.difficulty) for case in BENCHMARK_CASES]
+        self.assertEqual(order, sorted(order))
+        for case in BENCHMARK_CASES:
+            with self.subTest(case=case.id):
+                self.assertEqual(case.state, State.ANSWERED)
+                self.assertTrue(case.sql)
+                self.assertTrue(case.unit)
+
+    def test_complete_price_comparison_has_every_region_product_and_fits_budget(self):
+        case = next(case for case in BENCHMARK_CASES if case.id == "all_iso_prices")
+        self.assertEqual(case.result_kind, "table")
+        result = reference_result(case)
+        rows = list(csv.DictReader(io.StringIO(result["csv"])))
+        self.assertEqual(len(rows), 21)
+        expected = {(iso, product) for iso in demo_catalog().isos
+                    for product in ("real_time_bus", "real_time_hub", "day_ahead_hub")}
+        self.assertEqual({(row["iso_code"], row["product"]) for row in rows}, expected)
+        self.assertLessEqual(len(_with_references(demo_catalog(), set(case.tables))), 25)
+
     def test_scalar_check_rejects_coincidental_numbers_and_truncation(self):
         def result(csv, **kwargs):
             return {"tool_calls": [{"csv": csv, **kwargs}]}
@@ -21,21 +50,39 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(strict_evidence({"tool_calls": [{"csv": "a\n12.5\n"}, {"csv": "a\n9\n"}]}, 12.5, .01))
 
     def test_partial_or_duplicate_benchmarks_cannot_be_published(self):
-        report = {"manifest": {"live": True, "repeats": 1}, "runs": []}
+        report = {"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
+                               "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest()}, "runs": []}
         with self.assertRaises(ValueError):
             public_report(report)
         rows = [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES
-                for method in ("routed", "vector-k4", "vector-k6")]
+                for method in LIVE_METHODS]
         report["runs"] = rows + [rows[0]]
         with self.assertRaises(ValueError):
             public_report(report)
+
+    def test_empty_or_mismatched_suite_cannot_be_published(self):
+        for count in (0, -1, True, 1.5):
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "positive integer"):
+                public_report({"manifest": {"live": True, "repeats": count}, "runs": []})
+        with self.assertRaisesRegex(ValueError, "questions do not match"):
+            public_report({"manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS),
+                                        "cases_sha256": "stale"}, "runs": []})
 
     def test_reference_cases_are_valid_and_unique(self):
         self.assertEqual(len({c.id for c in BENCHMARK_CASES}), len(BENCHMARK_CASES))
         for case in BENCHMARK_CASES:
             if case.sql:
                 with self.subTest(case=case.id):
-                    self.assertIsInstance(reference_value(case), float)
+                    if case.result_kind == "table":
+                        self.assertEqual(reference_result(case)["rows"], 21)
+                    else:
+                        self.assertIsInstance(reference_value(case), float)
+
+    def test_current_experiment_cannot_omit_the_hybrid_method(self):
+        report = {"manifest": {"format_version": 4, "live": True, "repeats": 1,
+                               "methods": ["routed", "vector-k4", "vector-k6"]}, "runs": []}
+        with self.assertRaisesRegex(ValueError, "three declared methods"):
+            public_report(report)
 
     def test_budget_clarification_has_no_delivered_schema(self):
         catalog = demo_catalog()

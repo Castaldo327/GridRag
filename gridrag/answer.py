@@ -11,6 +11,7 @@ from openai import APIError, AuthenticationError, PermissionDeniedError, RateLim
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.gate import gate
+from gridrag.grounding import render_grounding
 from gridrag.llm import LLM, Model
 from gridrag.records import Answer, Gate, Progress, Selection, Stage, State, ToolCall
 from gridrag.route import RoutingTooBroad, route
@@ -115,6 +116,7 @@ def _run(trace: _Trace, catalog: Catalog, retriever: Callable[[str, Model, Catal
     with trace.timed(Stage.SQL, {"route": trace.route}):
         schema = "\n\n".join(catalog.tables[table].selected_schema(trace.route["columns"][table])
                              for table in tables)
-        output = agent.run(llm, question, schema=schema, allowed_tables=tables, on_progress=trace.report)
+        output = agent.run(llm, question, schema=schema, allowed_tables=tables, on_progress=trace.report,
+                           grounding=render_grounding(catalog.vocabulary, trace.route["columns"]))
     trace.tool_calls = output["tool_calls"]
     return trace.record(output["state"], output["answer"])

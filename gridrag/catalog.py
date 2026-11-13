@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from functools import cache, cached_property
 from types import MappingProxyType
 
+from gridrag.grounding import DimensionValue
+
 _STATEMENT = re.compile(r"(?:^[ \t]*--[^\n]*\n)*^CREATE TABLE \w+\.\w+\s*\([\s\S]*?^\);", re.MULTILINE | re.IGNORECASE)
 _NAME = re.compile(r"\bCREATE TABLE\s+(\w+\.\w+)", re.IGNORECASE)
 _REFERENCE = re.compile(r"\bREFERENCES\s+(\w+\.\w+)", re.IGNORECASE)
@@ -192,12 +194,17 @@ class Catalog:
 
     tables: Mapping[str, Table]
     families: Mapping[str, Family] = field(default_factory=lambda: MappingProxyType({}))
+    vocabulary: tuple[DimensionValue, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
         object.__setattr__(self, "families", MappingProxyType(dict(self.families)))
+        object.__setattr__(self, "vocabulary", tuple(self.vocabulary))
         if not self.tables:
             raise ValueError("The schema catalog is empty")
+        for entry in self.vocabulary:
+            if entry.table not in self.tables or entry.column not in self.tables[entry.table].columns:
+                raise ValueError(f"Unknown grounding column: {entry.table}.{entry.column}")
         for name, table in self.tables.items():
             if name != table.name:
                 raise ValueError(f"Catalog key {name!r} does not match table {table.name!r}")
@@ -215,7 +222,8 @@ class Catalog:
                 members.add(table)
 
     @classmethod
-    def of(cls, tables: Iterable[Table], families: Iterable[Family] = ()) -> "Catalog":
+    def of(cls, tables: Iterable[Table], families: Iterable[Family] = (), *,
+           vocabulary: Iterable[DimensionValue] = ()) -> "Catalog":
         """A read-only catalog, in the given order. Duplicate table names are an error."""
         by_name: dict[str, Table] = {}
         for table in tables:
@@ -227,7 +235,7 @@ class Catalog:
             if family.name in by_family:
                 raise ValueError(f"Duplicate family entry: {family.name}")
             by_family[family.name] = family
-        return cls(by_name, by_family)
+        return cls(by_name, by_family, tuple(vocabulary))
 
     @property
     def isos(self) -> tuple[str, ...]:
@@ -251,9 +259,10 @@ def parse(script: str) -> list[Table]:
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
     from gridrag.warehouse import build, products
+    from gridrag.grounding import demo_vocabulary
     isos = list(build.ISO_IDS)
     return Catalog.of(parse(build.schema_text()), [
         Family(f"core.<iso>_{product.suffix}", products.family_ddl(product, isos, build.FIVE_START, build.END),
                MappingProxyType({iso: products.table_name(iso, product) for iso in isos}))
         for product in products.PRODUCTS
-    ])
+    ], vocabulary=demo_vocabulary())

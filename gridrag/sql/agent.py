@@ -20,6 +20,8 @@ Use schema-qualified DuckDB SQL and run_sql to obtain evidence. Aim for the fewe
 
 {rules}
 
+{grounding}
+
 {schema}"""
 
 ANSWER_RULES = (
@@ -143,6 +145,7 @@ def run(
     question: str,
     *,
     schema: str,
+    grounding: str = "",
     allowed_tables: Collection[str] | None = None,
     on_progress: Callable[[Progress], None] | None = None,
 ) -> AgentResult:
@@ -156,7 +159,7 @@ def run(
             on_progress(update)
 
     settings = config.settings
-    instructions = INSTRUCTIONS.format(schema=schema, rules=ANSWER_RULES)
+    instructions = INSTRUCTIONS.format(schema=schema, rules=ANSWER_RULES, grounding=grounding)
     tool_calls: list[ToolCall] = []
     model_input: str | list[dict] = question
     previous_response_id = None

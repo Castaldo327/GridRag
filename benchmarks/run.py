@@ -1,7 +1,8 @@
-"""Run a paired comparison: python -m benchmarks.run --live --repeats 3.
+"""Run a paired comparison: python -m benchmarks.run --live --repeats 1.
 
-Without --live, evaluate only dense retrieval (no OpenAI requests). Settings are
-predeclared, never selected using benchmark outcomes. All attempts are retained.
+Without --live, evaluate dense retrieval and deterministic hybrid fusion (no OpenAI
+requests). Settings are fixed within each run. This is a development comparison,
+not a held-out test. All attempts are retained.
 """
 import argparse
 import hashlib
@@ -14,7 +15,7 @@ import time
 import tempfile
 from collections.abc import Iterator, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,10 +24,12 @@ from gridrag.answer import answer
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.llm import LLM
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches
-from gridrag.warehouse.evals import Case, reference_value
+from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, table_evidence_matches
+from gridrag.warehouse.evals import Case, reference_result, reference_value
 from benchmarks.cases import BENCHMARK_CASES
 from benchmarks.vector import MODEL, VectorRetriever
+from benchmarks import hybrid
+from gridrag.grounding import demo_vocabulary
 
 
 def strict_evidence(result, expected, tolerance):
@@ -68,7 +71,7 @@ def summarize(rows):
 def paired_intervals(rows):
     """Case-cluster bootstrap preserves repeated attempts within each question."""
     results = []
-    for baseline in ("vector-k4", "vector-k6"):
+    for baseline in ("vector-k21", "vector-hybrid-k25"):
         differences = []
         for case in BENCHMARK_CASES:
             by_method = {name: [r["correct"] for r in rows if r["case"] == case.id and r["method"] == name]
@@ -85,9 +88,8 @@ def paired_intervals(rows):
 
 
 SEED = 42
-LIVE_METHODS = ("routed", "vector-k4", "vector-k6")
-RETRIEVAL_METHODS = ("vector-k4", "vector-k6")
-PUBLIC_CASE_IDS = frozenset(case.id for case in BENCHMARK_CASES[:12])
+LIVE_METHODS = ("routed", "vector-k21", "vector-hybrid-k25")
+RETRIEVAL_METHODS = ("vector-k21", "vector-hybrid-k25")
 
 
 @dataclass(frozen=True)
@@ -116,7 +118,10 @@ def live_attempt(case, catalog, retriever, references):
     finally:
         llm.close()
     checks = assess(case, result)
-    numeric = strict_evidence(result, references[case.id], case.tolerance) if case.sql else None
+    numeric = None
+    if case.sql:
+        compare = table_evidence_matches if case.result_kind == "table" else strict_evidence
+        numeric = compare(result, references[case.id], case.tolerance)
     # Accuracy and diagnostic checks share the evaluation suite's scoring contract.
     row = {
         "state": result["state"], "correct": checks["correct"], "checks_passed": checks["passed"],
@@ -138,15 +143,16 @@ def retrieval_attempt(case, catalog, retriever):
 
 def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, references, *, live: bool):
     case, method = attempt.case, attempt.method
-    retriever = route if method == "routed" else vector.retrieve
-    vector.top_k = 4 if method == "vector-k4" else 6
+    retriever = (route if method == "routed" else vector.retrieve_hybrid
+                 if method == "vector-hybrid-k25" else vector.retrieve)
+    vector.top_k = 21
     started = time.perf_counter()
     if live:
         row, selection = live_attempt(case, catalog, retriever, references)
     else:
         row, selection = retrieval_attempt(case, catalog, retriever)
     row.update({
-        "case": case.id, "split": "public" if case.id in PUBLIC_CASE_IDS else "additional",
+        "case": case.id, "split": "development",
         "method": method, "repeat": attempt.repeat, "seconds": time.perf_counter() - started,
     })
     if selection:
@@ -158,7 +164,7 @@ def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, ref
 
 def benchmark_manifest(args, vector):
     return {
-        "format_version": 2, "scoring_version": "strict-final-scalar-v2",
+        "format_version": 5, "experiment": "capability-30-v1", "scoring_version": "strict-sql-evidence-v3",
         "created_utc": datetime.now(timezone.utc).isoformat(), "live": args.live,
         "repeats": args.repeats, "cases": len(BENCHMARK_CASES), "embedding_model": MODEL,
         "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
@@ -166,6 +172,16 @@ def benchmark_manifest(args, vector):
         "schema_sha256": vector.schema_sha256,
         "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
         "index_seconds": vector.index_seconds, "seed": SEED,
+        "methods": list(LIVE_METHODS if args.live else RETRIEVAL_METHODS),
+        "max_routed_tables": config.settings.max_routed_tables,
+        "sql_max_output_tokens": config.settings.answer_max_output_tokens,
+        "vector_top_k": 21,
+        "grounding": {"version": "approved-dimensions-v1", "shared_by_all_methods": True,
+                      "sha256": hashlib.sha256(repr(demo_vocabulary()).encode()).hexdigest()},
+        "hybrid": {"dense_pool": hybrid.DENSE_POOL, "keyword_pool": hybrid.KEYWORD_POOL,
+                   "rerank_pool": hybrid.RERANK_POOL, "final_k": hybrid.FINAL_K, "weights": hybrid.WEIGHTS,
+                   "reranker": config.settings.decisions_model if args.live else "fusion-only",
+                   "metadata": ["region", "measure", "cadence", "coverage"]},
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
         "rates_per_million": {k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
                               for k, v in config.settings.prices.items()},
@@ -207,19 +223,30 @@ def run_benchmark(args, catalog, vector, references):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Make paid model calls with the local configured key")
-    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--url", default="http://127.0.0.1:6333")
     parser.add_argument("--output", type=Path, default=Path("artifacts/benchmark.json"))
+    parser.add_argument("--max-tables", type=int, default=25,
+                        help="Shared evaluation-only table budget, including references (default: 25)")
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be positive")
+    if args.max_tables < 25:
+        parser.error("--max-tables must allow 21 retrieved tables and up to 4 reference dimensions")
     if args.live and not config.settings.openai_api_key:
         parser.error("Set OPENAI_API_KEY locally before using --live")
     catalog = demo_catalog()
     # Preflight every reference before incurring model usage.
-    references = {case.id: reference_value(case) for case in BENCHMARK_CASES if case.sql}
-    with closing(VectorRetriever(catalog, args.url)) as vector:
-        run_benchmark(args, catalog, vector, references)
+    references = {case.id: reference_result(case) if case.result_kind == "table" else reference_value(case)
+                  for case in BENCHMARK_CASES if case.sql}
+    original_settings = config.settings
+    try:
+        # All compared methods share the larger context budget. The app's default stays unchanged.
+        config.settings = replace(original_settings, max_routed_tables=args.max_tables, answer_max_output_tokens=4096)
+        with closing(VectorRetriever(catalog, args.url, top_k=21)) as vector:
+            run_benchmark(args, catalog, vector, references)
+    finally:
+        config.settings = original_settings
 
 
 if __name__ == "__main__":

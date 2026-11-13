@@ -10,6 +10,7 @@ from gridrag import config
 from gridrag.catalog import Catalog
 from gridrag.records import Selection
 from gridrag.route import RoutingTooBroad, _with_references
+from benchmarks import hybrid
 
 MODEL = "BAAI/bge-small-en-v1.5"
 
@@ -22,12 +23,12 @@ class VectorRetriever:
     model-based column selector that would confound the comparison.
     """
 
-    def __init__(self, catalog: Catalog, url: str, top_k: int = 4):
+    def __init__(self, catalog: Catalog, url: str, top_k: int = 21):
         from fastembed import TextEmbedding
         from qdrant_client import QdrantClient, models
 
-        if not 1 <= top_k <= config.settings.max_routed_tables:
-            raise ValueError("top_k must fit the shared table budget")
+        if not 1 <= top_k <= len(catalog.tables):
+            raise ValueError("top_k must fit the indexed catalog")
         self.top_k = top_k
         self.catalog = catalog
         self.collection = "gridrag_benchmark_" + uuid.uuid4().hex
@@ -51,17 +52,41 @@ class VectorRetriever:
         self.schema_sha256 = hashlib.sha256("\n".join(t.ddl for t in tables).encode()).hexdigest()
 
     def retrieve(self, question: str, llm, catalog: Catalog) -> Selection:
+        return self._retrieve(question, llm, catalog, use_hybrid=False)
+
+    def retrieve_hybrid(self, question: str, llm, catalog: Catalog) -> Selection:
+        return self._retrieve(question, llm, catalog, use_hybrid=True)
+
+    def _retrieve(self, question: str, llm, catalog: Catalog, *, use_hybrid: bool) -> Selection:
         if catalog is not self.catalog:
             raise ValueError("Retriever must use the indexed catalog")
         vector = next(iter(self.encoder.query_embed(question)))
-        hits = self.client.query_points(self.collection, query=vector.tolist(), limit=self.top_k).points
+        limit = min(hybrid.DENSE_POOL, len(catalog.tables)) if use_hybrid else self.top_k
+        hits = self.client.query_points(self.collection, query=vector.tolist(), limit=limit).points
         scores = {hit.payload["table"]: float(hit.score) for hit in hits}
-        chosen = _with_references(catalog, set(scores))
+        fallback = False
+        diagnostics = None
+        if use_hybrid:
+            names, fused = hybrid.shortlist(question, catalog, scores)
+            diagnostics = {"dense_candidates": list(scores), "shortlist": names, "fusion_scores": fused,
+                           "reranker": "decisions" if llm is not None else "fusion-only"}
+            if llm is not None:
+                names, scores, fallback = hybrid.rerank(question, llm, catalog, names, fused)
+                names = [name for name in names if scores[name] is None
+                         or scores[name] >= config.settings.route_min_probability]
+            else:
+                scores = fused
+            chosen_names = set(names[:hybrid.FINAL_K])
+        else:
+            chosen_names = set(scores)
+        chosen = _with_references(catalog, chosen_names)
         ordered = [name for name in catalog.tables if name in chosen]
         selection: Selection = {
             "tables": ordered, "scores": scores, "column_scores": {},
-            "columns": {name: list(catalog.tables[name].columns) for name in ordered}, "fallback": False,
+            "columns": {name: list(catalog.tables[name].columns) for name in ordered}, "fallback": fallback,
         }
+        if diagnostics is not None:
+            selection["retrieval"] = diagnostics
         if len(ordered) > config.settings.max_routed_tables:
             raise RoutingTooBroad(selection)
         return selection

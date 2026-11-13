@@ -80,6 +80,7 @@ class FailureTests(unittest.TestCase):
                                      for name in selection["tables"]))
         self.assertNotIn("location_type", sql.call_args.kwargs["schema"])
         self.assertEqual(sql.call_args.kwargs["allowed_tables"], selection["tables"])
+        self.assertIn("California, California ISO, CAISO => 'CAISO'", sql.call_args.kwargs["grounding"])
         self.assertEqual((res["state"], res["answer"]), (State.ANSWERED, "28 locations"))
         self.assertEqual(set(res["timings"]), {"gate", "route", "sql", "total"})
 

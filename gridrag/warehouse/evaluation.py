@@ -5,7 +5,7 @@ import math
 import re
 
 from gridrag.records import State
-from gridrag.warehouse.evals import Case, reference_value
+from gridrag.warehouse.evals import Case, reference_result, reference_value
 
 NUMBER = re.compile(r"[-−]?\$?\d[\d,]*(?:\.(\d+))?")
 UNIT_PATTERNS = {"MW": r"\bMW\b", "MWh": r"\bMWh\b", "%": r"%|\bpercent(?:age)?\b",
@@ -16,6 +16,8 @@ UNIT_PATTERNS = {"MW": r"\bMW\b", "MWh": r"\bMWh\b", "%": r"%|\bpercent(?:age)?\
 
 def evaluation_question(case: Case) -> str:
     """State the scalar formatting contract without exposing reference evidence."""
+    if case.result_kind == "table":
+        return case.question + " Return the complete comparison in the final SQL result, with columns iso_code, product, average_energy_price."
     return case.question + (" Return the final SQL result as one row and one numeric answer column." if case.sql else "")
 
 
@@ -60,15 +62,51 @@ def evidence_matches(result: dict, expected: float, tolerance: float) -> bool:
     return evidence["valid"] and math.isclose(evidence["value"], expected, rel_tol=0, abs_tol=tolerance + 1e-9)
 
 
+def _keyed_rows(csv_text: str) -> tuple[list[str], dict[tuple[str, ...], float]]:
+    """Read unique dimension keys plus one finite measure; reject missing or duplicate rows."""
+    rows = list(csv.reader(io.StringIO(csv_text), strict=True))
+    if len(rows) < 2 or len(rows[0]) < 2:
+        raise ValueError("Expected a complete table")
+    values = {}
+    for row in rows[1:]:
+        if len(row) != len(rows[0]) or not all(row[:-1]):
+            raise ValueError("Invalid result row")
+        key, value = tuple(row[:-1]), float(row[-1])
+        if key in values or not math.isfinite(value):
+            raise ValueError("Duplicate key or nonfinite measure")
+        values[key] = value
+    return rows[0], values
+
+
+def table_evidence_matches(result: dict, expected: dict, tolerance: float) -> bool:
+    """Require every reference key and value in the complete final SQL result, in any row order."""
+    calls = result.get("tool_calls") or []
+    if not calls:
+        return False
+    final = calls[-1]
+    if final.get("error") or final.get("truncated") or not isinstance(final.get("csv"), str):
+        return False
+    try:
+        headers, actual = _keyed_rows(final["csv"])
+        expected_headers, reference = _keyed_rows(expected["csv"])
+    except (ValueError, csv.Error, TypeError):
+        return False
+    return (headers == expected_headers and actual.keys() == reference.keys()
+            and final.get("rows", len(actual)) == len(actual)
+            and all(math.isclose(actual[key], value, rel_tol=0, abs_tol=tolerance + 1e-9)
+                    for key, value in reference.items()))
+
+
 def case_info(case: Case) -> dict:
     """Public expectations; reference SQL is never passed to the live model."""
     return {"id": case.id, "label": case.label or case.id.replace("_", " ").title(),
             "question": case.question, "expected_state": case.state,
-            "expected": reference_value(case) if case.sql else None, "unit": case.unit,
+            "expected": reference_value(case) if case.sql and case.result_kind == "scalar" else None, "unit": case.unit,
             "verification": case.verification, "category": case.category, "difficulty": case.difficulty,
             "tolerance": case.tolerance, "required_tables": list(case.tables),
             "excluded_tables": list(case.excluded), "forbidden_sql": list(case.avoid),
-            "result_contract": "One row, one numeric column; complete final query" if case.sql else "No SQL calls"}
+            "result_contract": ("Complete keyed comparison table" if case.result_kind == "table" else
+                                "One row, one numeric column; complete final query" if case.sql else "No SQL calls")}
 
 
 def assess(case: Case, result: dict) -> dict:
@@ -93,12 +131,17 @@ def assess(case: Case, result: dict) -> dict:
     found = [text for text in case.avoid if text.casefold() in queries]
     if case.avoid:
         check("Forbidden SQL", not found, "Found: " + ", ".join(found) if found else "Forbidden SQL absent.", "evidence")
-    expected = reference_value(case) if case.sql else None
+    table_result = case.result_kind == "table"
+    expected = reference_result(case) if table_result else reference_value(case) if case.sql else None
     evidence = scalar_evidence(result)
-    numeric_ok = evidence_matches(result, expected, case.tolerance) if expected is not None else None
+    numeric_ok = (table_evidence_matches(result, expected, case.tolerance) if table_result
+                  else evidence_matches(result, expected, case.tolerance) if expected is not None else None)
     if case.state != State.ANSWERED:
         check("No SQL executed", not calls, f"{len(calls)} SQL calls; none are allowed for this behavior case.", "behavior")
-    if expected is not None:
+    if table_result:
+        check("Complete table evidence", numeric_ok,
+              "Every region/product key and numeric value must match the independent reference, with no missing or extra rows.", "evidence")
+    elif expected is not None:
         check("Scalar evidence contract", evidence["valid"], evidence["reason"], "evidence")
         check("Numeric evidence", numeric_ok,
               f"Expected {expected:.8g} {case.unit} ± {case.tolerance:g}; observed {evidence['value'] if evidence['valid'] else 'no valid scalar'}.", "evidence")

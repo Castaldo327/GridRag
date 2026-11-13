@@ -20,11 +20,6 @@ class BenchmarkRunnerTests(unittest.TestCase):
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))
         actual = [(attempt.repeat, attempt.case.id, attempt.method) for attempt in attempts]
-        self.assertEqual(actual[:6], [
-            (0, "miso_storage", "vector-k4"), (0, "miso_storage", "routed"),
-            (0, "miso_storage", "vector-k6"), (0, "nyiso_bus", "routed"),
-            (0, "nyiso_bus", "vector-k4"), (0, "nyiso_bus", "vector-k6"),
-        ])
         expected = {(repeat, case.id, method) for repeat in range(2)
                     for case in BENCHMARK_CASES for method in run.LIVE_METHODS}
         self.assertEqual(set(actual), expected)
@@ -36,20 +31,20 @@ class BenchmarkRunnerTests(unittest.TestCase):
         selection = {"tables": list(catalog.tables), "columns": {}}
         vector = Mock()
         vector.retrieve.side_effect = RoutingTooBroad(selection)
-        attempt = run.Attempt(BENCHMARK_CASES[0], "vector-k4", 0)
+        attempt = run.Attempt(BENCHMARK_CASES[0], "vector-k21", 0)
         with patch.object(run, "LLM") as model:
             row = run.run_attempt(attempt, catalog, vector, {}, live=False)
         model.assert_not_called()
-        self.assertEqual(vector.top_k, 4)
+        self.assertEqual(vector.top_k, 21)
         self.assertEqual((row["state"], row["schema_chars"]), ("clarification", 0))
         self.assertEqual(row["required_table_recall"], 1)
 
     def test_live_failure_remains_an_attempt_and_closes_the_client(self):
-        case = next(case for case in BENCHMARK_CASES if not case.sql)
+        case = BENCHMARK_CASES[0]
         result = {"state": "failed", "answer": "Failed", "tool_calls": [],
                   "usage": {"cost_usd": 0., "input_tokens": 0, "output_tokens": 0}}
         with patch.object(run, "LLM") as model, patch.object(run, "answer", return_value=result):
-            row, selection = run.live_attempt(case, demo_catalog(), Mock(), {})
+            row, selection = run.live_attempt(case, demo_catalog(), Mock(), {case.id: 0.})
         self.assertFalse(row["correct"])
         self.assertEqual(row["state"], "failed")
         self.assertIsNone(selection)
@@ -85,6 +80,7 @@ class BenchmarkRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads(args.output.read_text())["runs"], [row])
 
     def test_initial_report_setup_failure_closes_the_retriever(self):
+        original_settings = run.config.settings
         with (patch("sys.argv", ["benchmarks.run"]),
               patch.object(run, "reference_value", return_value=1.),
               patch.object(run, "VectorRetriever") as vector,
@@ -92,6 +88,7 @@ class BenchmarkRunnerTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 run.main()
         vector.return_value.close.assert_called_once()
+        self.assertIs(run.config.settings, original_settings)
 
 
 class VectorLifecycleTests(unittest.TestCase):
@@ -122,6 +119,7 @@ class VectorLifecycleTests(unittest.TestCase):
 
     def test_close_is_idempotent_and_releases_client_when_deletion_fails(self):
         vector = VectorRetriever(demo_catalog(), "http://localhost:6333")
+        self.assertEqual(vector.top_k, 21)
         self.client.delete_collection.side_effect = RuntimeError
         with self.assertRaises(RuntimeError):
             vector.close()

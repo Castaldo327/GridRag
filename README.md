@@ -22,7 +22,7 @@ The app has four pages:
 | --- | --- | --- |
 | **Demo** | The playground flow with seven prepared questions, staged progress, streamed answers, and verified SQL evidence | No |
 | **Playground** | Live questions, streaming answers, SQL evidence, data coverage and searchable table definitions | Yes, for hosted questions |
-| **Evaluation** | Actual recorded answers from GridRag and Qdrant, with trial selection, SQL evidence, latency, and cost | No |
+| **Evaluation** | Actual recorded answers from routed, dense, and hybrid retrieval, with difficulty filters, SQL evidence, table recall, latency, and cost | No |
 | **Architecture** | The retrieval and execution diagram, design choices, measured tradeoffs, and hosting boundaries | No |
 
 The demo replays prepared answers and verified reference queries entirely in the
@@ -69,7 +69,7 @@ The main pipeline:
 2. Score all catalog tables in one decision-model call.
 3. Include referenced tables, then score selected tables' columns concurrently.
 4. Preserve structural keys and time fields in the reduced schema.
-5. Generate SQL, validate it independently, and execute against a read-only warehouse.
+5. Add approved dimension values to the SQL prompt, then generate SQL, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
 
 The [architecture page](https://gridrag.vercel.app/#architecture)
@@ -80,10 +80,20 @@ choice is independent relevance scoring followed by reference expansion and colu
 selection. It makes an inspectable schema selection for SQL, with a measured
 accuracy/cost tradeoff; it does not establish a claim of research novelty.
 
-The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant**: one
-embedded document per table, top-4 or top-6 retrieval, foreign-key expansion and
-full columns. Both methods use the same gate, SQL model, repair budget and SQL
-guard. There is no full-schema prompt baseline.
+The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant**.
+Dense retrieval selects the top **21** tables. Hybrid retrieval combines **48**
+semantic candidates with up to **12** keyword matches, uses region, measure,
+cadence and coverage signals, then reranks the entire candidate union against the
+question. Both supply full columns after reference expansion. The hybrid method's
+additional Decisions call is included in time and estimated model cost.
+
+All three methods share the SQL model, approved entity vocabulary, gate, repair
+budget, and SQL guard. Evaluation allows **25 tables including references** and
+**4,096 output tokens** per SQL-model call; the playground retains its existing
+limits. Grounding maps California → `CAISO`, Texas → `ERCOT`, New England → `ISONE`,
+and approved fuel, location, and queue-status terms to exact database values.
+See the [experiment specification](benchmarks/README.md) for settings and scoring.
+There is no full-schema prompt baseline.
 
 ### Reproduce the comparison
 
@@ -93,7 +103,7 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 3
+uv run --extra eval python -m benchmarks.run --live --repeats 1 --max-tables 25
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -103,36 +113,40 @@ cached in an ignored directory. Each benchmark owns a uniquely named collection
 and removes only that collection afterward. The eval dependencies are optional
 and are not installed for the Vercel app.
 
-The benchmark includes 18 fixed questions, three repetitions per method, shuffled
-case/method order, independent reference SQL, and case-bootstrap uncertainty.
-Every completed attempt, including failures, contributes to the denominator.
-Numeric accuracy requires the entire final scalar SQL result to match the reference;
-required-table recall and prose matching are reported separately. Results include
-latency, schema size, tokens, estimated model cost and environment metadata.
+The capability benchmark contains **30 answerable questions**: 7 easy, 8 medium,
+8 hard, and 7 very hard. One attempt per question and method produces **90 recorded
+attempts**, in seeded shuffled order. Difficult questions combine forecast vintages,
+window rankings, dimensional joins, interval alignment, energy conversion, and
+cross-region comparisons. Independent reference SQL never reaches the models.
 
-The recorded run scored **92.6%** for routed schema versus **72.2%** for top-6
-embeddings, with median latency **4.50 s vs 3.44 s** and roughly **10.8×** estimated
-model cost. That is a measured accuracy/latency/cost tradeoff on this suite.
+Scalar questions require the complete final SQL result to match one numeric
+reference. The seven-ISO price comparison requires all **21 region/product rows**
+and their values; partial answers and missing-series claims fail. Clarification is
+not counted as a correct analytical answer. Refusal and table-budget behavior
+remain in the separate developer regression suite.
 
-See [methodology and measured results](https://gridrag.vercel.app/#evaluation). This is a small synthetic
-experiment, not evidence of general superiority or production accuracy.
+| Method | Correct answers | Required-table recall | Median time |
+| --- | --- | --- | --- |
+| Routed schema | 100.0% | 100.0% | 4.45 s |
+| Hybrid reranking | 96.7% | 100.0% | 3.81 s |
+| Dense vector · top21 | 80.0% | 92.5% | 3.36 s |
+
+This is a small synthetic development suite with one attempt per method, not a
+held-out test or a production-accuracy estimate. Required-table recall, query
+results, latency, schema size, tokens, and estimated costs are recorded separately.
 
 ### Read the recorded answers
 
-Evaluation shows **17 recorded questions**, omitting unrelated-topic content from
-its historical 18-question archive. Each question displays the original answer from
-GridRag's routed schema, Qdrant top-4 retrieval, and Qdrant top-6 retrieval. All three
-use the same SQL model. Select trial 1, 2, or 3 to inspect every recorded attempt,
-including failures, with selected tables, SQL, CSV evidence, time, and estimated cost.
-Summary statistics are computed over the questions currently displayed. The original
-archive remains available for download. There are no evaluation run controls and
-browsing never makes paid API calls.
+The [evaluation page](https://gridrag.vercel.app/#evaluation) shows all 30 questions,
+with filters from easy to very hard. Each question displays one recorded answer
+from routed schema, top-21 vectors, and hybrid reranking, with selected tables,
+SQL, CSV evidence, time, and estimated cost. Complete table references are visible
+for comparison questions. Scores include failed attempts and cover the selected
+questions. Browsing never makes paid model calls.
 
-The developer regression suite in `gridrag/warehouse/suite.py` remains available for
-explicit local testing. Its 26 cases are separate from the recorded comparison;
-questions without recorded three-way answers are not shown as measured results.
-Markdown answers use pinned, locally vendored Marked and DOMPurify bundles; tables,
-lists, headings, code, and links are rendered with untrusted HTML sanitized.
+The separate 26-case regression suite in `gridrag/warehouse/suite.py` remains
+available for explicit local testing, including scope and safety behavior.
+Markdown is rendered with pinned, locally vendored Marked and DOMPurify bundles.
 
 ## Data coverage
 
@@ -158,6 +172,7 @@ automatically expose it to the model or SQL guard.
 # Offline: no provider requests, even with a key present.
 uv run python -m unittest discover -s tests
 node --check app/static/app.js
+node --test tests/test_*.js
 uv run python -m scripts.security_audit --history
 uv run python -m scripts.public_release
 ```

@@ -4,7 +4,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from gridrag.catalog import demo_catalog
-from gridrag.warehouse.evaluation import assess, evidence_matches, scalar_evidence, states_value, evaluation_question
+from gridrag.warehouse.evaluation import assess, evidence_matches, scalar_evidence, states_value, evaluation_question, table_evidence_matches
 from gridrag.warehouse.evals import CASES, reference_value
 from gridrag.warehouse.suite import EVALUATION_CASES, GROUPS, suite_info
 from benchmarks.cases import BENCHMARK_CASES
@@ -60,7 +60,7 @@ class EvaluationSuiteTests(unittest.TestCase):
         info=suite_info()
         self.assertEqual(len(EVALUATION_CASES),26)
         self.assertFalse({"off_topic", "unrelated_task"} & {case.id for case in EVALUATION_CASES})
-        self.assertEqual(len(BENCHMARK_CASES),18)
+        self.assertEqual(len(BENCHMARK_CASES),30)
         self.assertEqual(len({case.id for case in EVALUATION_CASES}),26)
         self.assertEqual(sum(group["cases"] for group in info["groups"]),26)
         self.assertEqual(info["numeric"]+info["behavior"],26)
@@ -86,3 +86,29 @@ class EvaluationSuiteTests(unittest.TestCase):
         self.assertEqual(evaluation_question(CASES[0]), CASES[0].question + " Return the final SQL result as one row and one numeric answer column.")
         self.assertNotIn(CASES[0].sql, evaluation_question(CASES[0]))
         self.assertEqual(evaluation_question(EVALUATION_CASES[-1]), EVALUATION_CASES[-1].question)
+
+    def test_complete_comparison_rejects_partial_duplicate_and_wrong_values(self):
+        expected = {"csv": "iso_code,product,average_energy_price\nCAISO,real_time_bus,28\nERCOT,real_time_bus,29.3\n"}
+        good = "iso_code,product,average_energy_price\nERCOT,real_time_bus,29.3\nCAISO,real_time_bus,28\n"
+        self.assertTrue(table_evidence_matches(self.result(good), expected, .01))
+        for csv in (
+            "iso_code,product,average_energy_price\nCAISO,real_time_bus,28\n",
+            good + "CAISO,real_time_bus,28\n",
+            good.replace("29.3", "30.3"),
+            good.replace("29.3", "nan"),
+            good.replace("average_energy_price", "other"),
+        ):
+            self.assertFalse(table_evidence_matches(self.result(csv), expected, .01))
+        for kwargs in ({"error": "failed"}, {"truncated": "limit"}, {"rows": 1}):
+            self.assertFalse(table_evidence_matches(self.result(good, **kwargs), expected, .01))
+
+    def test_table_case_requires_answered_state_and_complete_final_evidence(self):
+        case = next(case for case in BENCHMARK_CASES if case.result_kind == "table")
+        from gridrag.warehouse.evals import reference_result
+        expected = reference_result(case)
+        result = {"state": "answered", "answer": "The complete comparison.",
+                  "route": {"tables": case.tables}, "tool_calls": [{"query": case.sql, **expected}]}
+        self.assertTrue(assess(case, result)["correct"])
+        result["tool_calls"].append({"error": "failed"})
+        self.assertFalse(assess(case, result)["correct"])
+        self.assertNotIn(case.sql, evaluation_question(case))

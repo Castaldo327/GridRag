@@ -8,6 +8,7 @@ import csv
 import io
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 from gridrag import db
 from gridrag.records import State
@@ -29,6 +30,7 @@ class Case:
     verification: str = ""  # warehouse facts behind a challenging reference answer, shown in the UI
     category: str = "analytics"
     difficulty: str = "standard"
+    result_kind: Literal["scalar", "table"] = "scalar"  # table cases have dimension keys and a final numeric measure
 
 
 CASES = (
@@ -161,9 +163,17 @@ WHERE f.vintage_rank = 1""",
 )
 
 
+def reference_result(case: Case) -> dict:
+    """Execute independent reference SQL, rejecting incomplete evidence before paid evaluation."""
+    result = db.run_model_sql(case.sql, 500)
+    if result.get("error") or result.get("truncated") or not result.get("csv"):
+        raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")
+    return result
+
+
 def reference_value(case: Case) -> float:
     """What the case's reference query computes from this warehouse."""
-    result = db.run_model_sql(case.sql, 1)
+    result = reference_result(case)
     rows = list(csv.reader(io.StringIO(result.get("csv", ""))))
     if result.get("error") or result.get("truncated") or len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
         raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")
