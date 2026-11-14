@@ -28,6 +28,8 @@ class Stage(StrEnum):
 
 
 class Gate(TypedDict):
+    """Request eligibility with relevance and misuse scores."""
+
     allowed: bool
     reason: str
     relevance: float
@@ -35,6 +37,8 @@ class Gate(TypedDict):
 
 
 class Selection(TypedDict):
+    """Selected SQL context with retrieval scores and fallback diagnostics."""
+
     tables: list[str]  # handed to SQL in catalog order, referenced tables included
     scores: dict[str, float | None]  # table -> probability it is needed
     column_scores: dict[str, dict[str, float | None]]  # selected table -> column -> probability
@@ -53,6 +57,8 @@ class QueryResult(TypedDict, total=False):
 
 
 class ToolCall(TypedDict):
+    """SQL execution evidence retained for the answer and diagnostics."""
+
     execution_seconds: NotRequired[float]  # database guard, execution and result serialization
     query: str | None  # the SQL, or the raw arguments when they were invalid
     rows: int | None
@@ -62,6 +68,8 @@ class ToolCall(TypedDict):
 
 
 class ModelCall(TypedDict):
+    """Timing, token usage, and estimated cost for one provider request."""
+
     kind: Literal["decisions", "responses"]
     stage: Stage
     seconds: float
@@ -73,6 +81,8 @@ class ModelCall(TypedDict):
 
 
 class Usage(TypedDict):
+    """Aggregate provider usage with the individual call records."""
+
     calls: int
     failed_calls: int
     input_tokens: int
@@ -83,6 +93,8 @@ class Usage(TypedDict):
 
 
 class AgentResult(TypedDict):
+    """SQL agent outcome with its supporting execution evidence."""
+
     answer: str
     state: State
     tool_calls: list[ToolCall]
