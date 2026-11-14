@@ -36,6 +36,8 @@ class Rates:
 
 @dataclass(frozen=True, config=_VALIDATION)
 class Settings:
+    """Validated runtime configuration shared by the pipeline and warehouse tools."""
+
     db_path: Path = ROOT / "data" / "warehouse.duckdb"
     openai_api_key: str | None = field(default=None, repr=False)
     decisions_model: str = "gpt-6-luna"
@@ -76,18 +78,20 @@ class Settings:
 
 
 def _read_env_file(path: Path) -> dict[str, str]:
-    env = {}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.removeprefix("export ").split("=", 1)
-            env[key.strip()] = value.strip().strip("\"'")
+    if not path.exists():
+        return {}
+    env: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        env[key.strip()] = value.strip().strip("\"'")
     return env
 
 
 def load_settings(env_file: Path = ENV_FILE, environ: Mapping[str, str] = os.environ) -> Settings:
+    """Load model settings and credentials, preferring exported nonempty values."""
     local = _read_env_file(env_file)
 
     def value(*names: str) -> str | None:
