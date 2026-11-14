@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import Counter
 from dataclasses import asdict, replace
+from typing import Any
 
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
@@ -171,7 +172,8 @@ EVALUATION_CASES = (
 )
 
 
-def suite_info():
+def suite_info() -> dict[str, Any]:
+    """Return suite and schema fingerprints with case counts by category."""
     payload = json.dumps([asdict(case) for case in EVALUATION_CASES], sort_keys=True, separators=(",", ":"))
     counts = Counter(case.category for case in EVALUATION_CASES)
     return {
