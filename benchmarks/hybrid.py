@@ -8,9 +8,11 @@ Retrieval never receives benchmark labels, required tables or reference SQL.
 import math
 import re
 from collections import Counter
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from gridrag.catalog import Catalog
-from gridrag.llm import probability
+from gridrag.llm import Model, probability
 from gridrag.records import Stage
 from gridrag.route import TABLE_QUESTION, _check_scores
 
@@ -21,9 +23,12 @@ WEIGHTS = {"semantic": 55 / 80, "keyword": 25 / 80}
 FUSION_VERSION = "semantic-bm25-v1"
 CANDIDATE_POLICY_VERSION = "catalog-percent-fused-cap-v1"
 STOP = frozenset("a an the of in on at to for and or what was were is how much many give use local time".split())
+BM25_K1 = 1.2
+BM25_B = 0.75
+BM25_IDF_SMOOTHING = 0.5
 
 
-def candidate_policy(table_count: int, percent: int = DEFAULT_CANDIDATE_PERCENT) -> dict:
+def candidate_policy(table_count: int, percent: int = DEFAULT_CANDIDATE_PERCENT) -> dict[str, Any]:
     """Cap the fused union, before Decisions and foreign-key expansion.
 
     Dense and keyword retrieval can each propose up to k tables, but together
@@ -48,6 +53,7 @@ def candidate_policy(table_count: int, percent: int = DEFAULT_CANDIDATE_PERCENT)
 
 
 def tokens(text: str) -> list[str]:
+    """Extract lowercase alphanumeric terms, excluding question stop words."""
     return [word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in STOP]
 
 
@@ -59,20 +65,23 @@ class KeywordIndex:
         documents = {name: Counter(tokens(table.ddl)) for name, table in catalog.tables.items()}
         lengths = {name: sum(document.values()) for name, document in documents.items()}
         average = sum(lengths.values()) / len(documents)
-        self.normalizers = {name: 1.2 * (0.25 + 0.75 * length / average) for name, length in lengths.items()}
+        self.normalizers = {
+            name: BM25_K1 * (1 - BM25_B + BM25_B * length / average) for name, length in lengths.items()
+        }
         self.postings: dict[str, list[tuple[str, int]]] = {}
         for name, document in documents.items():
             for term, count in document.items():
                 self.postings.setdefault(term, []).append((name, count))
 
     def scores(self, question: str) -> dict[str, float]:
+        """Return BM25 relevance normalized to the highest table score."""
         scores = dict.fromkeys(self.catalog.tables, 0.0)
         for term in sorted(set(tokens(question))):
             matches = self.postings.get(term, ())
             frequency = len(matches)
-            idf = math.log(1 + (len(scores) - frequency + 0.5) / (frequency + 0.5))
+            idf = math.log(1 + (len(scores) - frequency + BM25_IDF_SMOOTHING) / (frequency + BM25_IDF_SMOOTHING))
             for name, count in matches:
-                scores[name] += idf * count * 2.2 / (count + self.normalizers[name])
+                scores[name] += idf * count * (BM25_K1 + 1) / (count + self.normalizers[name])
         maximum = max(scores.values(), default=0.0)
         return {name: score / maximum if maximum else 0.0 for name, score in scores.items()}
 
@@ -82,7 +91,15 @@ def keyword_scores(question: str, catalog: Catalog) -> dict[str, float]:
     return KeywordIndex(catalog).scores(question)
 
 
-def shortlist(question, catalog, dense, *, index: KeywordIndex | None = None, top_k: int | None = None):
+def shortlist(
+    question: str,
+    catalog: Catalog,
+    dense: Mapping[str, float],
+    *,
+    index: KeywordIndex | None = None,
+    top_k: int | None = None,
+) -> tuple[list[str], dict[str, float]]:
+    """Return capped candidates and fusion scores from dense and keyword relevance."""
     if index is not None and index.catalog is not catalog:
         raise ValueError("Keyword index must use the supplied catalog")
     if top_k is None:
@@ -98,7 +115,14 @@ def shortlist(question, catalog, dense, *, index: KeywordIndex | None = None, to
     return ranked, fused
 
 
-def rerank(question, llm, catalog, names, fused):
+def rerank(
+    question: str,
+    llm: Model,
+    catalog: Catalog,
+    names: Sequence[str],
+    fused: Mapping[str, float],
+) -> tuple[list[str], dict[str, float | None], bool]:
+    """Rank candidates by Decisions probability, breaking ties with fusion scores."""
     answers = llm.decide(
         Stage.ROUTE,
         question,
