@@ -1,20 +1,23 @@
 """Optional, caller-supplied vocabulary scoped to a catalog; no built-in domain mappings."""
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class DimensionValue:
+    """An approved column value with the terms callers may use for it."""
+
     table: str
     column: str
     value: str
     aliases: tuple[str, ...]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         object.__setattr__(self, "aliases", tuple(self.aliases))
 
 
-def render_grounding(values: tuple[DimensionValue, ...], columns) -> str:
+def render_grounding(values: tuple[DimensionValue, ...], columns: Mapping[str, Collection[str]]) -> str:
     """Only document columns actually delivered to SQL. Custom catalogs opt in explicitly."""
     lines = []
     for entry in values:
