@@ -4,10 +4,57 @@ import argparse
 
 from gridrag import answer
 from gridrag.catalog import demo_catalog
-from gridrag.records import State
+from gridrag.records import Answer, State
+
+
+def _print_result(result: Answer) -> None:
+    """Print the answer with query evidence and aggregate usage."""
+    print(result["answer"])
+    print(f"\nState: {result['state']}")
+    if gate := result.get("gate"):
+        print(f"Gate: {gate['reason']}")
+    if selection := result.get("route"):
+        print(
+            f"Schema: {len(selection['tables'])} of {len(demo_catalog().tables)} tables selected"
+            + (" (includes uncertain matches)" if selection["fallback"] else "")
+        )
+        print(f"  {', '.join(selection['tables']) or 'No matching tables'}")
+    for call in result["tool_calls"]:
+        print(f"\nSQL: {call['query']}\n  -> {call['error'] or str(call['rows']) + ' rows'}")
+    usage = result["usage"]
+    print(f"\n{result['timings']['total']:.2f}s · {usage['calls']} model calls · estimated ${usage['cost_usd']:.5f}")
+
+
+def _print_diagnostics(result: Answer) -> None:
+    """Print detailed retrieval, timing, and provider usage records."""
+    gate = result.get("gate")
+    selection = result.get("route")
+    usage = result["usage"]
+    if gate:
+        print(f"Gate scores: relevance {gate['relevance']:.2f} · malicious {gate['malicious']:.2f}")
+    if selection:
+        print("Table scores:")
+        for name, probability in selection["scores"].items():
+            score = "?" if probability is None else f"{probability:.2f}"
+            print(f"  {name}: {score}")
+        for table, scores in selection["column_scores"].items():
+            print(f"Column scores for {table}:")
+            for name, probability in scores.items():
+                score = "?" if probability is None else f"{probability:.2f}"
+                print(f"  {name}: {score}")
+    print("Timings:", ", ".join(f"{name} {seconds:.2f}s" for name, seconds in result["timings"].items()))
+    print(f"Tokens: {usage['input_tokens']:,} in ({usage['cached_tokens']:,} cached) · {usage['output_tokens']:,} out")
+    for call in usage["per_call"]:
+        print(
+            f"  {call['stage']:<6} {call['kind']:<9} {call['seconds']:.2f}s {call['input_tokens']:>6,} in "
+            f"{call['output_tokens']:>5,} out" + (f"  {call['error']}" if call["error"] else "")
+        )
+    if result["state"] == State.FAILED:
+        print(f"Failed during {result.get('stage')}: {result.get('error')}")
 
 
 def main() -> None:
+    """Run a warehouse question with optional routing and usage diagnostics."""
     parser = argparse.ArgumentParser(prog="python -m gridrag", description=__doc__)
     parser.add_argument("question")
     parser.add_argument("--verbose", action="store_true", help="show table/column scores and per-call diagnostics")
@@ -16,46 +63,12 @@ def main() -> None:
         question = answer.clean_question(args.question)
     except ValueError as exc:
         parser.error(str(exc))
-    res = answer.answer(question)
+    result = answer.answer(question)
 
-    print(res["answer"])
-    print(f"\nState: {res['state']}")
-    if g := res.get("gate"):
-        print(f"Gate: {g['reason']}")
-    if r := res.get("route"):
-        print(
-            f"Schema: {len(r['tables'])} of {len(demo_catalog().tables)} tables selected"
-            + (" (includes uncertain matches)" if r["fallback"] else "")
-        )
-        print(f"  {', '.join(r['tables']) or 'No matching tables'}")
-    for c in res["tool_calls"]:
-        print(f"\nSQL: {c['query']}\n  -> {c['error'] or str(c['rows']) + ' rows'}")
-    u = res["usage"]
-    print(f"\n{res['timings']['total']:.2f}s · {u['calls']} model calls · estimated ${u['cost_usd']:.5f}")
-
+    _print_result(result)
     if args.verbose:
-        if g:
-            print(f"Gate scores: relevance {g['relevance']:.2f} · malicious {g['malicious']:.2f}")
-        if r:
-            print("Table scores:")
-            for name, probability in r["scores"].items():
-                score = "?" if probability is None else f"{probability:.2f}"
-                print(f"  {name}: {score}")
-            for table, scores in r["column_scores"].items():
-                print(f"Column scores for {table}:")
-                for name, probability in scores.items():
-                    score = "?" if probability is None else f"{probability:.2f}"
-                    print(f"  {name}: {score}")
-        print("Timings:", ", ".join(f"{name} {s:.2f}s" for name, s in res["timings"].items()))
-        print(f"Tokens: {u['input_tokens']:,} in ({u['cached_tokens']:,} cached) · {u['output_tokens']:,} out")
-        for call in u["per_call"]:
-            print(
-                f"  {call['stage']:<6} {call['kind']:<9} {call['seconds']:.2f}s {call['input_tokens']:>6,} in "
-                f"{call['output_tokens']:>5,} out" + (f"  {call['error']}" if call["error"] else "")
-            )
-        if res["state"] == State.FAILED:
-            print(f"Failed during {res.get('stage')}: {res.get('error')}")
-    if res["state"] in {State.FAILED, State.WRITE_FAILED}:
+        _print_diagnostics(result)
+    if result["state"] in {State.FAILED, State.WRITE_FAILED}:
         raise SystemExit(1)
 
 
