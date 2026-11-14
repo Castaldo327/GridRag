@@ -40,6 +40,8 @@ class Inputs:
 
 @dataclass(frozen=True)
 class Product:
+    """A source table definition paired with its deterministic row generator."""
+
     suffix: str  # table name after the ISO prefix
     description: str
     columns: tuple[tuple[str, str, str], ...]  # (name, type, comment) after iso_id
@@ -59,6 +61,7 @@ PRICE = (
 REFERENCES = {"location_id": "core.dim_location (location_id)", "fuel_id": "core.dim_fuel (fuel_id)"}
 BUSES, HUBS = ("BUS_A", "BUS_B", "BUS_C"), ("HUB",)
 LOCATIONS = BUSES + HUBS  # location_id = iso_id * 10 + position (1-based)
+_LOCATION_ID_STRIDE = 10
 
 
 def _prices(inputs: Inputs, *, day_ahead: bool, labels: tuple[str, ...]) -> pd.DataFrame:
@@ -69,7 +72,7 @@ def _prices(inputs: Inputs, *, day_ahead: bool, labels: tuple[str, ...]) -> pd.D
         frame = base.copy()
         hour = frame.interval_start_local.dt.hour.to_numpy()
         day = frame.interval_start_local.dt.day.to_numpy()
-        frame["location_id"] = inputs.iso_id * 10 + location
+        frame["location_id"] = inputs.iso_id * _LOCATION_ID_STRIDE + location
         # daily price arc plus a slow drift; evening congestion; real-time congestion wobbles per interval
         frame["energy"] = np.round(24 + inputs.iso_id * 1.3 + 8 * np.sin((hour - 9) * np.pi / 12) + day * 0.15, 2)
         frame["congestion"] = np.round(
@@ -136,11 +139,11 @@ def _resource_outages(inputs: Inputs) -> pd.DataFrame:
                 "market_date": day.date(),
                 "fuel_id": inputs.fuel_ids[fuel],
                 "outage_type": kind,
-                "unavailable_mw": float(35 * inputs.iso_id + day.day * 2 + j * 17 + k * 43),
+                "unavailable_mw": float(35 * inputs.iso_id + day.day * 2 + fuel_index * 17 + outage_index * 43),
             }
             for day in pd.date_range(inputs.start, inputs.end)
-            for j, fuel in enumerate(("natural_gas", "nuclear", "battery"))
-            for k, kind in enumerate(("planned", "forced"))
+            for fuel_index, fuel in enumerate(("natural_gas", "nuclear", "battery"))
+            for outage_index, kind in enumerate(("planned", "forced"))
         ]
     )
 
@@ -253,6 +256,7 @@ PRODUCTS = (
 
 
 def table_name(iso: str, product: Product) -> str:
+    """Return the schema-qualified physical table name for an ISO product."""
     return f"core.{iso.lower()}_{product.suffix}"
 
 
@@ -295,10 +299,11 @@ def family_ddl(product: Product, isos: Sequence[str], start: pd.Timestamp, end: 
 
 
 def locations(isos: Mapping[str, int]) -> pd.DataFrame:
+    """Build the price-location dimension using stable per-ISO identifiers."""
     return pd.DataFrame(
         [
             {
-                "location_id": iso_id * 10 + index,
+                "location_id": iso_id * _LOCATION_ID_STRIDE + index,
                 "iso_id": iso_id,
                 "location_code": f"{iso}_{label}",
                 "location_type": "hub" if label in HUBS else "bus",
