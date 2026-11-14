@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from openai import APIError, AuthenticationError, PermissionDeniedError, RateLimitError
+from openai import AuthenticationError, PermissionDeniedError, RateLimitError
 
 from gridrag import config
 from gridrag.catalog import Catalog, demo_catalog
@@ -31,7 +31,7 @@ def clean_question(question: object) -> str:
 class _Trace:
     """What one question has produced so far: stage results, query evidence, and seconds per stage."""
 
-    def __init__(self, question: str, llm: Model, on_progress: Callable[[Progress], None] | None):
+    def __init__(self, question: str, llm: Model, on_progress: Callable[[Progress], None] | None) -> None:
         self.question, self.llm, self.on_progress = question, llm, on_progress
         self.gate: Gate | None = None
         self.route: Selection | None = None
@@ -71,6 +71,17 @@ class _Trace:
         }
 
 
+def _failure_message(error: Exception) -> str:
+    """Choose actionable failure text without exposing provider exception bodies."""
+    if isinstance(error, AuthenticationError):
+        return "Your API key was not accepted. Replace it and try again."
+    if isinstance(error, PermissionDeniedError):
+        return "Your API key does not have access to the configured model or API. Check your project permissions."
+    if isinstance(error, RateLimitError):
+        return "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
+    return "The question could not be completed. Please try again."
+
+
 def answer(
     question: str,
     llm: Model | None = None,
@@ -93,23 +104,9 @@ def answer(
     except (BrokenPipeError, ConnectionResetError):
         raise
     except Exception as exc:
-        message = "The question could not be completed. Please try again."
-        if isinstance(exc, APIError):
-            # Provider exception bodies can contain credentials. Do not log them.
-            logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
-            if isinstance(exc, AuthenticationError):
-                message = "Your API key was not accepted. Replace it and try again."
-            elif isinstance(exc, PermissionDeniedError):
-                message = (
-                    "Your API key does not have access to the configured model or API. Check your project permissions."
-                )
-            elif isinstance(exc, RateLimitError):
-                message = (
-                    "Your OpenAI project reached a rate or usage limit. Check your API billing and limits, then retry."
-                )
-        else:
-            logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
-        record = trace.record(State.FAILED, message)
+        # Exception bodies can contain credentials or other private diagnostics.
+        logger.error("Question failed during %s (%s)", trace.stage, type(exc).__name__)
+        record = trace.record(State.FAILED, _failure_message(exc))
         record["error"] = type(exc).__name__
         if trace.stage is not None:
             record["stage"] = trace.stage
