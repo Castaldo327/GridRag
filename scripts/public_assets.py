@@ -3,19 +3,21 @@
 import json
 import re
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 from app.metadata import evaluation_metadata, presets
 from gridrag import db
-from gridrag.catalog import demo_catalog
-from gridrag.warehouse.evals import CASES, reference_value
+from gridrag.catalog import Catalog, demo_catalog
+from gridrag.warehouse.evals import CASES, Case, reference_value
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 
+MAX_QUESTION_CHARS = 2000
+DEMO_EVIDENCE_ROWS = 1
 
-def build():
-    catalog = demo_catalog()
-    cases = [case for case in CASES if case.label]
-    answers = {
+ANSWERS = MappingProxyType(
+    {
         "peak": "ERCOT’s highest hourly demand on October 19, 2026 (local time) was **{value} MW**. The query takes the maximum hourly demand for that region and date.",
         "share": "Natural gas supplied **{value}%** of PJM’s net generation in September 2026. The query divides gas generation by net generation over the same period and multiplies by 100.",
         "queue": "ERCOT’s interconnection queue contains **{value} active solar projects** in this snapshot. The query filters by region, fuel, and active status before counting projects.",
@@ -24,33 +26,40 @@ def build():
         "storage": "CAISO’s gross battery discharge energy on October 21, 2026 was **{value} MWh**. The query sums five-minute discharge readings in MW and divides by 12 to convert them to energy. This is gross discharge, not net discharge after charging.",
         "spread_forecast_error": "For CAISO’s hour with the highest signed price spread, the eligible load forecast minus actual demand was **{value} MW**. The selected hour was 08:00 local (15:00 UTC). The latest eligible forecast was 34,708.94 MW, compared with 35,127.47 MW actual demand.",
     }
-    demos = [
-        {
-            "id": c.id,
-            "label": c.label,
-            "question": c.question,
-            "value": reference_value(c),
-            "unit": c.unit,
-            "sql": c.sql,
-            "concept": c.concept,
-            "tables": [name for name in catalog.tables if re.search(rf"\b{re.escape(name)}\b", c.sql)],
-            "evidence": db.run_model_sql(c.sql, 1)["csv"],
-        }
-        for c in cases
-    ]
-    for demo in demos:
-        value = f"{demo['value']:,.0f}" if demo["unit"] == "projects" else f"{demo['value']:,.2f}"
-        demo["answer"] = answers[demo["id"]].format(value=value) + " All measurements are from the fictional dataset."
+)
+
+
+def _demo_record(case: Case, catalog: Catalog) -> dict[str, Any]:
+    value = reference_value(case)
+    formatted_value = f"{value:,.0f}" if case.unit == "projects" else f"{value:,.2f}"
+    return {
+        "id": case.id,
+        "label": case.label,
+        "question": case.question,
+        "value": value,
+        "unit": case.unit,
+        "sql": case.sql,
+        "concept": case.concept,
+        "tables": [name for name in catalog.tables if re.search(rf"\b{re.escape(name)}\b", case.sql)],
+        "evidence": db.run_model_sql(case.sql, DEMO_EVIDENCE_ROWS)["csv"],
+        "answer": ANSWERS[case.id].format(value=formatted_value) + " All measurements are from the fictional dataset.",
+    }
+
+
+def build() -> None:
+    """Write the frontend demo artifact using the fictional warehouse's reference queries."""
+    catalog = demo_catalog()
+    demos = [_demo_record(case, catalog) for case in CASES if case.label]
     payload = {
         "catalog_tables": len(catalog.tables),
         "isos": list(catalog.isos),
-        "max_question_chars": 2000,
+        "max_question_chars": MAX_QUESTION_CHARS,
         "model_ready": False,
         "requires_api_key": True,
         "presets": presets(),
         **evaluation_metadata(),
         "demos": demos,
-        "catalog": [{"name": t.name, "ddl": t.ddl} for t in catalog.tables.values()],
+        "catalog": [{"name": table.name, "ddl": table.ddl} for table in catalog.tables.values()],
     }
     (STATIC / "demo.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
