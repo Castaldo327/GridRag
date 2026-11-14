@@ -7,23 +7,29 @@ from app.assets import ASSETS
 from gridrag.warehouse.build import build
 from scripts.public_assets import build as build_public_assets
 
+STATIC = Path("app/static")
+OUTPUT = Path("public")
 
-def main():
-    counts = build()
-    build_public_assets()
-    static = Path("app/static")
-    output = Path("public")
+
+def _prepare_public_directory() -> None:
     # A clean output directory prevents stale files from being deployed.
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir()
+    if OUTPUT.exists():
+        shutil.rmtree(OUTPUT)
+    OUTPUT.mkdir()
     for route, (name, _) in ASSETS.items():
-        source = static / name
+        source = STATIC / name
         if name == "benchmark.json" and not source.exists():
             continue
-        destination = output / (route.lstrip("/") or "index.html")
+        destination = OUTPUT / (route.lstrip("/") or "index.html")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+
+def main() -> None:
+    """Build the fictional warehouse and stage its allowlisted frontend assets."""
+    counts = build()
+    build_public_assets()
+    _prepare_public_directory()
     print(f"Prepared {len(counts)} tables and {sum(counts.values()):,} fictional rows for Vercel.")
 
 
