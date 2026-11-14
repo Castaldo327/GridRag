@@ -11,11 +11,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 from gridrag import db
-from gridrag.records import State
+from gridrag.records import QueryResult, State
+
+_REFERENCE_MAX_ROWS = 500
 
 
 @dataclass(frozen=True)
 class Case:
+    """A fixed question with independent evidence and expected pipeline behavior."""
+
     id: str
     question: str
     sql: str = ""  # reference query returning one scalar; empty for behaviour-only cases
@@ -191,9 +195,9 @@ WHERE f.vintage_rank = 1""",
 )
 
 
-def reference_result(case: Case) -> dict:
+def reference_result(case: Case) -> QueryResult:
     """Execute independent reference SQL, rejecting incomplete evidence before paid evaluation."""
-    result = db.run_model_sql(case.sql, 500)
+    result = db.run_model_sql(case.sql, _REFERENCE_MAX_ROWS)
     if result.get("error") or result.get("truncated") or not result.get("csv"):
         raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")
     return result
@@ -203,7 +207,7 @@ def reference_value(case: Case) -> float:
     """What the case's reference query computes from this warehouse."""
     result = reference_result(case)
     rows = list(csv.reader(io.StringIO(result.get("csv", ""))))
-    if result.get("error") or result.get("truncated") or len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
+    if len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
         raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")
     value = float(rows[1][0])
     if not math.isfinite(value):
