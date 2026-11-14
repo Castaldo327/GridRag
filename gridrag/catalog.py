@@ -18,12 +18,13 @@ _NAME = re.compile(r"\bCREATE TABLE\s+(\w+\.\w+)", re.IGNORECASE)
 _REFERENCE = re.compile(r"\bREFERENCES\s+(\w+\.\w+)", re.IGNORECASE)
 _COLUMN_NAME = re.compile(r"^([A-Za-z_]\w*)\s+", re.IGNORECASE)
 _SQL_TEXT = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")
+_CONSTRAINTS = frozenset({"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"})
 
 
 def _code(ddl: str, *, strip_literals: bool = False) -> str:
     """Mask comments, and optionally literals, without shifting metadata offsets."""
 
-    def strip_comment(match: re.Match) -> str:
+    def strip_comment(match: re.Match[str]) -> str:
         token = match[0]
         # Preserve offsets so names located in cleaned SQL still index the original documentation.
         masked = token.startswith(("--", "/*")) or strip_literals
@@ -32,7 +33,17 @@ def _code(ddl: str, *, strip_literals: bool = False) -> str:
     return _SQL_TEXT.sub(strip_comment, ddl)
 
 
-_CONSTRAINTS = {"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"}
+def _inline_comment(ddl: str, start: int) -> tuple[str, int]:
+    """Keep a comment after a column's comma attached to that column."""
+    index = start
+    while index < len(ddl) and ddl[index] in " \t":
+        index += 1
+    if not ddl.startswith("--", index):
+        return "", start
+    end = ddl.find("\n", index)
+    if end < 0:
+        end = len(ddl)
+    return " " + ddl[index:end], end + 1
 
 
 def _definitions(ddl: str) -> list[str]:
@@ -44,7 +55,8 @@ def _definitions(ddl: str) -> list[str]:
     if start < 0:
         raise ValueError(f"Table {name[1]} has no column definitions")
 
-    parts, current = [], []
+    parts: list[str] = []
+    current: list[str] = []
     depth, index = 1, start + 1
     while index < len(ddl) and depth:
         char = ddl[index]
@@ -62,19 +74,10 @@ def _definitions(ddl: str) -> list[str]:
             if not depth:
                 break
         elif char == "," and depth == 1:
-            # Inline comments after a column's comma describe that column.
-            next_index = index + 1
-            while next_index < len(ddl) and ddl[next_index] in " \t":
-                next_index += 1
-            if ddl.startswith("--", next_index):
-                end = ddl.find("\n", next_index)
-                if end < 0:
-                    end = len(ddl)
-                current.append(" " + ddl[next_index:end])
-                index = end
+            comment, index = _inline_comment(ddl, index + 1)
+            current.append(comment)
             parts.append("".join(current).strip())
             current = []
-            index += 1
             continue
         current.append(char)
         index += 1
@@ -274,7 +277,7 @@ def demo_catalog() -> Catalog:
             Family(
                 f"core.<iso>_{product.suffix}",
                 products.family_ddl(product, isos, build.FIVE_START, build.END),
-                MappingProxyType({iso: products.table_name(iso, product) for iso in isos}),
+                {iso: products.table_name(iso, product) for iso in isos},
             )
             for product in products.PRODUCTS
         ],
