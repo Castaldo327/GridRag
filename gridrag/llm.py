@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any, Literal, Protocol
 
 from openai import OpenAI
+from openai.types.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gridrag import config
@@ -38,6 +39,7 @@ class Model(Protocol):
 
 
 def client() -> OpenAI:
+    """Return the process-local CLI client, creating it on first use."""
     global _client
     with _client_lock:
         if _client is None:
@@ -51,6 +53,7 @@ def client() -> OpenAI:
 
 
 def output_text(resp: dict) -> str:
+    """Extract response text, raising if any message contains a refusal."""
     texts, refusals = [], []
     for item in resp.get("output", []):
         if item.get("type") != "message":
@@ -104,6 +107,7 @@ class LLM:
         )
 
     def close(self) -> None:
+        """Close this request's provider client when it owns one."""
         if self._provider is not None:
             self._provider.close()
 
@@ -117,7 +121,7 @@ class LLM:
     def _request(
         self, kind: Literal["decisions", "responses"], stage: Stage, method: Callable[..., Any], **kwargs: Any
     ) -> dict:
-        t = time.perf_counter()
+        started = time.perf_counter()
         try:
             resp = method(**kwargs).model_dump(mode="json")
         except Exception as exc:
@@ -125,7 +129,7 @@ class LLM:
                 {
                     "kind": kind,
                     "stage": stage,
-                    "seconds": round(time.perf_counter() - t, 3),
+                    "seconds": round(time.perf_counter() - started, 3),
                     "input_tokens": 0,
                     "cached_tokens": 0,
                     "output_tokens": 0,
@@ -139,7 +143,7 @@ class LLM:
             {
                 "kind": kind,
                 "stage": stage,
-                "seconds": round(time.perf_counter() - t, 3),
+                "seconds": round(time.perf_counter() - started, 3),
                 "input_tokens": usage.get("input_tokens") or 0,
                 "cached_tokens": (usage.get("input_tokens_details") or {}).get("cached_tokens") or 0,
                 "output_tokens": usage.get("output_tokens") or 0,
@@ -174,7 +178,7 @@ class LLM:
         settings = config.settings
         responses = self._client().responses
 
-        def stream_response(**options):
+        def stream_response(**options: Any) -> Response:
             # The SDK assembles tool calls and final usage while text deltas reach the UI.
             with responses.stream(**options) as stream:
                 for event in stream:
@@ -195,6 +199,7 @@ class LLM:
         )
 
     def totals(self) -> Usage:
+        """Return a consistent snapshot of this question's recorded usage."""
         with self._lock:
             calls = list(self.calls)
         return {
