@@ -14,11 +14,12 @@ import random
 import statistics
 import tempfile
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from benchmarks import hybrid
 from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
@@ -26,23 +27,35 @@ from benchmarks.vector import MODEL, VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
 from gridrag.catalog import Catalog, demo_catalog
-from gridrag.llm import LLM
+from gridrag.llm import LLM, Model
+from gridrag.records import Selection
 from gridrag.route import RoutingTooBroad, _with_references, route
 from gridrag.warehouse.evals import Case, reference_result, reference_value
 from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, table_evidence_matches
 
+SEED = 42
+LIVE_METHODS = ("routed", "vector-hybrid-p20")
+RETRIEVAL_METHODS = ("vector-hybrid-p20",)
+BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_CI_INDICES = (50, 1949)
+TAIL_PERCENTILE = 0.95
+BENCHMARK_TABLE_BUDGET = 25
+BENCHMARK_SQL_OUTPUT_TOKENS = 4096
 
-def strict_evidence(result, expected, tolerance):
+
+def strict_evidence(result: dict[str, Any], expected: float, tolerance: float) -> bool:
+    """Check the final scalar SQL result against the expected value."""
     return evidence_matches(result, expected, tolerance)
 
 
-def retrieval_metrics(case, selection, catalog):
+def retrieval_metrics(case: Case, selection: Selection, catalog: Catalog) -> dict[str, Any]:
+    """Measure required-table coverage and delivered schema size for an attempt."""
     selected = set(selection.get("tables", []))
     required = _with_references(catalog, set(case.tables)) if case.tables else set()
     schema = "\n\n".join(
-        catalog.tables[t].selected_schema(selection["columns"][t])
-        for t in selected
-        if t in selection.get("columns", {})
+        catalog.tables[name].selected_schema(selection["columns"][name])
+        for name in selected
+        if name in selection.get("columns", {})
     )
     # Candidate availability is measured before reranking; reference expansion is
     # applied so a recoverable dimension is not counted as an irretrievable miss.
@@ -51,7 +64,8 @@ def retrieval_metrics(case, selection, catalog):
     missing_candidates = sorted(required - candidates)
     # Required source tables that cannot be recovered from another required
     # table's foreign keys. Keep broad tasks visible when k cannot cover them.
-    seeds = required - set().union(*(_with_references(catalog, {t}) - {t} for t in required))
+    referenced_tables = set().union(*(_with_references(catalog, {name}) - {name} for name in required))
+    seeds = required - referenced_tables
     policy = (retrieval or {}).get("candidate_policy")
     return {
         "required_seed_tables": len(seeds),
@@ -68,16 +82,17 @@ def retrieval_metrics(case, selection, catalog):
     }
 
 
-def _mean(rows: Sequence[dict], key: str) -> float | None:
+def _mean(rows: Sequence[Mapping[str, Any]], key: str) -> float | None:
     values = [row[key] for row in rows if row.get(key) is not None]
     return statistics.mean(values) if values else None
 
 
-def summarize(rows):
+def summarize(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate every attempt by method, retaining failures in accuracy totals."""
     summary = []
-    for name in sorted({r["method"] for r in rows}):
-        group = [r for r in rows if r["method"] == name]
-        seconds = sorted(r["seconds"] for r in group)
+    for name in sorted({row["method"] for row in rows}):
+        group = [row for row in rows if row["method"] == name]
+        seconds = sorted(row["seconds"] for row in group)
         summary.append(
             {
                 "method": name,
@@ -88,50 +103,45 @@ def summarize(rows):
                 "mean_selected_columns": _mean(group, "selected_columns"),
                 "all_required_tables": _mean(group, "all_required_tables"),
                 "median_seconds": statistics.median(seconds),
-                "p95_seconds": seconds[math.ceil(0.95 * len(seconds)) - 1],
+                "p95_seconds": seconds[math.ceil(TAIL_PERCENTILE * len(seconds)) - 1],
                 "mean_cost_usd": _mean(group, "cost_usd"),
                 "mean_schema_chars": _mean(group, "schema_chars"),
                 "mean_input_tokens": _mean(group, "input_tokens"),
-                "failures": sum(r.get("state") == "failed" for r in group),
+                "failures": sum(row.get("state") == "failed" for row in group),
             }
         )
     return summary
 
 
-def paired_intervals(rows):
+def paired_intervals(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Case-cluster bootstrap preserves repeated attempts within each question."""
-    results = []
-    for baseline in ("vector-hybrid-p20",):
-        differences = []
-        for case in BENCHMARK_CASES:
-            by_method = {
-                name: [r["correct"] for r in rows if r["case"] == case.id and r["method"] == name]
-                for name in ("routed", baseline)
-            }
-            if all(by_method.values()):
-                differences.append(statistics.mean(by_method["routed"]) - statistics.mean(by_method[baseline]))
-        if not differences:
-            continue
-        rng = random.Random(42)
-        samples = sorted(statistics.mean(rng.choices(differences, k=len(differences))) for _ in range(2000))
-        results.append(
-            {
-                "comparison": "routed minus " + baseline,
-                "accuracy_delta": statistics.mean(differences),
-                "ci95": [samples[50], samples[1949]],
-                "independent_cases": len(differences),
-            }
-        )
-    return results
-
-
-SEED = 42
-LIVE_METHODS = ("routed", "vector-hybrid-p20")
-RETRIEVAL_METHODS = ("vector-hybrid-p20",)
+    baseline = "vector-hybrid-p20"
+    differences = []
+    for case in BENCHMARK_CASES:
+        by_method = {
+            name: [row["correct"] for row in rows if row["case"] == case.id and row["method"] == name]
+            for name in ("routed", baseline)
+        }
+        if all(by_method.values()):
+            differences.append(statistics.mean(by_method["routed"]) - statistics.mean(by_method[baseline]))
+    if not differences:
+        return []
+    rng = random.Random(SEED)
+    samples = sorted(statistics.mean(rng.choices(differences, k=len(differences))) for _ in range(BOOTSTRAP_SAMPLES))
+    return [
+        {
+            "comparison": "routed minus " + baseline,
+            "accuracy_delta": statistics.mean(differences),
+            "ci95": [samples[index] for index in BOOTSTRAP_CI_INDICES],
+            "independent_cases": len(differences),
+        }
+    ]
 
 
 @dataclass(frozen=True)
 class Attempt:
+    """One scheduled method evaluation of a frozen benchmark case."""
+
     case: Case
     method: str
     repeat: int
@@ -149,12 +159,15 @@ def scheduled_attempts(cases: Sequence[Case], methods: Sequence[str], repeats: i
             yield from (Attempt(case, method, repeat) for method in order)
 
 
-def live_attempt(case, catalog, retriever, references):
-    llm = LLM(api_key=config.settings.openai_api_key)
-    try:
+def live_attempt(
+    case: Case,
+    catalog: Catalog,
+    retriever: Callable[[str, Model, Catalog], Selection],
+    references: Mapping[str, float | dict[str, Any]],
+) -> tuple[dict[str, Any], Selection | None]:
+    """Score a model-backed answer against the shared evaluation contract."""
+    with closing(LLM(api_key=config.settings.openai_api_key)) as llm:
         result = answer(evaluation_question(case), llm=llm, catalog=catalog, retriever=retriever)
-    finally:
-        llm.close()
     checks = assess(case, result)
     numeric = None
     if case.sql:
@@ -175,7 +188,10 @@ def live_attempt(case, catalog, retriever, references):
     return row, result.get("route")
 
 
-def retrieval_attempt(case, catalog, retriever):
+def retrieval_attempt(
+    case: Case, catalog: Catalog, retriever: Callable[[str, Model | None, Catalog], Selection]
+) -> tuple[dict[str, Any], Selection]:
+    """Record deterministic retrieval, preserving selections that exceed the budget."""
     try:
         selection = retriever(case.question, None, catalog)
         state = "retrieved"
@@ -184,7 +200,15 @@ def retrieval_attempt(case, catalog, retriever):
     return {"state": state, "correct": None, "cost_usd": None, "input_tokens": None}, selection
 
 
-def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, references, *, live: bool):
+def run_attempt(
+    attempt: Attempt,
+    catalog: Catalog,
+    vector: VectorRetriever,
+    references: Mapping[str, float | dict[str, Any]],
+    *,
+    live: bool,
+) -> dict[str, Any]:
+    """Record one scheduled attempt with elapsed time and retrieval diagnostics."""
     case, method = attempt.case, attempt.method
     if method not in LIVE_METHODS:
         raise ValueError(f"Unknown comparison method: {method}")
@@ -210,7 +234,8 @@ def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, ref
     return row
 
 
-def benchmark_manifest(args, vector):
+def benchmark_manifest(args: argparse.Namespace, vector: VectorRetriever) -> dict[str, Any]:
+    """Capture settings and fixture hashes needed to reproduce a benchmark run."""
     return {
         "format_version": 8,
         "experiment": EXPERIMENT,
@@ -221,7 +246,10 @@ def benchmark_manifest(args, vector):
         "cases": len(BENCHMARK_CASES),
         "embedding_model": MODEL,
         "models": {"routing": config.settings.decisions_model, "sql": config.settings.answer_model},
-        "versions": {p: importlib.metadata.version(p) for p in ("qdrant-client", "fastembed", "openai", "duckdb")},
+        "versions": {
+            package: importlib.metadata.version(package)
+            for package in ("qdrant-client", "fastembed", "openai", "duckdb")
+        },
         "schema_sha256": vector.schema_sha256,
         "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
         "index_seconds": vector.index_seconds,
@@ -250,13 +278,13 @@ def benchmark_manifest(args, vector):
         },
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
         "rates_per_million": {
-            k: {"input": v.input, "cached_input": v.cached_input, "output": v.output}
-            for k, v in config.settings.prices.items()
+            name: {"input": rates.input, "cached_input": rates.cached_input, "output": rates.output}
+            for name, rates in config.settings.prices.items()
         },
     }
 
 
-def save_report(output: Path, manifest, rows):
+def save_report(output: Path, manifest: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> None:
     """Replace the report atomically without sharing a temporary path with other runs."""
     report = {
         "manifest": manifest,
@@ -278,7 +306,13 @@ def save_report(output: Path, manifest, rows):
         temporary.unlink(missing_ok=True)
 
 
-def run_benchmark(args, catalog, vector, references):
+def run_benchmark(
+    args: argparse.Namespace,
+    catalog: Catalog,
+    vector: VectorRetriever,
+    references: Mapping[str, float | dict[str, Any]],
+) -> None:
+    """Checkpoint each completed attempt before reporting CLI progress."""
     manifest = benchmark_manifest(args, vector)
     methods = LIVE_METHODS if args.live else RETRIEVAL_METHODS
     rows = []
@@ -294,7 +328,7 @@ def run_benchmark(args, catalog, vector, references):
     print(f"Saved {len(rows)} attempts to {args.output}", flush=True)
 
 
-def main():
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Make paid model calls with the local configured key")
     parser.add_argument("--repeats", type=int, default=3)
@@ -303,16 +337,22 @@ def main():
     parser.add_argument(
         "--max-tables",
         type=int,
-        default=25,
+        default=BENCHMARK_TABLE_BUDGET,
         help="Shared evaluation-only table budget, including references (default: 25)",
     )
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be positive")
-    if args.max_tables < 25:
+    if args.max_tables < BENCHMARK_TABLE_BUDGET:
         parser.error("--max-tables must allow the 23-table broad price comparison (minimum: 25)")
     if args.live and not config.settings.openai_api_key:
         parser.error("Set OPENAI_API_KEY locally before using --live")
+    return args
+
+
+def main() -> None:
+    """Run the benchmark with validated CLI settings and scoped resources."""
+    args = _parse_args()
     catalog = demo_catalog()
     # Preflight every reference before incurring model usage.
     references = {
@@ -323,7 +363,9 @@ def main():
     original_settings = config.settings
     try:
         # All compared methods share the larger context budget. The app's default stays unchanged.
-        config.settings = replace(original_settings, max_routed_tables=args.max_tables, answer_max_output_tokens=4096)
+        config.settings = replace(
+            original_settings, max_routed_tables=args.max_tables, answer_max_output_tokens=BENCHMARK_SQL_OUTPUT_TOKENS
+        )
         with closing(VectorRetriever(catalog, args.url)) as vector:
             run_benchmark(args, catalog, vector, references)
     finally:
