@@ -1,6 +1,8 @@
 """Approved public assets shared by the local server and deployment build."""
 
-ASSETS = {
+from typing import Final
+
+ASSETS: Final[dict[str, tuple[str, str]]] = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
