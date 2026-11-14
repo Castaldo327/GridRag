@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Collection, Iterable, Iterator
 from contextlib import contextmanager
+from typing import Any
 
 import duckdb
 
@@ -27,6 +28,8 @@ BLOCKED_FUNCTIONS = frozenset(
     {"write_log", "sleep_ms", "nextval", "currval", "setval", "setseed", "getenv", "getvariable", "current_setting"}
 )
 ONE_SELECT = "only a single SELECT (or WITH ... SELECT) query is allowed"
+_MAX_ERROR_CHARS = 600
+_INTERRUPT_POLL_SECONDS = 0.01
 
 _db: duckdb.DuckDBPyConnection | None = None
 _db_lock = threading.Lock()
@@ -66,7 +69,7 @@ def _database() -> duckdb.DuckDBPyConnection:
     return _db
 
 
-def _references(node, tables: set, functions: set, ctes: set) -> None:
+def _references(node: Any, tables: set[str], functions: set[str], ctes: set[str]) -> None:
     """Collects schema.table references, table functions and CTE names from a parsed query tree. Names are
     lower-cased, as DuckDB resolves them case-insensitively."""
     if isinstance(node, dict):
@@ -97,7 +100,9 @@ def _check(cur: duckdb.DuckDBPyConnection, sql: str, allowed: set[str]) -> str:
     if parsed.get("error"):
         if parsed.get("error_type") == "not implemented":  # json_serialize_sql supports SELECT statements
             raise QueryRejected(ONE_SELECT)
-        raise QueryRejected(f"{parsed.get('error_type', 'parser')} error: {parsed.get('error_message', '')}"[:600])
+        raise QueryRejected(
+            f"{parsed.get('error_type', 'parser')} error: {parsed.get('error_message', '')}"[:_MAX_ERROR_CHARS]
+        )
     if len(parsed["statements"]) != 1:
         raise QueryRejected(ONE_SELECT)
     tables: set[str] = set()
@@ -127,17 +132,16 @@ def _timed_cursor(seconds: float) -> Iterator[duckdb.DuckDBPyConnection]:
         # the deadline and leave the actual query running without a watchdog.
         while not finished.is_set():
             cur.interrupt()
-            finished.wait(0.01)
+            finished.wait(_INTERRUPT_POLL_SECONDS)
 
     watchdog = threading.Thread(target=interrupt, daemon=True)
     watchdog.start()
     try:
-        try:
-            yield cur
-        except duckdb.InterruptException as exc:
-            raise QueryRejected(f"query exceeded the {seconds:g}-second execution budget") from exc
+        yield cur
         if expired.is_set() or time.monotonic() >= deadline:
             raise QueryRejected(f"query exceeded the {seconds:g}-second execution budget")
+    except duckdb.InterruptException as exc:
+        raise QueryRejected(f"query exceeded the {seconds:g}-second execution budget") from exc
     finally:
         finished.set()
         watchdog.join()
@@ -149,7 +153,7 @@ def _fetch(
     sql: str,
     allowed: set[str],
     max_rows: int,
-) -> tuple[list[str], Iterator[tuple]]:
+) -> tuple[list[str], Iterator[tuple[Any, ...]]]:
     """Validate and execute, then fetch rows lazily within the cursor's lifetime."""
     try:
         normalized = _check(cur, sql, allowed)
@@ -163,17 +167,17 @@ def _fetch(
     except duckdb.InterruptException:
         raise
     except duckdb.Error as exc:
-        raise QueryRejected(f"{type(exc).__name__}: {exc}"[:600]) from exc
+        raise QueryRejected(f"{type(exc).__name__}: {exc}"[:_MAX_ERROR_CHARS]) from exc
 
 
-def _result(columns: list[str], rows: Iterable[tuple], max_rows: int) -> QueryResult:
+def _result(columns: list[str], rows: Iterable[tuple[Any, ...]], max_rows: int) -> QueryResult:
     """The rows as CSV, flagged when truncated, or an error when the CSV is too large."""
     settings = config.settings
     # Native values preserve DECIMAL and large integers without DataFrame float coercion.
     parts: list[str] = []
     size = 0
 
-    def append(row: Iterable) -> None:
+    def append(row: Iterable[Any]) -> None:
         nonlocal size
         buffer = io.StringIO(newline="")
         csv.writer(buffer, lineterminator="\n").writerow(row)
