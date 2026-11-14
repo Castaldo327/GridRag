@@ -5,6 +5,8 @@ scoring fixtures and never reach retrieval or SQL generation. Concepts describe
 what each task probes; difficulty describes operations, not observed outcomes.
 """
 
+from typing import Any
+
 from gridrag.warehouse.evals import Case
 
 EXPERIMENT = "decisions-vs-reranker-30-v3"
@@ -12,7 +14,18 @@ DIFFICULTIES = ("easy", "medium", "hard", "very_hard")
 ISOS = ("CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP")
 
 
-def task(id, difficulty, category, concept, question, sql, tables, unit, **kwargs):
+def task(
+    id: str,
+    difficulty: str,
+    category: str,
+    concept: str,
+    question: str,
+    sql: str,
+    tables: tuple[str, ...],
+    unit: str,
+    **kwargs: Any,
+) -> Case:
+    """Build a frozen task with optional Case scoring fields."""
     return Case(
         id,
         difficulty=difficulty,
