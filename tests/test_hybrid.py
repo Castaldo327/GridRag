@@ -14,6 +14,18 @@ from gridrag.route import RoutingFailed
 
 
 class HybridTests(unittest.TestCase):
+    def test_candidate_cap_is_twenty_percent_of_the_catalog_rounded_up(self):
+        for size, expected in ((1, 1), (2, 1), (65, 13), (66, 14), (1000, 200)):
+            with self.subTest(size=size):
+                policy = hybrid.candidate_policy(size)
+                self.assertEqual(policy["candidate_top_k"], expected)
+                self.assertEqual(policy["dense_pool"], expected)
+                self.assertEqual(policy["keyword_pool"], expected)
+                self.assertEqual(policy["rerank_pool"], expected)
+        for percent in (0, 101, True, 20.5):
+            with self.assertRaises(ValueError):
+                hybrid.candidate_policy(65, percent)
+
     def test_reusable_keyword_index_keeps_scores_and_only_tokenizes_the_question(self):
         catalog = demo_catalog()
         question = "Compare hourly demand and prices across the regions"
@@ -30,7 +42,7 @@ class HybridTests(unittest.TestCase):
             "California maximum hourly demand on August 8, 2025", catalog, {"core.caiso_lmp_rt_bus_5min": 0.9}
         )
         self.assertIn("core.fact_balance_hourly", names)
-        self.assertLessEqual(len(names), hybrid.RERANK_POOL)
+        self.assertLessEqual(len(names), hybrid.candidate_policy(len(catalog.tables))["candidate_top_k"])
 
     def test_custom_catalog_recovers_keyword_matches_without_domain_configuration(self):
         tables = [
@@ -43,7 +55,7 @@ class HybridTests(unittest.TestCase):
         catalog = Catalog({table.name: table for table in tables})
         names, _ = hybrid.shortlist("available inventory units", catalog, {"sales.refunds": 0.1})
         self.assertEqual(names[0], "sales.inventory")
-        self.assertIn("sales.refunds", names)
+        self.assertEqual(names, ["sales.inventory"])
 
     def test_keywords_do_not_inject_demo_region_aliases_into_custom_catalogs(self):
         table = Table.parse("CREATE TABLE records.caiso (\n value DOUBLE\n);")
@@ -79,7 +91,7 @@ class HybridTests(unittest.TestCase):
         ]
         with patch.object(config, "settings", replace(config.settings, max_routed_tables=25)):
             selection = vector.retrieve_hybrid("California hourly demand", None, catalog)
-        self.assertEqual(vector.client.query_points.call_args.kwargs["limit"], hybrid.DENSE_POOL)
+        self.assertEqual(vector.client.query_points.call_args.kwargs["limit"], 13)
         self.assertIn("core.fact_balance_hourly", selection["tables"])
         self.assertIn("core.dim_iso", selection["tables"])
         self.assertEqual(
@@ -87,12 +99,16 @@ class HybridTests(unittest.TestCase):
         )
         self.assertEqual(selection["retrieval"]["reranker"], "fusion-only")
 
-    def test_larger_pool_does_not_drop_dense_candidates_before_reranking(self):
+    def test_fused_union_cannot_expand_the_cap_even_with_disjoint_keyword_matches(self):
         catalog = demo_catalog()
-        dense = {name: 0.5 for name in list(catalog.tables)[: hybrid.DENSE_POOL]}
-        names, _ = hybrid.shortlist("Compare hourly demand and prices across the regions", catalog, dense)
-        self.assertTrue(set(dense) <= set(names))
-        self.assertEqual(hybrid.FINAL_K, 25)
+        dense_names = list(catalog.tables)[:13]
+        lexical_names = list(catalog.tables)[13:26]
+        dense = dict.fromkeys(dense_names, 0.5)
+        lexical = {**dict.fromkeys(catalog.tables, 0.0), **dict.fromkeys(lexical_names, 1.0)}
+        with patch.object(hybrid, "keyword_scores", return_value=lexical):
+            names, _ = hybrid.shortlist("question", catalog, dense)
+        self.assertEqual(len(names), 13)
+        self.assertLessEqual(set(names), set(dense_names + lexical_names))
 
     def test_qdrant_candidates_are_reranked_by_one_decisions_call_before_sql(self):
         catalog = demo_catalog()

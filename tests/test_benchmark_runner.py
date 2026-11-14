@@ -19,7 +19,7 @@ from gridrag.route import RoutingTooBroad
 class BenchmarkRunnerTests(unittest.TestCase):
     def test_manifest_identifies_generic_fusion_for_new_results(self):
         args = SimpleNamespace(live=False, repeats=1)
-        vector = SimpleNamespace(schema_sha256="test-schema", index_seconds=0.0)
+        vector = SimpleNamespace(schema_sha256="test-schema", index_seconds=0.0, catalog=demo_catalog())
         with patch.object(run.importlib.metadata, "version", return_value="test"):
             manifest = run.benchmark_manifest(args, vector)
         settings = manifest["hybrid"]
@@ -30,6 +30,10 @@ class BenchmarkRunnerTests(unittest.TestCase):
         self.assertEqual(settings["fusion_version"], "semantic-bm25-v1")
         self.assertNotIn("metadata", settings)
         self.assertEqual(set(settings["weights"]), {"semantic", "keyword"})
+        self.assertEqual(settings["catalog_tables"], 65)
+        self.assertEqual(settings["candidate_percent"], 20)
+        self.assertEqual(settings["candidate_top_k"], 13)
+        self.assertEqual(settings["rerank_pool"], 13)
 
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))
@@ -45,12 +49,11 @@ class BenchmarkRunnerTests(unittest.TestCase):
         catalog = demo_catalog()
         selection = {"tables": list(catalog.tables), "columns": {}}
         vector = Mock()
-        vector.retrieve.side_effect = RoutingTooBroad(selection)
-        attempt = run.Attempt(BENCHMARK_CASES[0], "vector-k21", 0)
+        vector.retrieve_hybrid.side_effect = RoutingTooBroad(selection)
+        attempt = run.Attempt(BENCHMARK_CASES[0], "vector-hybrid-p20", 0)
         with patch.object(run, "LLM") as model:
             row = run.run_attempt(attempt, catalog, vector, {}, live=False)
         model.assert_not_called()
-        self.assertEqual(vector.top_k, 21)
         self.assertEqual((row["state"], row["schema_chars"]), ("clarification", 0))
         self.assertEqual(row["required_table_recall"], 1)
 
@@ -148,7 +151,6 @@ class VectorLifecycleTests(unittest.TestCase):
 
     def test_close_is_idempotent_and_releases_client_when_deletion_fails(self):
         vector = VectorRetriever(demo_catalog(), "http://localhost:6333")
-        self.assertEqual(vector.top_k, 21)
         self.client.delete_collection.side_effect = RuntimeError
         with self.assertRaises(RuntimeError):
             vector.close()

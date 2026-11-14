@@ -6,7 +6,8 @@ import io
 import unittest
 from collections import Counter
 
-from benchmarks.cases import BENCHMARK_CASES, DIFFICULTIES
+from benchmarks import hybrid
+from benchmarks.cases import BENCHMARK_CASES, DIFFICULTIES, EXPERIMENT
 from benchmarks.run import LIVE_METHODS, retrieval_metrics, strict_evidence, summarize
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
@@ -58,6 +59,7 @@ class BenchmarkTests(unittest.TestCase):
         report = {
             "manifest": {
                 "live": True,
+                "experiment": EXPERIMENT,
                 "repeats": 1,
                 "methods": list(LIVE_METHODS),
                 "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
@@ -74,11 +76,17 @@ class BenchmarkTests(unittest.TestCase):
     def test_empty_or_mismatched_suite_cannot_be_published(self):
         for count in (0, -1, True, 1.5):
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, "positive integer"):
-                public_report({"manifest": {"live": True, "repeats": count}, "runs": []})
+                public_report({"manifest": {"live": True, "experiment": EXPERIMENT, "repeats": count}, "runs": []})
         with self.assertRaisesRegex(ValueError, "questions do not match"):
             public_report(
                 {
-                    "manifest": {"live": True, "repeats": 1, "methods": list(LIVE_METHODS), "cases_sha256": "stale"},
+                    "manifest": {
+                        "live": True,
+                        "experiment": EXPERIMENT,
+                        "repeats": 1,
+                        "methods": list(LIVE_METHODS),
+                        "cases_sha256": "stale",
+                    },
                     "runs": [],
                 }
             )
@@ -87,6 +95,7 @@ class BenchmarkTests(unittest.TestCase):
         report = {
             "manifest": {
                 "live": True,
+                "experiment": EXPERIMENT,
                 "repeats": 1,
                 "methods": list(LIVE_METHODS),
                 "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
@@ -100,6 +109,7 @@ class BenchmarkTests(unittest.TestCase):
         report = {
             "manifest": {
                 "live": True,
+                "experiment": EXPERIMENT,
                 "repeats": 3,
                 "methods": list(LIVE_METHODS),
                 "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
@@ -111,7 +121,10 @@ class BenchmarkTests(unittest.TestCase):
                     "entries": 7,
                     "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest(),
                 },
-                "hybrid": {"fusion_version": "semantic-bm25-v1"},
+                "hybrid": {
+                    "fusion_version": "semantic-bm25-v1",
+                    **hybrid.candidate_policy(len(demo_catalog().tables)),
+                },
             },
             "paired_intervals": [],
             "runs": [],
@@ -119,7 +132,7 @@ class BenchmarkTests(unittest.TestCase):
         for repeat in range(3):
             for case in BENCHMARK_CASES:
                 for method in LIVE_METHODS:
-                    correct = repeat < {"routed": 2, "vector-k21": 1, "vector-hybrid-k25": 3}[method]
+                    correct = repeat < {"routed": 2, "vector-hybrid-p20": 3}[method]
                     report["runs"].append(
                         {
                             "case": case.id,
@@ -132,16 +145,32 @@ class BenchmarkTests(unittest.TestCase):
                         }
                     )
         public = public_report(report)
-        self.assertEqual(len(public["runs"]), 270)
+        self.assertEqual(len(public["runs"]), 180)
         summaries = {s["method"]: s for s in public["summary"]}
         self.assertTrue(all(s["attempts"] == 90 for s in summaries.values()))
         self.assertAlmostEqual(summaries["routed"]["accuracy"], 2 / 3)
         self.assertEqual(summaries["routed"]["failures"], 30)
-        self.assertAlmostEqual(summaries["vector-k21"]["accuracy"], 1 / 3)
-        self.assertEqual(summaries["vector-hybrid-k25"]["accuracy"], 1.0)
+        self.assertEqual(summaries["vector-hybrid-p20"]["accuracy"], 1.0)
         self.assertEqual([trial["trial"] for trial in public["trial_summaries"]], [1, 2, 3])
         for trial in public["trial_summaries"]:
             self.assertTrue(all(s["attempts"] == 30 for s in trial["summary"]))
+        policy = hybrid.candidate_policy(len(demo_catalog().tables))
+        report["manifest"]["hybrid"]["candidate_top_k"] = 60
+        with self.assertRaisesRegex(ValueError, "fresh run with the 20%"):
+            public_report(report)
+        report["manifest"]["hybrid"]["candidate_top_k"] = policy["candidate_top_k"]
+        vector_row = next(row for row in report["runs"] if row["method"] == "vector-hybrid-p20")
+        names = list(demo_catalog().tables)
+        vector_row["result"]["route"] = {
+            "scores": {},
+            "retrieval": {"candidate_policy": policy, "dense_candidates": names[:13], "shortlist": names[:13]},
+        }
+        self.assertEqual(len(public_report(report)["runs"]), 180)
+        for field in ("dense_candidates", "shortlist"):
+            vector_row["result"]["route"]["retrieval"][field] = names[:14]
+            with self.assertRaisesRegex(ValueError, "violate the 20%"):
+                public_report(report)
+            vector_row["result"]["route"]["retrieval"][field] = names[:13]
         report["manifest"]["grounding"]["curated_vocabulary"] = False
         with self.assertRaisesRegex(ValueError, "ISO-only entity grounding"):
             public_report(report)
@@ -165,12 +194,13 @@ class BenchmarkTests(unittest.TestCase):
             "manifest": {
                 "format_version": 4,
                 "live": True,
+                "experiment": EXPERIMENT,
                 "repeats": 1,
                 "methods": ["routed", "vector-k4", "vector-k6"],
             },
             "runs": [],
         }
-        with self.assertRaisesRegex(ValueError, "three declared methods"):
+        with self.assertRaisesRegex(ValueError, "both declared methods"):
             public_report(report)
 
     def test_budget_clarification_has_no_delivered_schema(self):
@@ -179,6 +209,36 @@ class BenchmarkTests(unittest.TestCase):
         metrics = retrieval_metrics(BENCHMARK_CASES[0], selection, catalog)
         self.assertEqual(metrics["schema_chars"], 0)
         self.assertEqual(metrics["required_table_recall"], 1)
+
+    def test_broad_task_records_structural_cap_shortfall_after_reference_recovery(self):
+        catalog = demo_catalog()
+        case = next(case for case in BENCHMARK_CASES if case.id == "all_iso_prices")
+        selection = {
+            "tables": [],
+            "columns": {},
+            "retrieval": {"shortlist": [], "candidate_policy": hybrid.candidate_policy(len(catalog.tables))},
+        }
+        metrics = retrieval_metrics(case, selection, catalog)
+        self.assertEqual(metrics["required_seed_tables"], 21)
+        self.assertEqual(metrics["candidate_budget_shortfall"], 8)
+        selection.pop("retrieval")
+        self.assertEqual(retrieval_metrics(case, selection, catalog)["candidate_budget_shortfall"], 0)
+
+    def test_candidate_diagnostics_distinguish_shortlist_omissions_from_reference_recovery(self):
+        catalog = demo_catalog()
+        case = next(c for c in BENCHMARK_CASES if c.id == "pjm_solar_share")
+        selection = {
+            "tables": ["core.fact_generation_hourly", "core.dim_iso", "core.dim_fuel"],
+            "columns": {},
+            "retrieval": {"shortlist": ["core.fact_generation_hourly"]},
+        }
+        metrics = retrieval_metrics(case, selection, catalog)
+        self.assertEqual(metrics["candidate_missing_tables"], ["core.fact_balance_hourly"])
+        self.assertEqual(metrics["candidate_table_recall"], 0.75)
+        # The fuel and ISO dimensions remain recoverable through foreign keys.
+        self.assertEqual(metrics["required_table_recall"], 0.75)
+        selection.pop("retrieval")
+        self.assertEqual(retrieval_metrics(case, selection, catalog)["candidate_table_recall"], 1)
 
     def test_summary_keeps_failures_in_denominator(self):
         rows = [

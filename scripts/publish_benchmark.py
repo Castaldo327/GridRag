@@ -5,7 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from benchmarks.cases import BENCHMARK_CASES
+from benchmarks import hybrid
+from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
 from benchmarks.run import LIVE_METHODS, summarize
 from gridrag.catalog import demo_catalog
 from gridrag.warehouse.evals import reference_result, reference_value
@@ -18,7 +19,9 @@ def public_report(report):
         raise ValueError("A benchmark requires a positive integer attempt count")
     methods = set(manifest.get("methods", ()))
     if methods != set(LIVE_METHODS):
-        raise ValueError("The capability experiment must include all three declared methods")
+        raise ValueError("The capability experiment must include both declared methods")
+    if manifest.get("experiment") != EXPERIMENT:
+        raise ValueError("Publish a fresh two-pipeline comparison")
     if manifest.get("cases_sha256") != hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest():
         raise ValueError("Benchmark questions do not match the recorded run")
     expected = {
@@ -42,6 +45,22 @@ def public_report(report):
         or manifest.get("hybrid", {}).get("metadata")
     ):
         raise ValueError("Publish a fresh schema-driven run with shared ISO-only entity grounding")
+    policy = hybrid.candidate_policy(len(demo_catalog().tables))
+    if any(manifest.get("hybrid", {}).get(key) != value for key, value in policy.items()):
+        raise ValueError("Publish a fresh run with the 20% combined candidate cap")
+    for row in rows:
+        if row["method"] != "vector-hybrid-p20":
+            continue
+        selection = row.get("result", {}).get("route")
+        if selection is None:
+            continue  # Failures at the shared request gate remain in the denominator.
+        retrieval = selection.get("retrieval", {})
+        if (
+            retrieval.get("candidate_policy") != policy
+            or len(retrieval.get("dense_candidates", ())) > policy["dense_pool"]
+            or len(retrieval.get("shortlist", ())) > policy["candidate_top_k"]
+        ):
+            raise ValueError("Recorded vector candidates violate the 20% combined candidate cap")
     fields = {
         "case",
         "method",
@@ -55,6 +74,11 @@ def public_report(report):
         "input_tokens",
         "output_tokens",
         "required_table_recall",
+        "candidate_table_recall",
+        "candidate_missing_tables",
+        "required_seed_tables",
+        "candidate_budget_shortfall",
+        "selected_columns",
         "all_required_tables",
         "selected_tables",
         "schema_chars",
@@ -66,6 +90,7 @@ def public_report(report):
         result = original["result"]
         public["answer"] = result["answer"]
         public["tables"] = (result.get("route") or {}).get("tables", [])
+        public["columns"] = (result.get("route") or {}).get("columns", {})
         public["queries"] = [
             {key: call.get(key) for key in ("query", "csv", "rows", "error", "truncated")}
             for call in result.get("tool_calls", [])
@@ -88,6 +113,7 @@ def public_report(report):
             {
                 "id": case.id,
                 "question": case.question,
+                "concept": case.concept,
                 "type": case.result_kind,
                 "difficulty": case.difficulty,
                 "category": case.category,

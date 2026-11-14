@@ -1,6 +1,6 @@
 """Run a paired comparison: python -m benchmarks.run --live --repeats 3.
 
-Without --live, evaluate dense retrieval and deterministic hybrid fusion (no OpenAI
+Without --live, evaluate deterministic hybrid fusion (no OpenAI
 requests). Settings are fixed within each run. This is a development comparison,
 not a held-out test. All attempts are retained.
 """
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from benchmarks import hybrid
-from benchmarks.cases import BENCHMARK_CASES
+from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
 from benchmarks.vector import MODEL, VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
@@ -44,7 +44,21 @@ def retrieval_metrics(case, selection, catalog):
         for t in selected
         if t in selection.get("columns", {})
     )
+    # Candidate availability is measured before reranking; reference expansion is
+    # applied so a recoverable dimension is not counted as an irretrievable miss.
+    retrieval = selection.get("retrieval")
+    candidates = _with_references(catalog, set(retrieval["shortlist"])) if retrieval else set(catalog.tables)
+    missing_candidates = sorted(required - candidates)
+    # Required source tables that cannot be recovered from another required
+    # table's foreign keys. Keep broad tasks visible when k cannot cover them.
+    seeds = required - set().union(*(_with_references(catalog, {t}) - {t} for t in required))
+    policy = (retrieval or {}).get("candidate_policy")
     return {
+        "required_seed_tables": len(seeds),
+        "candidate_budget_shortfall": max(0, len(seeds) - policy["candidate_top_k"]) if policy else 0,
+        "candidate_table_recall": len(required & candidates) / len(required) if required else None,
+        "candidate_missing_tables": missing_candidates,
+        "selected_columns": sum(len(columns) for columns in selection.get("columns", {}).values()),
         "required_table_recall": len(required & selected) / len(required) if required else None,
         "all_required_tables": required <= selected if required else None,
         "selected_tables": len(selected),
@@ -70,6 +84,8 @@ def summarize(rows):
                 "attempts": len(group),
                 "accuracy": _mean(group, "correct"),
                 "required_table_recall": _mean(group, "required_table_recall"),
+                "candidate_table_recall": _mean(group, "candidate_table_recall"),
+                "mean_selected_columns": _mean(group, "selected_columns"),
                 "all_required_tables": _mean(group, "all_required_tables"),
                 "median_seconds": statistics.median(seconds),
                 "p95_seconds": seconds[math.ceil(0.95 * len(seconds)) - 1],
@@ -85,7 +101,7 @@ def summarize(rows):
 def paired_intervals(rows):
     """Case-cluster bootstrap preserves repeated attempts within each question."""
     results = []
-    for baseline in ("vector-k21", "vector-hybrid-k25"):
+    for baseline in ("vector-hybrid-p20",):
         differences = []
         for case in BENCHMARK_CASES:
             by_method = {
@@ -110,8 +126,8 @@ def paired_intervals(rows):
 
 
 SEED = 42
-LIVE_METHODS = ("routed", "vector-k21", "vector-hybrid-k25")
-RETRIEVAL_METHODS = ("vector-k21", "vector-hybrid-k25")
+LIVE_METHODS = ("routed", "vector-hybrid-p20")
+RETRIEVAL_METHODS = ("vector-hybrid-p20",)
 
 
 @dataclass(frozen=True)
@@ -170,10 +186,9 @@ def retrieval_attempt(case, catalog, retriever):
 
 def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, references, *, live: bool):
     case, method = attempt.case, attempt.method
-    retriever = (
-        route if method == "routed" else vector.retrieve_hybrid if method == "vector-hybrid-k25" else vector.retrieve
-    )
-    vector.top_k = 21
+    if method not in LIVE_METHODS:
+        raise ValueError(f"Unknown comparison method: {method}")
+    retriever = route if method == "routed" else vector.retrieve_hybrid
     started = time.perf_counter()
     if live:
         row, selection = live_attempt(case, catalog, retriever, references)
@@ -197,8 +212,8 @@ def run_attempt(attempt: Attempt, catalog: Catalog, vector: VectorRetriever, ref
 
 def benchmark_manifest(args, vector):
     return {
-        "format_version": 6,
-        "experiment": "capability-30-v1",
+        "format_version": 8,
+        "experiment": EXPERIMENT,
         "scoring_version": "strict-sql-evidence-v3",
         "created_utc": datetime.now(UTC).isoformat(),
         "live": args.live,
@@ -211,10 +226,12 @@ def benchmark_manifest(args, vector):
         "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
         "index_seconds": vector.index_seconds,
         "seed": SEED,
+        "selection_threshold": config.settings.route_min_probability,
+        "column_threshold": config.settings.route_min_column_probability,
+        "column_workers": config.settings.route_column_workers,
         "methods": list(LIVE_METHODS if args.live else RETRIEVAL_METHODS),
         "max_routed_tables": config.settings.max_routed_tables,
         "sql_max_output_tokens": config.settings.answer_max_output_tokens,
-        "vector_top_k": 21,
         "grounding": {
             "version": "iso-entities-v1",
             "shared_by_all_methods": True,
@@ -225,10 +242,7 @@ def benchmark_manifest(args, vector):
         },
         "pipeline_version": "schema-driven-iso-entities-v1",
         "hybrid": {
-            "dense_pool": hybrid.DENSE_POOL,
-            "keyword_pool": hybrid.KEYWORD_POOL,
-            "rerank_pool": hybrid.RERANK_POOL,
-            "final_k": hybrid.FINAL_K,
+            **hybrid.candidate_policy(len(vector.catalog.tables)),
             "weights": hybrid.WEIGHTS,
             "reranker": config.settings.decisions_model if args.live else "fusion-only",
             "reranker_endpoint": "/v1/decisions" if args.live else None,
@@ -296,7 +310,7 @@ def main():
     if args.repeats < 1:
         parser.error("--repeats must be positive")
     if args.max_tables < 25:
-        parser.error("--max-tables must allow 21 retrieved tables and up to 4 reference dimensions")
+        parser.error("--max-tables must allow the 23-table broad price comparison (minimum: 25)")
     if args.live and not config.settings.openai_api_key:
         parser.error("Set OPENAI_API_KEY locally before using --live")
     catalog = demo_catalog()
@@ -310,7 +324,7 @@ def main():
     try:
         # All compared methods share the larger context budget. The app's default stays unchanged.
         config.settings = replace(original_settings, max_routed_tables=args.max_tables, answer_max_output_tokens=4096)
-        with closing(VectorRetriever(catalog, args.url, top_k=21)) as vector:
+        with closing(VectorRetriever(catalog, args.url)) as vector:
             run_benchmark(args, catalog, vector, references)
     finally:
         config.settings = original_settings

@@ -1,4 +1,4 @@
-"""Dense schema retrieval using local FastEmbed inference and a real Qdrant collection."""
+"""Hybrid candidate retrieval and Decisions reranking over a real Qdrant collection."""
 
 import hashlib
 import time
@@ -19,18 +19,15 @@ MODEL = "BAAI/bge-small-en-v1.5"
 class VectorRetriever:
     """Index documented tables once. Query embeddings never contain reference answers.
 
-    Full table schemas are supplied after top-k retrieval and foreign-key closure.
-    This deliberately gives the embedding baseline all columns, avoiding a second
-    model-based column selector that would confound the comparison.
+    Full table schemas are supplied after candidate reranking and foreign-key closure.
+    The reranked baseline supplies every selected column. The experiment compares
+    these complete pipelines, including GridRag's additional column-selection calls.
     """
 
-    def __init__(self, catalog: Catalog, url: str, top_k: int = 21):
+    def __init__(self, catalog: Catalog, url: str):
         from fastembed import TextEmbedding
         from qdrant_client import QdrantClient, models
 
-        if not 1 <= top_k <= len(catalog.tables):
-            raise ValueError("top_k must fit the indexed catalog")
-        self.top_k = top_k
         self.catalog = catalog
         self.collection = "gridrag_benchmark_" + uuid.uuid4().hex
         started = time.perf_counter()
@@ -63,43 +60,35 @@ class VectorRetriever:
         """Tokenize schema documents once for all hybrid questions in this run."""
         return hybrid.KeywordIndex(self.catalog)
 
-    def retrieve(self, question: str, llm, catalog: Catalog) -> Selection:
-        return self._retrieve(question, llm, catalog, use_hybrid=False)
-
-    def retrieve_hybrid(self, question: str, llm, catalog: Catalog) -> Selection:
-        return self._retrieve(question, llm, catalog, use_hybrid=True)
-
-    def _retrieve(self, question: str, llm, catalog: Catalog, *, use_hybrid: bool) -> Selection:
+    def retrieve_hybrid(
+        self, question: str, llm, catalog: Catalog, *, candidate_percent: int = hybrid.DEFAULT_CANDIDATE_PERCENT
+    ) -> Selection:
         if catalog is not self.catalog:
             raise ValueError("Retriever must use the indexed catalog")
         vector = next(iter(self.encoder.query_embed(question)))
-        limit = min(hybrid.DENSE_POOL, len(catalog.tables)) if use_hybrid else self.top_k
+        policy = hybrid.candidate_policy(len(catalog.tables), candidate_percent)
+        limit = policy["candidate_top_k"]
         hits = self.client.query_points(self.collection, query=vector.tolist(), limit=limit).points
         scores = {hit.payload["table"]: float(hit.score) for hit in hits}
+        names, fused = hybrid.shortlist(question, catalog, scores, index=self.keyword_index, top_k=limit)
+        diagnostics = {
+            "candidate_policy": policy,
+            "dense_candidates": list(scores),
+            "shortlist": names,
+            "fusion_scores": fused,
+            "reranker": "decisions" if llm is not None else "fusion-only",
+            "reranker_endpoint": "/v1/decisions" if llm is not None else None,
+            "reranker_model": config.settings.decisions_model if llm is not None else None,
+        }
         fallback = False
-        diagnostics = None
-        if use_hybrid:
-            names, fused = hybrid.shortlist(question, catalog, scores, index=self.keyword_index)
-            diagnostics = {
-                "dense_candidates": list(scores),
-                "shortlist": names,
-                "fusion_scores": fused,
-                "reranker": "decisions" if llm is not None else "fusion-only",
-                "reranker_endpoint": "/v1/decisions" if llm is not None else None,
-                "reranker_model": config.settings.decisions_model if llm is not None else None,
-            }
-            if llm is not None:
-                names, scores, fallback = hybrid.rerank(question, llm, catalog, names, fused)
-                names = [
-                    name
-                    for name in names
-                    if scores[name] is None or scores[name] >= config.settings.route_min_probability
-                ]
-            else:
-                scores = fused
-            chosen_names = set(names[: hybrid.FINAL_K])
+        if llm is not None:
+            names, scores, fallback = hybrid.rerank(question, llm, catalog, names, fused)
+            names = [
+                name for name in names if scores[name] is None or scores[name] >= config.settings.route_min_probability
+            ]
         else:
-            chosen_names = set(scores)
+            scores = fused
+        chosen_names = set(names[: policy["final_k"]])
         chosen = _with_references(catalog, chosen_names)
         ordered = [name for name in catalog.tables if name in chosen]
         selection: Selection = {
@@ -109,8 +98,7 @@ class VectorRetriever:
             "columns": {name: list(catalog.tables[name].columns) for name in ordered},
             "fallback": fallback,
         }
-        if diagnostics is not None:
-            selection["retrieval"] = diagnostics
+        selection["retrieval"] = diagnostics
         if len(ordered) > config.settings.max_routed_tables:
             raise RoutingTooBroad(selection)
         return selection

@@ -14,15 +14,37 @@ from gridrag.llm import probability
 from gridrag.records import Stage
 from gridrag.route import TABLE_QUESTION, _check_scores
 
-DENSE_POOL = 48
-KEYWORD_POOL = 12
-# Preserve the entire union for question-level reranking; fusion only orders it.
-RERANK_POOL = DENSE_POOL + KEYWORD_POOL
+DEFAULT_CANDIDATE_PERCENT = 20
 FINAL_K = 25
 # Preserve the semantic:keyword ratio after removing demo-specific metadata rules.
 WEIGHTS = {"semantic": 55 / 80, "keyword": 25 / 80}
 FUSION_VERSION = "semantic-bm25-v1"
+CANDIDATE_POLICY_VERSION = "catalog-percent-fused-cap-v1"
 STOP = frozenset("a an the of in on at to for and or what was were is how much many give use local time".split())
+
+
+def candidate_policy(table_count: int, percent: int = DEFAULT_CANDIDATE_PERCENT) -> dict:
+    """Cap the fused union, before Decisions and foreign-key expansion.
+
+    Dense and keyword retrieval can each propose up to k tables, but together
+    cannot send more than k tables to the reranker. Round up for small catalogs.
+    """
+    if type(percent) is not int or not 1 <= percent <= 100:
+        raise ValueError("Candidate percent must be an integer from 1 to 100")
+    if type(table_count) is not int or table_count < 1:
+        raise ValueError("Candidate selection requires a nonempty catalog")
+    top_k = (table_count * percent + 99) // 100
+    return {
+        "version": CANDIDATE_POLICY_VERSION,
+        "catalog_tables": table_count,
+        "candidate_percent": percent,
+        "candidate_top_k": top_k,
+        "dense_pool": top_k,
+        "keyword_pool": top_k,
+        "rerank_pool": top_k,
+        "final_k": min(FINAL_K, top_k),
+        "reference_expansion": "after-reranking",
+    }
 
 
 def tokens(text: str) -> list[str]:
@@ -60,17 +82,19 @@ def keyword_scores(question: str, catalog: Catalog) -> dict[str, float]:
     return KeywordIndex(catalog).scores(question)
 
 
-def shortlist(question, catalog, dense, *, index: KeywordIndex | None = None):
+def shortlist(question, catalog, dense, *, index: KeywordIndex | None = None, top_k: int | None = None):
     if index is not None and index.catalog is not catalog:
         raise ValueError("Keyword index must use the supplied catalog")
+    if top_k is None:
+        top_k = candidate_policy(len(catalog.tables))["candidate_top_k"]
     lexical = keyword_scores(question, catalog) if index is None else index.scores(question)
-    keyword_names = sorted(lexical, key=lambda name: (-lexical[name], name))[:KEYWORD_POOL]
+    keyword_names = sorted(lexical, key=lambda name: (-lexical[name], name))[:top_k]
     candidates = set(dense) | {name for name in keyword_names if lexical[name] > 0}
     fused = {
         name: WEIGHTS["semantic"] * max(0.0, dense.get(name, 0.0)) + WEIGHTS["keyword"] * lexical[name]
         for name in sorted(candidates)
     }
-    ranked = sorted(fused, key=lambda name: (-fused[name], name))[:RERANK_POOL]
+    ranked = sorted(fused, key=lambda name: (-fused[name], name))[:top_k]
     return ranked, fused
 
 

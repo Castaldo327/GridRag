@@ -22,7 +22,7 @@ The app has four pages:
 | --- | --- | --- |
 | **Demo** | The playground flow with seven prepared questions, staged progress, streamed answers, and verified SQL evidence | No |
 | **Playground** | Live questions, streaming answers, SQL evidence, data coverage and searchable table definitions | Yes, for hosted questions |
-| **Evaluation** | Actual recorded answers from routed, dense, and hybrid retrieval, with difficulty filters, SQL evidence, table recall, latency, and cost | No |
+| **Evaluation** | Actual recorded answers from GridRag and vector retrieval with Decisions reranking, with difficulty filters, SQL evidence, table recall, latency, and cost | No |
 | **Architecture** | The retrieval and execution diagram, design choices, measured tradeoffs, and hosting boundaries | No |
 
 The demo replays prepared answers and verified reference queries entirely in the
@@ -80,28 +80,25 @@ choice is independent relevance scoring followed by reference expansion and colu
 selection. It makes an inspectable schema selection for SQL, with a measured
 accuracy/cost tradeoff; it does not establish a claim of research novelty.
 
-The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant**.
-Dense retrieval selects the top **21** tables. Hybrid retrieval combines **48**
-semantic candidates with up to **12** BM25 keyword matches over the supplied
-schema documents, then reranks the entire candidate union against the question.
-Retrieval contains no table-specific rules, domain alias expansion, or hand-coded
-region, measure, cadence, or coverage scoring. Both supply full columns after
-reference expansion. The hybrid method's second pass calls the OpenAI Decisions
-API (`gpt-6-luna`) once to score candidate relevance, then sorts those probabilities before reference expansion. Its time
-and estimated model cost are included.
+The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant +
+Decisions reranking**. Its candidate cap is fixed at **20% of catalog tables**,
+rounded up: **13 of 65**. Dense and BM25 retrieval each propose up to 13 tables;
+fusion limits their combined shortlist to 13 before the same Decisions
+table-relevance prompt used by GridRag. Candidates meeting the shared relevance
+threshold are expanded through foreign keys and supplied with all columns. There is no standalone vector top-k baseline.
 
-The fresh recorded comparison uses the schema-driven pipeline with a shared
-seven-ISO entity vocabulary. It has no demo-specific relevance rules, grid-only
-gate, or special power/time SQL instructions. Declared keys and date/time types determine structural columns.
-
-All three methods share the SQL model, seven-ISO entity context, gate, repair
+Both methods share the SQL model, seven-ISO entity context, request gate, repair
 budget, and SQL guard. Evaluation allows **25 tables including references** and
-**4,096 output tokens** per SQL-model call; the playground retains its existing
-limits. The SQL prompt receives seven column-scoped ISO mappings, including California →
-`CAISO`, Texas → `ERCOT`, and New England → `ISONE`. No fuel, location or project-status
-aliases are injected. Custom catalogs supply their own optional vocabulary.
-See the [experiment specification](benchmarks/README.md) for settings and scoring.
-There is no full-schema prompt baseline.
+**4,096 output tokens** per SQL-model call; the playground retains its defaults.
+Custom catalogs supply their own optional vocabulary. Retrieval uses no table-specific
+rules or domain alias expansion. The experiment measures these complete pipelines;
+it does not isolate candidate generation from column selection or establish an
+exclusive foreign-key advantage for either method.
+
+The question is: **Can OpenAI's Decisions API simplify schema selection for
+text-to-SQL, and what are the tradeoffs in accuracy, latency, and cost?**
+See the [experiment specification](benchmarks/README.md) and the
+[30-question design matrix](benchmarks/QUESTIONS.md). There is no full-schema prompt baseline.
 
 ### Reproduce the comparison
 
@@ -111,8 +108,8 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-iso-entities-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-iso-entities-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -122,36 +119,43 @@ cached in an ignored directory. Each benchmark owns a uniquely named collection
 and removes only that collection afterward. The eval dependencies are optional
 and are not installed for the Vercel app.
 
-The capability benchmark contains **30 answerable questions**: 7 easy, 8 medium,
-8 hard, and 7 very hard. Three trials per question and method produce **270 recorded
-attempts**, with **90 attempts per method**, in seeded shuffled order. Difficult
-questions combine forecast vintages,
-window rankings, dimensional joins, interval alignment, energy conversion, and
-cross-region comparisons. Independent reference SQL never reaches the models.
+The benchmark contains **30 realistic analyst questions**: 7 easy, 8 medium,
+8 hard, and 7 very hard. Three trials per question and method produce **180 recorded
+attempts**, with **90 attempts per method**, in seeded shuffled order. The questions
+cover historical and regional scope, similar market products, implicit denominators,
+forecast cutoffs, operational calculations, and broad multi-region retrieval.
+They and their independent references are fixed before execution; model outcomes
+are not used to edit the suite or select favorable attempts.
 
-Scalar questions require the complete final SQL result to match one numeric
-reference. The seven-ISO price comparison requires all **21 region/product rows**
-and their values; partial answers and missing-series claims fail. Clarification is
-not counted as a correct analytical answer. Refusal and table-budget behavior
-remain in the separate developer regression suite.
+Scalar answers must match the complete final SQL result to the numeric reference.
+The broad price comparison must return all **21 region/product rows** and their
+values. Clarifications and execution failures count as incorrect. Candidate-table
+recall diagnoses shortlist omissions separately from final required-table recall.
+Selected columns, total input tokens, estimated cost and latency expose the cost
+of column pruning as well as its effect on SQL context. The fixed 20% cap avoids
+retrieving most of this small catalog, but does not reproduce production database
+scale. The broad price task needs 21 independent source tables and therefore
+exceeds the 13-candidate budget; it remains scored and is labeled in the UI.
 
-| Method | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Required-table recall | Median time |
+<!-- benchmark-results:start -->
+| Pipeline | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Median time | Est. cost / attempt |
 | --- | --- | --- | --- | --- | --- | --- |
-| Routed schema | 29/30 | 28/30 | 29/30 | 86/90 · 95.6% | 100.0% | 5.03 s |
-| Qdrant → Decisions | 29/30 | 28/30 | 28/30 | 85/90 · 94.4% | 100.0% | 4.43 s |
-| Dense vector · top21 | 22/30 | 24/30 | 24/30 | 70/90 · 77.8% | 92.5% | 3.94 s |
+| GridRag | 27/30 | 26/30 | 27/30 | 80/90 · 88.9% | 4.40 s | $0.00359 |
+| Vector + Decisions reranker (20% cap) | 20/30 | 19/30 | 20/30 | 59/90 · 65.6% | 3.71 s | $0.00091 |
 
-Cumulative accuracy is correct answers divided by all 90 attempts for each method,
-including failed attempts. Trial scores show variation across the three runs.
+See the [results and failure analysis](benchmarks/RESULTS.md).
+<!-- benchmark-results:end -->
+
 This small synthetic development suite does not estimate production accuracy.
-Required-table recall, query
-results, latency, schema size, tokens, and estimated costs are recorded separately.
+One-time embedding/index construction is reported separately from query latency.
+Model costs exclude local embedding compute and Qdrant hosting. The questions are
+unchanged from v2; the candidate policy changed, so these results use experiment v3.
 
 ### Read the recorded answers
 
 The [evaluation page](https://gridrag.vercel.app/#evaluation) shows all 30 questions,
 with filters from easy to very hard. Each question has Trial 1, Trial 2, and Trial 3
-controls for routed schema, top-21 vectors, and hybrid reranking, with selected tables,
+controls for GridRag and vector retrieval with Decisions reranking, with selected tables,
 SQL, CSV evidence, time, and estimated cost. Complete table references are visible
 for comparison questions. Scores include failed attempts and cover the selected
 questions across all three trials. Selecting a trial changes the displayed
