@@ -29,7 +29,6 @@ jobs:
       - run: node --check app/static/stream.js
       - run: node --test tests/test_*.js
       - run: uv run python -m scripts.security_audit --history
-      - run: uv run python -m scripts.public_release
       - run: docker pull zricethezav/gitleaks:v8.24.2
       - name: Independent secret scan
         run: >-

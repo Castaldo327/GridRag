@@ -1,4 +1,4 @@
 # One reviewed historical Vercel OIDC token, expired 2026-11-05 07:26:57 UTC.
-# This exact commit/path/rule/line remains documented in SECURITY.md.
+# The exemption is limited to the exact historical commit/path/rule/line below.
 # New commits and copies of the token are not exempt.
 7ad27448cb97b4206cefb56582d664b82d2f1b64:.env.local:jwt:2

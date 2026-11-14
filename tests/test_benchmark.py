@@ -12,7 +12,6 @@ from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.route import _with_references
 from gridrag.warehouse.evals import reference_result, reference_value
-from scripts.public_release import ROOT, release_files
 from scripts.publish_benchmark import public_report
 from scripts.security_audit import scan
 
@@ -196,12 +195,3 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn("provider credential", scan(secret))
         self.assertIn("copy of local secret", scan(b"example privatevalue", [b"privatevalue"]))
         self.assertNotIn(secret.decode(), str(scan(secret)))
-
-    def test_public_snapshot_has_no_private_or_generated_directories(self):
-        paths = [p.relative_to(ROOT) for p in release_files()]
-        for path in paths:
-            self.assertFalse(
-                set(path.parts) & {".git", ".vercel", ".cache", "experimental", "output", "data", "artifacts"}
-            )
-            self.assertNotIn(path.name, {".env", ".env.local"})
-        self.assertTrue(any(str(p) == "app/static/demo.json" for p in paths))

@@ -2,7 +2,7 @@
 <h1 align="center">GridRag · Grid Status Demo</h1>
 <p align="center"><strong>Ask the grid. Follow the evidence.</strong><br>
 An independent Grid Status demo exploring schema retrieval for energy analytics.</p>
-<p align="center"><a href="https://gridrag.vercel.app/">Live demo ↗</a> · <a href="#try-it">Run locally</a> · <a href="#the-experiment">The experiment</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a> · <a href="SECURITY.md">Security</a></p>
+<p align="center"><a href="https://gridrag.vercel.app/">Live demo ↗</a> · <a href="#try-it">Run locally</a> · <a href="#the-experiment">The experiment</a> · <a href="gridrag/warehouse/SCHEMA.md">Data dictionary</a></p>
 
 Electricity questions are rarely just text lookups. A price spread requires aligned
 intervals. Battery energy requires a conversion from MW to MWh. A historical
@@ -190,23 +190,15 @@ uv run python -m unittest discover -s tests
 node --check app/static/app.js
 node --test tests/test_*.js
 uv run python -m scripts.security_audit --history
-uv run python -m scripts.public_release
 ```
 
 The checks cover schema parsing, read-only SQL enforcement, resource
 limits, request-scoped credentials, failed requests, streaming, reference queries
-and benchmark scoring. See [contributing](CONTRIBUTING.md).
+and benchmark scoring.
 
 ## GitHub and Vercel
 
-Use the generated **`artifacts/public-source/`** snapshot for a new public repository
-when the working repo has private historical content. It has an explicit file
-manifest and excludes Git history, local environment files, Vercel project metadata,
-experiments, screenshots, generated databases and caches. Your original working
-repository and history remain intact. Configure a public-safe Git author identity
-before committing the snapshot. See [release privacy details](SECURITY.md).
-
-Connect that GitHub repository to Vercel using the checked-in `vercel.json`. No owner
+Connect the GitHub repository to Vercel using the checked-in `vercel.json`. No owner
 OpenAI key is needed. The public endpoints always require a visitor key, even if an
 owner key was configured accidentally.
 

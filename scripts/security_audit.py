@@ -90,7 +90,7 @@ def main():
             if categories := scan(git("cat-file", "blob", oid), secrets):
                 item = {"object": oid[:12], "path": name, "categories": categories}
                 if reviewed_advisory(oid, categories):
-                    advisories.append({**item, "reason": "Reviewed expired Vercel OIDC token; see SECURITY.md"})
+                    advisories.append({**item, "reason": "Reviewed Vercel OIDC token expired 2026-11-05 07:26:57 UTC"})
                 else:
                     findings.append(item)
     print(
