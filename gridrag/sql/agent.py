@@ -43,7 +43,7 @@ GROUP_BY_HINT = (
 )
 
 
-def _tools() -> list[dict]:
+def _tools() -> list[dict[str, Any]]:
     return [
         {
             "type": "function",
@@ -61,7 +61,7 @@ def _tools() -> list[dict]:
     ]
 
 
-def _next_tool_call(response: dict, *, tools_allowed: bool) -> dict | None:
+def _next_tool_call(response: dict[str, Any], *, tools_allowed: bool) -> dict[str, Any] | None:
     """Accept a complete answer or one valid tool call, within the execution budget."""
     if response.get("status") != "completed":
         raise RuntimeError("SQL model did not return a complete response")
@@ -82,20 +82,26 @@ def _next_tool_call(response: dict, *, tools_allowed: bool) -> dict | None:
     return tool_call
 
 
-def _execute_sql(tool_call: dict, allowed_tables: Collection[str] | None) -> tuple[ToolCall, dict]:
-    """Return an execution record and a model reply. Invalid arguments are repairable."""
+def _parse_query(tool_call: dict[str, Any]) -> str:
+    """Validate the provider's SQL tool arguments before database execution."""
     query = tool_call.get("arguments")
+    if not isinstance(query, str):
+        raise ValueError("expected JSON-encoded arguments")
+    arguments = json.loads(query)
+    if tool_call.get("name") != "run_sql" or not isinstance(arguments, dict):
+        raise ValueError("expected run_sql with a string query")
+    query = arguments.get("query")
+    if not isinstance(query, str) or set(arguments) != {"query"}:
+        raise ValueError("expected run_sql with a string query")
+    return query
+
+
+def _execute_sql(tool_call: dict[str, Any], allowed_tables: Collection[str] | None) -> tuple[ToolCall, dict[str, Any]]:
+    """Return an execution record and a model reply. Invalid arguments are repairable."""
     result: QueryResult
     execution_seconds = None
     try:
-        if not isinstance(query, str):
-            raise ValueError("expected JSON-encoded arguments")
-        arguments = json.loads(query)
-        if tool_call.get("name") != "run_sql" or not isinstance(arguments, dict):
-            raise ValueError("expected run_sql with a string query")
-        query = arguments.get("query")
-        if not isinstance(query, str) or set(arguments) != {"query"}:
-            raise ValueError("expected run_sql with a string query")
+        query = _parse_query(tool_call)
     except (TypeError, ValueError, RecursionError):
         raw_arguments = tool_call.get("arguments")
         query = raw_arguments if isinstance(raw_arguments, str) else None
@@ -125,7 +131,7 @@ def _execute_sql(tool_call: dict, allowed_tables: Collection[str] | None) -> tup
     return record, reply
 
 
-def _finish_answer(response: dict, tool_calls: list[ToolCall]) -> AgentResult:
+def _finish_answer(response: dict[str, Any], tool_calls: list[ToolCall]) -> AgentResult:
     """A completed response still needs query evidence to count as answered."""
     text = output_text(response)
     if not text.strip():
@@ -164,7 +170,7 @@ def run(
     settings = config.settings
     instructions = INSTRUCTIONS.format(schema=schema, rules=ANSWER_RULES, grounding=grounding)
     tool_calls: list[ToolCall] = []
-    model_input: str | list[dict] = question
+    model_input: str | list[dict[str, Any]] = question
     previous_response_id = None
 
     for round_number in range(1, settings.sql_max_rounds + 1):
