@@ -4,6 +4,7 @@ load and generation for CAISO and ERCOT, and the interconnection queues.
     uv run python -m gridrag.warehouse.build
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -191,7 +192,7 @@ def _series(iso: Iso, start: pd.Timestamp, end: pd.Timestamp, freq: str) -> prod
     return products.Series(keys, demand, fuels)
 
 
-def _generation(keys: pd.DataFrame, fuels: dict) -> pd.DataFrame:
+def _generation(keys: pd.DataFrame, fuels: Mapping[str, np.ndarray]) -> pd.DataFrame:
     """One row per interval and fuel."""
     return pd.concat(
         [keys.assign(fuel_id=FUEL_IDS[fuel], generation_mw=np.round(mw, 2)) for fuel, mw in fuels.items()],
@@ -232,18 +233,18 @@ def queue(as_of: pd.Timestamp) -> pd.DataFrame:
     }
     rows = []
     for iso in ISOS:
-        for i in range(iso.queue_projects):
-            fuel = fuels[(i * 3 + iso.id) % len(fuels)]
-            status = statuses[(i * 5 + iso.id) % len(statuses)]
-            entered = as_of.date() - timedelta(days=80 + (i * 31) % 1300)
+        for index in range(iso.queue_projects):
+            fuel = fuels[(index * 3 + iso.id) % len(fuels)]
+            status = statuses[(index * 5 + iso.id) % len(statuses)]
+            entered = as_of.date() - timedelta(days=80 + (index * 31) % 1300)
             rows.append(
                 {
                     "project_id": len(rows) + 1,
                     "iso_id": iso.id,
-                    "queue_id": f"{iso.code}-{i + 1:04d}",
-                    "project_name": f"{iso.code} {fuel.replace('_', ' ').title()} {i + 1}",
-                    "developer": f"Example Energy {i % 17 + 1}",
-                    "county": iso.counties[(i + iso.id) % len(iso.counties)],
+                    "queue_id": f"{iso.code}-{index + 1:04d}",
+                    "project_name": f"{iso.code} {fuel.replace('_', ' ').title()} {index + 1}",
+                    "developer": f"Example Energy {index % 17 + 1}",
+                    "county": iso.counties[(index + iso.id) % len(iso.counties)],
                     "state": iso.state,
                     "fuel_id": FUEL_IDS[fuel],
                     "technology": {
@@ -253,11 +254,11 @@ def queue(as_of: pd.Timestamp) -> pd.DataFrame:
                         "natural_gas": "Combined Cycle",
                     }.get(fuel, fuel.title()),
                     "status_code": status,
-                    "status_raw": raw_statuses[status][i % len(raw_statuses[status])],
-                    "capacity_mw": float(25 + (i * 37 + iso.id * 13) % 780),
-                    "is_hybrid": fuel in {"solar", "wind"} and i % 4 == 0,
+                    "status_raw": raw_statuses[status][index % len(raw_statuses[status])],
+                    "capacity_mw": float(25 + (index * 37 + iso.id * 13) % 780),
+                    "is_hybrid": fuel in {"solar", "wind"} and index % 4 == 0,
                     "queue_date": entered,
-                    "proposed_cod": entered + timedelta(days=730 + i % 400),
+                    "proposed_cod": entered + timedelta(days=730 + index % 400),
                     "withdrawn_date": entered + timedelta(days=300) if status == "withdrawn" else None,
                     "completed_date": entered + timedelta(days=600) if status == "completed" else None,
                 }
@@ -276,6 +277,30 @@ def _insert(con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame) -> 
         con.execute(f"INSERT INTO {table} BY NAME SELECT * FROM incoming")
     finally:
         con.unregister("incoming")
+
+
+def _dimensions() -> dict[str, pd.DataFrame]:
+    """Build the lookup tables referenced by the generated facts."""
+    return {
+        "core.dim_iso": pd.DataFrame([{"iso_id": iso.id, "iso_code": iso.code, "timezone": iso.tz} for iso in ISOS]),
+        "core.dim_fuel": pd.DataFrame(
+            [
+                {
+                    "fuel_id": FUEL_IDS[code],
+                    "fuel_code": code,
+                    "name": name,
+                    "category": category,
+                    "is_renewable": category == "renewable",
+                    "is_carbon_free": category in {"renewable", "nuclear"},
+                }
+                for code, (name, category) in FUELS.items()
+            ]
+        ),
+        "core.dim_queue_status": pd.DataFrame(
+            [{"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()]
+        ),
+        "core.dim_location": products.locations(ISO_IDS),
+    }
 
 
 def _frames() -> dict[str, pd.DataFrame]:
@@ -301,24 +326,7 @@ def _frames() -> dict[str, pd.DataFrame]:
         for table, frame in parts.items():
             facts.setdefault(table, []).append(frame)
     return {
-        "core.dim_iso": pd.DataFrame([{"iso_id": iso.id, "iso_code": iso.code, "timezone": iso.tz} for iso in ISOS]),
-        "core.dim_fuel": pd.DataFrame(
-            [
-                {
-                    "fuel_id": FUEL_IDS[code],
-                    "fuel_code": code,
-                    "name": name,
-                    "category": category,
-                    "is_renewable": category == "renewable",
-                    "is_carbon_free": category in {"renewable", "nuclear"},
-                }
-                for code, (name, category) in FUELS.items()
-            ]
-        ),
-        "core.dim_queue_status": pd.DataFrame(
-            [{"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()]
-        ),
-        "core.dim_location": products.locations(ISO_IDS),
+        **_dimensions(),
         **{table: pd.concat(parts, ignore_index=True) for table, parts in facts.items()},
         "core.queue_project": queue(END),
     }
