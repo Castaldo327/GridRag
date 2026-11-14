@@ -26,7 +26,7 @@ COLUMN_QUESTION = (
 class RoutingTooBroad(RuntimeError):
     """The selection exceeds the table budget; retain it for diagnostics."""
 
-    def __init__(self, selection: Selection):
+    def __init__(self, selection: Selection) -> None:
         super().__init__(
             "Which subset of the data should I focus on? That question needs more tables than "
             f"I can query at once ({len(selection['tables'])} of at most "
@@ -67,12 +67,13 @@ def _score_tables(question: str, llm: Model, catalog: Catalog) -> dict[str, floa
 
 def _with_references(catalog: Catalog, selected: set[str]) -> set[str]:
     """Include every referenced table, including transitive dimension references."""
-    closed, pending = set(selected), list(selected)
+    expanded = set(selected)
+    pending = list(selected)
     while pending:
-        for table in catalog.tables[pending.pop()].references - closed:
-            closed.add(table)
+        for table in catalog.tables[pending.pop()].references - expanded:
+            expanded.add(table)
             pending.append(table)
-    return closed
+    return expanded
 
 
 def _score_columns(question: str, llm: Model, table: Table) -> dict[str, float | None]:
