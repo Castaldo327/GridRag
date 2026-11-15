@@ -54,11 +54,12 @@ keeps its existing defaults. No table-specific rules, query aliases, expected
 values, required-table labels or reference SQL reach retrieval. The vocabulary
 contains ISO names only; it is not used by embedding retrieval, BM25 or reranking.
 
-Current runs obtain schema structure and persisted descriptions from DuckDB
-metadata. The frozen recorded comparison used the earlier DDL-text representation;
-it has not been rerun for this change. New runs fingerprint the newly rendered
-schema documents, including their changed formatting and table order. Existing
-recorded results remain unchanged.
+The November 14, 2026 rerun obtains schema structure and persisted descriptions
+from DuckDB metadata. The published format-9 report fingerprints the newly rendered
+schema documents, including their changed formatting and table order. All 180
+attempts are recorded. The earlier format-8 report remains available in Git history;
+its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and the
+[separate live regression results](REGRESSION_RESULTS.md).
 
 Reference expansion is shared, and vectors can also support column selection.
 These two implementations differ in both candidate generation and column pruning;

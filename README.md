@@ -140,8 +140,8 @@ exceeds the 13-candidate budget; it remains scored and is labeled in the UI.
 <!-- benchmark-results:start -->
 | Pipeline | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Median time | Est. cost / attempt |
 | --- | --- | --- | --- | --- | --- | --- |
-| GridRag | 27/30 | 26/30 | 27/30 | 80/90 · 88.9% | 4.40 s | $0.00359 |
-| Vector + Decisions reranker (20% cap) | 20/30 | 19/30 | 20/30 | 59/90 · 65.6% | 3.71 s | $0.00091 |
+| GridRag | 24/30 | 24/30 | 24/30 | 72/90 · 80.0% | 4.58 s | $0.00392 |
+| Vector + Decisions reranker (20% cap) | 19/30 | 19/30 | 19/30 | 57/90 · 63.3% | 3.77 s | $0.00094 |
 
 See the [results and failure analysis](benchmarks/RESULTS.md).
 <!-- benchmark-results:end -->
@@ -162,9 +162,11 @@ questions across all three trials. Selecting a trial changes the displayed
 evidence while cumulative scores continue to include every attempt. Browsing
 never makes paid model calls.
 
-The recorded comparison used the earlier DDL-text catalog representation. Current
-runs read DuckDB metadata and stored descriptions; the live comparison must be
-rerun to measure the effect of the new schema representation.
+The recorded comparison now uses the DuckDB metadata catalog and report format 9.
+Timing stops before grading and client cleanup; older format-8 latency figures
+used a different boundary. The separate live regression rerun passed 5/26 full
+diagnostic checks and 23/26 task-level state/evidence checks; see the
+[regression results](benchmarks/REGRESSION_RESULTS.md).
 
 The separate 26-case regression suite in `gridrag/evals/suite.py` remains
 available for explicit local testing, including scope and safety behavior.
