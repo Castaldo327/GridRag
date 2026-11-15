@@ -7,13 +7,15 @@ A small, **fictional** DuckDB warehouse of US grid data, rebuilt from scratch by
 | [schema.sql](schema.sql) | Hand-written dimensions, hourly/5-minute facts, and the queue table |
 | [products.py](products.py) | Per-ISO product table definitions, routing comments, and SQL rendering |
 | [product_data.py](product_data.py) | Deterministic synthetic rows and price locations for the product tables |
-| [build.py](build.py) | Synthetic data generation and load (seeded, so every rebuild is identical) |
+| [fixtures.py](fixtures.py) | Fixed coverage dates, ISO profiles, fuels, and queue statuses |
+| [synthetic.py](synthetic.py) | Deterministic dimensions, interval series, shared facts, queue rows, and table assembly |
+| [build.py](build.py) | Combined schema, database loading, and atomic snapshot replacement |
 
-`build.schema_text()` concatenates `schema.sql` with the generated product DDL, so the full DDL is the union of both.
+`build.schema_text()` concatenates `schema.sql` with the generated product DDL, so the full DDL is the union of both. `synthetic.frames()` assembles the rows in memory; `build.build()` loads them into a temporary database and replaces the destination only after a successful load.
 
 ## At a glance
 
-- **7 ISOs:** CAISO, ERCOT, ISONE, MISO, NYISO, PJM, SPP (`iso_id` 1–7). Each `Iso` in build.py sets its id explicitly, so adding an ISO never renumbers the others' rows, locations or `CHECK`s.
+- **7 ISOs:** CAISO, ERCOT, ISONE, MISO, NYISO, PJM, SPP (`iso_id` 1–7). Each `Iso` in [fixtures.py](fixtures.py) sets its id explicitly, so adding an ISO never renumbers the others' rows, locations or `CHECK`s.
 - **13 fuels**, **5 queue statuses**, **28 locations** (3 buses + 1 hub per ISO).
 - **Core tables:** 4 dimensions + 4 facts + 1 queue table = 9 (65 tables in total).
 - **Product tables:** 8 products × 7 ISOs = 56 tables, named `core.<iso>_<product>`.

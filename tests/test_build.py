@@ -7,12 +7,37 @@ from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
+import pandas as pd
 
 from gridrag import config
-from gridrag.warehouse import build, products
+from gridrag.warehouse import build, fixtures, products, synthetic
 
 
 class BuildTests(unittest.TestCase):
+    def test_failed_insert_preserves_previous_snapshot_and_cleans_temporary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "warehouse.duckdb"
+            with duckdb.connect(str(database)) as connection:
+                connection.execute("CREATE TABLE previous AS SELECT 42 AS value")
+            previous = database.read_bytes()
+            # The first table loads successfully; the second fails a constraint.
+            frames = {
+                "first_table": pd.DataFrame({"value": [1]}),
+                "second_table": pd.DataFrame({"value": [-1]}),
+            }
+            schema = (
+                "CREATE TABLE first_table (value INTEGER); CREATE TABLE second_table (value INTEGER CHECK (value > 0))"
+            )
+            with (
+                patch.object(config, "settings", replace(config.settings, db_path=database)),
+                patch.object(synthetic, "frames", return_value=frames),
+                patch.object(build, "schema_text", return_value=schema),
+            ):
+                with self.assertRaises(duckdb.ConstraintException):
+                    build.build()
+            self.assertEqual(database.read_bytes(), previous)
+            self.assertEqual(list(Path(directory).iterdir()), [database])
+
     def test_failed_rebuild_preserves_previous_snapshot_and_cleans_temporary_files(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "warehouse.duckdb"
@@ -21,7 +46,7 @@ class BuildTests(unittest.TestCase):
             previous = database.read_bytes()
             with (
                 patch.object(config, "settings", replace(config.settings, db_path=database)),
-                patch.object(build, "_frames", return_value={}),
+                patch.object(synthetic, "frames", return_value={}),
                 patch.object(build, "schema_text", return_value="INVALID SQL"),
             ):
                 with self.assertRaises(duckdb.Error):
@@ -60,8 +85,8 @@ class BuildTests(unittest.TestCase):
 
     def test_iso_ids_are_explicit_everywhere_they_appear(self):
         isos = self.con.execute("SELECT iso_id, iso_code, timezone FROM core.dim_iso ORDER BY iso_id").fetchall()
-        self.assertEqual(isos, [(iso.id, iso.code, iso.tz) for iso in build.ISOS])
-        for iso in build.ISOS:
+        self.assertEqual(isos, [(iso.id, iso.code, iso.tz) for iso in fixtures.ISOS])
+        for iso in fixtures.ISOS:
             with self.subTest(iso=iso.code):
                 table = products.table_name(iso.code, products.PRODUCTS[0])
                 self.assertEqual(self.con.execute(f"SELECT DISTINCT iso_id FROM {table}").fetchall(), [(iso.id,)])
@@ -73,7 +98,7 @@ class BuildTests(unittest.TestCase):
     def test_every_product_generates_rows_for_every_iso(self):
         for product in products.PRODUCTS:
             with self.subTest(product=product.suffix):
-                self.assertTrue(all(self.counts[products.table_name(iso.code, product)] for iso in build.ISOS))
+                self.assertTrue(all(self.counts[products.table_name(iso.code, product)] for iso in fixtures.ISOS))
 
 
 if __name__ == "__main__":

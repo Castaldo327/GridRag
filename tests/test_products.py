@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from gridrag.warehouse import build, product_data, products
+from gridrag.warehouse import fixtures, product_data, products, synthetic
 
 
 class ProductTests(unittest.TestCase):
@@ -18,13 +18,13 @@ class ProductTests(unittest.TestCase):
             iso.code: product_data.ProductInputs(
                 iso_id=iso.id,
                 solar_peak_mw=iso.solar_peak_mw,
-                fuel_ids=build.FUEL_IDS,
+                fuel_ids=fixtures.FUEL_IDS,
                 start=day,
                 end=day,
-                hourly=build._series(iso, day, day, "h"),
-                five_minute=build._series(iso, day, day, "5min"),
+                hourly=synthetic.interval_series(iso, day, day, "h"),
+                five_minute=synthetic.interval_series(iso, day, day, "5min"),
             )
-            for iso in build.ISOS
+            for iso in fixtures.ISOS
         }
 
     def test_rows_match_table_contracts_even_across_repeated_local_hours(self):
@@ -66,7 +66,7 @@ class ProductTests(unittest.TestCase):
                 np.testing.assert_array_equal(before.generation_mw[fuel], after.generation_mw[fuel])
 
     def test_price_locations_and_components_agree_with_the_dimension(self):
-        dimension = product_data.locations(build.ISO_IDS).set_index("location_id")
+        dimension = product_data.locations(fixtures.ISO_IDS).set_index("location_id")
         for iso, inputs in self.inputs.items():
             for generate, location_type, location_count in (
                 (product_data.real_time_bus_prices, "bus", 3),
