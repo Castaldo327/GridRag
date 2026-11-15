@@ -108,8 +108,8 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-threshold-p30-format9-2026-11-15-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-threshold-p30-format9-2026-11-15-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-threshold-p20-restored-format9-2026-11-15-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-threshold-p20-restored-format9-2026-11-15-3trials.json
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -140,8 +140,8 @@ exceeds the 13-candidate budget; it remains scored and is labeled in the UI.
 <!-- benchmark-results:start -->
 | Pipeline | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Median time | Est. cost / attempt |
 | --- | --- | --- | --- | --- | --- | --- |
-| GridRag | 22/30 | 23/30 | 22/30 | 67/90 · 74.4% | 4.43 s | $0.00389 |
-| Vector + Decisions reranker (20% cap) | 19/30 | 19/30 | 19/30 | 57/90 · 63.3% | 3.56 s | $0.00092 |
+| GridRag | 24/30 | 24/30 | 24/30 | 72/90 · 80.0% | 4.81 s | $0.00388 |
+| Vector + Decisions reranker (20% cap) | 19/30 | 19/30 | 19/30 | 57/90 · 63.3% | 4.21 s | $0.00092 |
 
 See the [results and failure analysis](benchmarks/RESULTS.md).
 <!-- benchmark-results:end -->
@@ -162,11 +162,11 @@ questions across all three trials. Selecting a trial changes the displayed
 evidence while cumulative scores continue to include every attempt. Browsing
 never makes paid model calls.
 
-The November 15 rerun uses 0.3 table and column relevance thresholds, the DuckDB
-metadata catalog and report format 9.
+The latest November 15 rerun restores 0.2 table and column relevance thresholds.
+It uses the DuckDB metadata catalog and report format 9.
 Timing stops before grading and client cleanup; older format-8 latency figures
 used a different boundary. The separate live regression rerun passed 4/26 full
-diagnostic checks and 24/26 task-level state/evidence checks; see the
+diagnostic checks and 23/26 task-level state/evidence checks; see the
 [regression results](benchmarks/REGRESSION_RESULTS.md).
 
 The separate 26-case regression suite in `gridrag/evals/suite.py` remains
