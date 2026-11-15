@@ -6,7 +6,6 @@ not a held-out test. All attempts are retained.
 """
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
 import math
@@ -21,31 +20,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from benchmarks import hybrid
 from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
+from benchmarks.experiment import HYBRID_METHOD, LIVE_METHODS, cases_fingerprint, report_contract
 from benchmarks.vector import MODEL, VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
 from gridrag.catalog import Catalog, demo_catalog
+from gridrag.evals.cases import Case, reference_result, reference_value
+from gridrag.evals.scoring import assess, evaluation_question
 from gridrag.llm import LLM, Model
 from gridrag.records import Selection
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.evals.cases import Case, reference_result, reference_value
-from gridrag.evals.scoring import assess, evaluation_question, evidence_matches, table_evidence_matches
 
 SEED = 42
-LIVE_METHODS = ("routed", "vector-hybrid-p20")
-RETRIEVAL_METHODS = ("vector-hybrid-p20",)
+RETRIEVAL_METHODS = (HYBRID_METHOD,)
 BOOTSTRAP_SAMPLES = 2000
 BOOTSTRAP_CI_INDICES = (50, 1949)
 TAIL_PERCENTILE = 0.95
 BENCHMARK_TABLE_BUDGET = 25
 BENCHMARK_SQL_OUTPUT_TOKENS = 4096
-
-
-def strict_evidence(result: dict[str, Any], expected: float, tolerance: float) -> bool:
-    """Check the final scalar SQL result against the expected value."""
-    return evidence_matches(result, expected, tolerance)
 
 
 def retrieval_metrics(case: Case, selection: Selection, catalog: Catalog) -> dict[str, Any]:
@@ -115,7 +108,7 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 def paired_intervals(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Case-cluster bootstrap preserves repeated attempts within each question."""
-    baseline = "vector-hybrid-p20"
+    baseline = HYBRID_METHOD
     differences = []
     for case in BENCHMARK_CASES:
         by_method = {
@@ -167,12 +160,10 @@ def live_attempt(
 ) -> tuple[dict[str, Any], Selection | None]:
     """Score a model-backed answer against the shared evaluation contract."""
     with closing(LLM(api_key=config.settings.openai_api_key)) as llm:
+        started = time.perf_counter()
         result = answer(evaluation_question(case), llm=llm, catalog=catalog, retriever=retriever)
-    checks = assess(case, result)
-    numeric = None
-    if case.sql:
-        compare = table_evidence_matches if case.result_kind == "table" else strict_evidence
-        numeric = compare(result, references[case.id], case.tolerance)
+        seconds = time.perf_counter() - started
+    checks = assess(case, result, expected=references[case.id] if case.sql else None)
     # Accuracy and diagnostic checks share the evaluation suite's scoring contract.
     row = {
         "state": result["state"],
@@ -182,7 +173,8 @@ def live_attempt(
         "input_tokens": result["usage"]["input_tokens"],
         "output_tokens": result["usage"]["output_tokens"],
         "result": result,
-        "strict_numeric_evidence": numeric,
+        "strict_numeric_evidence": checks["numeric_evidence"],
+        "seconds": seconds,
         "checks": checks["checks"],
     }
     return row, result.get("route")
@@ -192,12 +184,19 @@ def retrieval_attempt(
     case: Case, catalog: Catalog, retriever: Callable[[str, Model | None, Catalog], Selection]
 ) -> tuple[dict[str, Any], Selection]:
     """Record deterministic retrieval, preserving selections that exceed the budget."""
+    started = time.perf_counter()
     try:
         selection = retriever(case.question, None, catalog)
         state = "retrieved"
     except RoutingTooBroad as exc:
         selection, state = exc.selection, "clarification"
-    return {"state": state, "correct": None, "cost_usd": None, "input_tokens": None}, selection
+    return {
+        "state": state,
+        "correct": None,
+        "cost_usd": None,
+        "input_tokens": None,
+        "seconds": time.perf_counter() - started,
+    }, selection
 
 
 def run_attempt(
@@ -213,7 +212,6 @@ def run_attempt(
     if method not in LIVE_METHODS:
         raise ValueError(f"Unknown comparison method: {method}")
     retriever = route if method == "routed" else vector.retrieve_hybrid
-    started = time.perf_counter()
     if live:
         row, selection = live_attempt(case, catalog, retriever, references)
     else:
@@ -224,7 +222,6 @@ def run_attempt(
             "split": "development",
             "method": method,
             "repeat": attempt.repeat,
-            "seconds": time.perf_counter() - started,
         }
     )
     if selection:
@@ -236,10 +233,10 @@ def run_attempt(
 
 def benchmark_manifest(args: argparse.Namespace, vector: VectorRetriever) -> dict[str, Any]:
     """Capture settings and fixture hashes needed to reproduce a benchmark run."""
+    contract = report_contract(vector.catalog)
     return {
-        "format_version": 8,
+        **contract,
         "experiment": EXPERIMENT,
-        "scoring_version": "strict-sql-evidence-v3",
         "created_utc": datetime.now(UTC).isoformat(),
         "live": args.live,
         "repeats": args.repeats,
@@ -251,7 +248,7 @@ def benchmark_manifest(args: argparse.Namespace, vector: VectorRetriever) -> dic
             for package in ("qdrant-client", "fastembed", "openai", "duckdb")
         },
         "schema_sha256": vector.schema_sha256,
-        "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+        "cases_sha256": cases_fingerprint(BENCHMARK_CASES),
         "index_seconds": vector.index_seconds,
         "seed": SEED,
         "selection_threshold": config.settings.route_min_probability,
@@ -260,21 +257,10 @@ def benchmark_manifest(args: argparse.Namespace, vector: VectorRetriever) -> dic
         "methods": list(LIVE_METHODS if args.live else RETRIEVAL_METHODS),
         "max_routed_tables": config.settings.max_routed_tables,
         "sql_max_output_tokens": config.settings.answer_max_output_tokens,
-        "grounding": {
-            "version": "iso-entities-v1",
-            "shared_by_all_methods": True,
-            "curated_vocabulary": True,
-            "scope": "ISO entities only",
-            "entries": len(demo_catalog().vocabulary),
-            "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest(),
-        },
-        "pipeline_version": "schema-driven-iso-entities-v1",
         "hybrid": {
-            **hybrid.candidate_policy(len(vector.catalog.tables)),
-            "weights": hybrid.WEIGHTS,
+            **contract["hybrid"],
             "reranker": config.settings.decisions_model if args.live else "fusion-only",
             "reranker_endpoint": "/v1/decisions" if args.live else None,
-            "fusion_version": hybrid.FUSION_VERSION,
         },
         "cost_basis": "Configured model token rates; excludes local embedding compute, Qdrant hosting and failed-call billing",
         "rates_per_million": {

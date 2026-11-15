@@ -5,14 +5,17 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks import run
 from benchmarks.cases import BENCHMARK_CASES
+from benchmarks.experiment import cases_fingerprint
 from benchmarks.vector import VectorRetriever
 from gridrag.catalog import demo_catalog
+from gridrag.evals import scoring
 from gridrag.route import RoutingTooBroad
 
 
@@ -23,6 +26,8 @@ class BenchmarkRunnerTests(unittest.TestCase):
         with patch.object(run.importlib.metadata, "version", return_value="test"):
             manifest = run.benchmark_manifest(args, vector)
         settings = manifest["hybrid"]
+        self.assertEqual(manifest["format_version"], 9)
+        self.assertEqual(manifest["timing_scope"], "answer-pipeline-only")
         self.assertEqual(manifest["pipeline_version"], "schema-driven-iso-entities-v1")
         self.assertTrue(manifest["grounding"]["curated_vocabulary"])
         self.assertTrue(manifest["grounding"]["shared_by_all_methods"])
@@ -34,6 +39,49 @@ class BenchmarkRunnerTests(unittest.TestCase):
         self.assertEqual(settings["candidate_percent"], 20)
         self.assertEqual(settings["candidate_top_k"], 13)
         self.assertEqual(settings["rerank_pool"], 13)
+
+    def test_case_fingerprints_track_scoring_inputs_without_python_repr_or_demo_copy(self):
+        case = BENCHMARK_CASES[0]
+        original = cases_fingerprint([case])
+        self.assertEqual(cases_fingerprint([replace(case, label="New label", demo_answer="New copy")]), original)
+        for change in ({"question": "A different question"}, {"sql": "SELECT 0"}, {"tables": ()}, {"tolerance": 1.0}):
+            with self.subTest(change=change):
+                self.assertNotEqual(cases_fingerprint([replace(case, **change)]), original)
+
+    def test_live_attempt_grades_cached_evidence_once_and_excludes_grading_from_latency(self):
+        case = replace(BENCHMARK_CASES[0], sql="SELECT 0", tables=(), excluded=())
+        result = {
+            "state": "answered",
+            "answer": f"0 {case.unit}",
+            "route": None,
+            "tool_calls": [{"query": "SELECT 0", "rows": 1, "csv": "value\n0\n"}],
+            "usage": {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0},
+        }
+        clock = {"seconds": 0.0}
+
+        def answer(*args, **kwargs):
+            clock["seconds"] += 2.0
+            return result
+
+        def grade(*args, **kwargs):
+            clock["seconds"] += 100.0
+            return scoring.assess(*args, **kwargs)
+
+        with (
+            patch.object(run, "LLM"),
+            patch.object(run, "answer", side_effect=answer),
+            patch.object(run.time, "perf_counter", side_effect=lambda: clock["seconds"]),
+            patch.object(run, "assess", side_effect=grade) as assess,
+            patch.object(scoring, "reference_value", side_effect=AssertionError("Reference was already computed")),
+            patch.object(scoring, "scalar_evidence", wraps=scoring.scalar_evidence) as evidence,
+        ):
+            row = run.run_attempt(run.Attempt(case, "routed", 0), demo_catalog(), Mock(), {case.id: 0.0}, live=True)
+        self.assertTrue(row["correct"])
+        self.assertTrue(row["strict_numeric_evidence"])
+        self.assertEqual(row["seconds"], 2.0)
+        self.assertEqual(clock["seconds"], 102.0)
+        assess.assert_called_once_with(case, result, expected=0.0)
+        evidence.assert_called_once()
 
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))

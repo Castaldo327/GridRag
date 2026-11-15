@@ -1,10 +1,14 @@
-"""Credential checks stay blocking for new files and modified historical blobs."""
+"""Public export checks remain redacted and never traverse repository history."""
 
 import base64
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from scripts.security_audit import EXPIRED_HISTORICAL_BLOB, reviewed_advisory, scan
+from scripts import security_audit
+from scripts.security_audit import scan
 
 
 class SecretScanTests(unittest.TestCase):
@@ -18,10 +22,23 @@ class SecretScanTests(unittest.TestCase):
         self.assertIn("JWT credential", scan(token))
         self.assertIn("copy of local secret", scan(token, [token]))
 
-    def test_only_the_reviewed_immutable_blob_is_an_advisory(self):
-        self.assertTrue(reviewed_advisory(EXPIRED_HISTORICAL_BLOB, ["JWT credential"]))
-        self.assertFalse(reviewed_advisory("different-object", ["JWT credential"]))
-        self.assertFalse(reviewed_advisory(EXPIRED_HISTORICAL_BLOB, ["provider credential"]))
+    def test_default_scan_only_reads_assets_that_are_published(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "app" / "static").mkdir(parents=True)
+            (root / "app" / "static" / "demo.json").write_text("{}")
+            (root / "private.txt").write_text("not a public export")
+            assets = {"/static/demo.json": ("demo.json", "application/json")}
+            with patch.object(security_audit, "ROOT", root), patch.object(security_audit, "ASSETS", assets):
+                files = list(security_audit._file_candidates(None))
+            self.assertEqual(files, [("app/static/demo.json", b"{}")])
+
+    def test_explicit_export_directory_checks_every_exported_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "nested").mkdir()
+            (root / "nested" / "report.json").write_text("{}")
+            self.assertEqual(list(security_audit._file_candidates(root)), [("nested/report.json", b"{}")])
 
     def test_fixtures_do_not_exempt_other_provider_credentials(self):
         self.assertEqual(scan(b"sk-private-visitor-test-key"), [])

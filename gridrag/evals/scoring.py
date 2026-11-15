@@ -6,8 +6,8 @@ import math
 import re
 from typing import Any
 
-from gridrag.records import QueryResult, State
 from gridrag.evals.cases import Case, reference_result, reference_value
+from gridrag.records import QueryResult, State
 
 _NUMERIC_EPSILON = 1e-9
 
@@ -73,7 +73,10 @@ def scalar_evidence(result: dict[str, Any]) -> dict[str, Any]:
 
 def evidence_matches(result: dict[str, Any], expected: float, tolerance: float) -> bool:
     """Match a complete final scalar result against the reference tolerance."""
-    evidence = scalar_evidence(result)
+    return _scalar_matches(scalar_evidence(result), expected, tolerance)
+
+
+def _scalar_matches(evidence: dict[str, Any], expected: float, tolerance: float) -> bool:
     return evidence["valid"] and math.isclose(
         evidence["value"], expected, rel_tol=0, abs_tol=tolerance + _NUMERIC_EPSILON
     )
@@ -216,8 +219,8 @@ def _evidence_checks(
     ]
 
 
-def assess(case: Case, result: dict[str, Any]) -> dict[str, Any]:
-    """Separate task correctness from stricter routing and answer presentation checks."""
+def assess(case: Case, result: dict[str, Any], *, expected: float | QueryResult | None = None) -> dict[str, Any]:
+    """Grade once, optionally using precomputed reference evidence from the runner."""
     checks: list[dict[str, Any]] = []
     state_ok = result.get("state") == case.state
     checks.append(
@@ -236,12 +239,13 @@ def assess(case: Case, result: dict[str, Any]) -> dict[str, Any]:
     tables = set(route.get("tables") or [])
     calls = result.get("tool_calls") or []
     table_result = case.result_kind == "table"
-    expected = reference_result(case) if table_result else reference_value(case) if case.sql else None
-    evidence = scalar_evidence(result)
+    if expected is None and case.sql:
+        expected = reference_result(case) if table_result else reference_value(case)
+    evidence = scalar_evidence(result) if not table_result else {"value": None}
     numeric_ok = (
         table_evidence_matches(result, expected, case.tolerance)
         if table_result
-        else evidence_matches(result, expected, case.tolerance)
+        else _scalar_matches(evidence, expected, case.tolerance)
         if expected is not None
         else None
     )
@@ -251,6 +255,7 @@ def assess(case: Case, result: dict[str, Any]) -> dict[str, Any]:
         "id": case.id,
         "passed": all(item["passed"] for item in checks),
         "correct": bool(correct),
+        "numeric_evidence": numeric_ok,
         "expected": expected,
         "observed": evidence["value"],
         "unit": case.unit,

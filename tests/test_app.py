@@ -93,9 +93,8 @@ class AppTests(unittest.TestCase):
                     request = Handler.__new__(Handler)
                     request.start_stream = Mock()
                     request.send_failure = Mock()
-                    request.execute_request(
-                        Mock(side_effect=failure), streaming=streaming, failure_message="Failed", label="Request failed"
-                    )
+                    request.run_answer = Mock(side_effect=failure)
+                    request.answer_question("example question", streaming)
                     self.assertFalse(RUN_LOCK.locked())
                     request.send_failure.assert_not_called()
 

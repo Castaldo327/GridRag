@@ -125,7 +125,10 @@ class EvaluationSuiteTests(unittest.TestCase):
             "route": {"tables": case.tables},
             "tool_calls": [{"query": case.sql, **expected}],
         }
-        self.assertTrue(assess(case, result)["correct"])
+        with patch("gridrag.evals.scoring.reference_result", side_effect=AssertionError("Already computed")):
+            cached = assess(case, result, expected=expected)
+        self.assertTrue(cached["correct"])
+        self.assertTrue(cached["numeric_evidence"])
         result["tool_calls"].append({"error": "failed"})
         self.assertFalse(assess(case, result)["correct"])
         self.assertNotIn(case.sql, evaluation_question(case))

@@ -1,18 +1,19 @@
 """Benchmark integrity checks, without embeddings, network calls, or model use."""
 
 import csv
-import hashlib
 import io
 import unittest
 from collections import Counter
 
 from benchmarks import hybrid
 from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
-from benchmarks.run import LIVE_METHODS, retrieval_metrics, strict_evidence, summarize
+from benchmarks.experiment import LIVE_METHODS, cases_fingerprint, report_contract
+from benchmarks.run import retrieval_metrics, summarize
 from gridrag.catalog import demo_catalog
+from gridrag.evals.cases import reference_result, reference_value
+from gridrag.evals.scoring import evidence_matches
 from gridrag.records import State
 from gridrag.route import _with_references
-from gridrag.evals.cases import reference_result, reference_value
 from scripts.publish_benchmark import public_report
 from scripts.security_audit import scan
 
@@ -50,11 +51,11 @@ class BenchmarkTests(unittest.TestCase):
         def result(csv, **kwargs):
             return {"tool_calls": [{"csv": csv, **kwargs}]}
 
-        self.assertTrue(strict_evidence(result("answer\n12.5\n"), 12.5, 0.01))
+        self.assertTrue(evidence_matches(result("answer\n12.5\n"), 12.5, 0.01))
         for csv_text in ("a,b\n0,12.5\n", "a\n12.5\n0\n", "a\nnan\n", "a\ninf\n", "a\n12.6\n"):
-            self.assertFalse(strict_evidence(result(csv_text), 12.5, 0.01))
-        self.assertFalse(strict_evidence(result("a\n12.5\n", truncated="limit"), 12.5, 0.01))
-        self.assertFalse(strict_evidence({"tool_calls": [{"csv": "a\n12.5\n"}, {"csv": "a\n9\n"}]}, 12.5, 0.01))
+            self.assertFalse(evidence_matches(result(csv_text), 12.5, 0.01))
+        self.assertFalse(evidence_matches(result("a\n12.5\n", truncated="limit"), 12.5, 0.01))
+        self.assertFalse(evidence_matches({"tool_calls": [{"csv": "a\n12.5\n"}, {"csv": "a\n9\n"}]}, 12.5, 0.01))
 
     def test_partial_or_duplicate_benchmarks_cannot_be_published(self):
         report = {
@@ -63,7 +64,7 @@ class BenchmarkTests(unittest.TestCase):
                 "experiment": EXPERIMENT,
                 "repeats": 1,
                 "methods": list(LIVE_METHODS),
-                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+                "cases_sha256": cases_fingerprint(BENCHMARK_CASES),
             },
             "runs": [],
         }
@@ -99,7 +100,7 @@ class BenchmarkTests(unittest.TestCase):
                 "experiment": EXPERIMENT,
                 "repeats": 1,
                 "methods": list(LIVE_METHODS),
-                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
+                "cases_sha256": cases_fingerprint(BENCHMARK_CASES),
             },
             "runs": [{"case": c.id, "method": method, "repeat": 0} for c in BENCHMARK_CASES for method in LIVE_METHODS],
         }
@@ -113,19 +114,8 @@ class BenchmarkTests(unittest.TestCase):
                 "experiment": EXPERIMENT,
                 "repeats": 3,
                 "methods": list(LIVE_METHODS),
-                "cases_sha256": hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest(),
-                "pipeline_version": "schema-driven-iso-entities-v1",
-                "grounding": {
-                    "version": "iso-entities-v1",
-                    "curated_vocabulary": True,
-                    "shared_by_all_methods": True,
-                    "entries": 7,
-                    "sha256": hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest(),
-                },
-                "hybrid": {
-                    "fusion_version": "semantic-bm25-v1",
-                    **hybrid.candidate_policy(len(demo_catalog().tables)),
-                },
+                "cases_sha256": cases_fingerprint(BENCHMARK_CASES),
+                **report_contract(demo_catalog()),
             },
             "paired_intervals": [],
             "runs": [],

@@ -3,14 +3,10 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  test:
+  checks:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.11", "3.12", "3.13"]
     env:
-      UV_PYTHON: ${{ matrix.python }}
+      UV_PYTHON: "3.13"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,18 +18,34 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run python -m gridrag.warehouse.build
-      - run: uv run python -m scripts.public_assets
-      - run: uv run python -m unittest discover -s tests
       - run: node --check app/static/app.js
       - run: node --check app/static/stream.js
       - run: node --test tests/test_*.js
-      - run: uv run python -m scripts.security_audit --history
-      - run: docker pull zricethezav/gitleaks:v8.24.2
-      - name: Independent secret scan
+      - run: uv run python -m scripts.security_audit
+      - name: Repository and history credential scan
         run: >-
           docker run --rm --network none
           -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo
           -v "$PWD:/repo:ro"
           zricethezav/gitleaks:v8.24.2 git /repo --log-opts=--all --redact --no-banner
           --gitleaks-ignore-path /repo/.gitleaksignore
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.5"
+      - run: uv sync --locked
+      - run: uv run python -m gridrag.warehouse.build
+      - if: matrix.python == '3.13'
+        run: uv run python -m scripts.public_assets
+      - run: uv run python -m unittest discover -s tests

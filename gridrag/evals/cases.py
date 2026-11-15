@@ -31,7 +31,7 @@ class Case:
     avoid: tuple[str, ...] = ()  # text the model's queries must not contain
     label: str = ""  # UI preset button; empty for cases only the live tests ask
     concept: str = ""
-    verification: str = ""  # retained in Case repr for the recorded benchmark's question fingerprint
+    demo_answer: str = ""  # prepared answer template for labeled demo examples
     category: str = "analytics"
     difficulty: str = "standard"
     result_kind: Literal["scalar", "table"] = "scalar"  # table cases have dimension keys and a final numeric measure
@@ -40,6 +40,7 @@ class Case:
 CASES = (
     Case(
         "peak",
+        demo_answer="ERCOT’s highest hourly demand on October 19, 2026 (local time) was **{value} MW**. The query takes the maximum hourly demand for that region and date.",
         label="Peak demand",
         concept="Aggregate a time series",
         unit="MW",
@@ -51,6 +52,7 @@ CASES = (
     ),
     Case(
         "share",
+        demo_answer="Natural gas supplied **{value}%** of PJM’s net generation in September 2026. The query divides gas generation by net generation over the same period and multiplies by 100.",
         label="Fuel share",
         concept="Combine measures across tables",
         unit="%",
@@ -76,6 +78,7 @@ CASES = (
     ),
     Case(
         "queue",
+        demo_answer="ERCOT’s interconnection queue contains **{value} active solar projects** in this snapshot. The query filters by region, fuel, and active status before counting projects.",
         label="Project queue",
         concept="Filter through shared dimensions",
         unit="projects",
@@ -99,6 +102,7 @@ CASES = (
     ),
     Case(
         "spread",
+        demo_answer="CAISO_HUB’s average real-time minus day-ahead price spread from 5–6 pm local on October 21, 2026 was **{value} USD/MWh**. The query averages the five-minute real-time prices before subtracting the matching hourly day-ahead price.",
         label="Price spread",
         concept="Align five-minute and hourly data",
         unit="USD/MWh",
@@ -114,6 +118,7 @@ CASES = (
     ),
     Case(
         "forecast",
+        demo_answer="The latest eligible ERCOT load forecast for October 21, 2026 at 5 pm local was **{value} MW**. The query uses only forecasts published at or before October 20 at 18:00 UTC, then selects the latest publication.",
         label="Forecast cutoff",
         concept="Use only information known at the time",
         unit="MW",
@@ -127,6 +132,7 @@ CASES = (
     ),
     Case(
         "storage",
+        demo_answer="CAISO’s gross battery discharge energy on October 21, 2026 was **{value} MWh**. The query sums five-minute discharge readings in MW and divides by 12 to convert them to energy. This is gross discharge, not net discharge after charging.",
         label="Battery energy",
         concept="Convert interval power to energy",
         unit="MWh",
@@ -138,6 +144,7 @@ CASES = (
     ),
     Case(
         "spread_forecast_error",
+        demo_answer="For CAISO’s hour with the highest signed price spread, the eligible load forecast minus actual demand was **{value} MW**. The selected hour was 08:00 local (15:00 UTC). The latest eligible forecast was 34,708.94 MW, compared with 35,127.47 MW actual demand.",
         label="Hard: spread to forecast error",
         concept="Rank aligned price grains, select a forecast vintage, then compare with actual demand",
         unit="MW",
@@ -178,9 +185,6 @@ WHERE f.vintage_rank = 1""",
         ),
         excluded=("core.caiso_lmp_rt_bus_5min", "core.caiso_storage_dispatch_5min"),
         avoid=("demand_forecast_mw",),  # lacks the publication time needed for this cutoff
-        verification="08:00 CAISO local (15:00 UTC) has the highest signed spread, −0.285 USD/MWh. "
-        "The latest eligible forecast was published at 09:00 UTC: 34,708.94 MW versus "
-        "35,127.47 MW actual demand.",
     ),
     Case(
         "too_broad",
@@ -203,9 +207,11 @@ def reference_result(case: Case) -> QueryResult:
     return result
 
 
-def reference_value(case: Case) -> float:
+def reference_value(case: Case, *, evidence: QueryResult | None = None) -> float:
     """What the case's reference query computes from this warehouse."""
-    result = reference_result(case)
+    result = reference_result(case) if evidence is None else evidence
+    if result.get("error") or result.get("truncated"):
+        raise RuntimeError(f"Reference query {case.id!r} is incomplete.")
     rows = list(csv.reader(io.StringIO(result.get("csv", ""))))
     if len(rows) != 2 or len(rows[0]) != 1 or len(rows[1]) != 1:
         raise RuntimeError(f"Reference query {case.id!r} failed; rebuild the demo warehouse.")

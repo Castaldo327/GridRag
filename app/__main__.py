@@ -162,12 +162,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorize_model():
             return
         streaming = self.headers.get("Accept") == STREAM_CONTENT_TYPE
-        self.execute_request(
-            lambda: self.answer_question(question, streaming),
-            streaming=streaming,
-            failure_message="Could not complete the question. See the server log for details.",
-            label="Demo request failed",
-        )
+        self.answer_question(question, streaming)
 
     def emit(self, event: dict[str, Any]) -> None:
         """Flush one newline-delimited JSON event to the client."""
@@ -194,8 +189,8 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             logging.debug("Client disconnected before the error response")
 
-    def execute_request(self, action: Callable[[], None], *, streaming: bool, failure_message: str, label: str) -> None:
-        """Run one admitted request within its response and resource lifecycle."""
+    def answer_question(self, question: str, streaming: bool) -> None:
+        """Run an admitted question and deliver JSON or streamed progress, closing cleanly."""
         if not RUN_LOCK.acquire(blocking=False):
             return self.send(409, {"error": "A question is already running. Try again when it finishes."})
         stream_started = False
@@ -203,26 +198,20 @@ class Handler(BaseHTTPRequestHandler):
             if streaming:
                 self.start_stream()
                 stream_started = True
-            action()
+            progress = (lambda update: self.emit({"type": "progress", **update})) if streaming else None
+            result = self.run_answer(question, on_progress=progress)
+            if streaming:
+                self.emit({"type": "done", "result": result})
+            else:
+                self.send(200, result)
         except (BrokenPipeError, ConnectionResetError):
             logging.debug("Client disconnected during the request")
         except Exception as exc:
             # Log a diagnostic type, never a provider exception body or visitor credentials.
-            logging.error("%s (%s)", label, type(exc).__name__)
-            self.send_failure(failure_message, stream_started)
+            logging.error("Demo request failed (%s)", type(exc).__name__)
+            self.send_failure("Could not complete the question. See the server log for details.", stream_started)
         finally:
             RUN_LOCK.release()
-
-    def answer_question(self, question: str, streaming: bool) -> None:
-        """Deliver an answer as a JSON response or a progress stream."""
-        progress: Callable[[Progress], None] | None = (
-            (lambda update: self.emit({"type": "progress", **update})) if streaming else None
-        )
-        result = self.run_answer(question, on_progress=progress)
-        if streaming:
-            self.emit({"type": "done", "result": result})
-        else:
-            self.send(200, result)
 
 
 def main() -> None:

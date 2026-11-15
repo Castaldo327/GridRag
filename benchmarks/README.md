@@ -57,7 +57,8 @@ contains ISO names only; it is not used by embedding retrieval, BM25 or rerankin
 Current runs obtain schema structure and persisted descriptions from DuckDB
 metadata. The frozen recorded comparison used the earlier DDL-text representation;
 it has not been rerun for this change. New runs fingerprint the newly rendered
-schema documents, including their changed formatting and table order.
+schema documents, including their changed formatting and table order. Existing
+recorded results remain unchanged.
 
 Reference expansion is shared, and vectors can also support column selection.
 These two implementations differ in both candidate generation and column pruning;
@@ -101,6 +102,11 @@ The report and UI include:
 - Trial summaries and a paired case-cluster bootstrap interval for the accuracy
   difference. Repeated attempts stay clustered within each question.
 
+New reports time only the answer pipeline, stopping before grading or client
+cleanup. References are computed once before the run and supplied to a single
+assessment per attempt. Historical reports included evaluator work in their
+elapsed time, so their latency figures use a different boundary.
+
 Latency is warm-index query latency: one-time embedding/index construction is
 reported separately as `index_seconds`. Estimated costs include the request gate,
 Decisions table/column scoring or reranking, SQL generation, repairs and answering.
@@ -112,6 +118,11 @@ The versioned manifest records experiment `decisions-vs-reranker-30-v3`, pipelin
 `schema-driven-iso-entities-v1`, question and schema hashes, model and package
 versions, budgets, thresholds, worker count, seed, vocabulary hash and fusion
 version, catalog size, candidate percentage, derived k and cap policy version.
+The runner and publisher share `benchmarks/experiment.py`. Report format 9 hashes
+explicit scoring fields as canonical JSON, rather than Python object `repr()`;
+demo copy and display labels do not affect the case fingerprint. Vocabulary
+fingerprints also use canonical JSON. The publisher requires the current format
+and timing scope; it will not relabel an older run as a new one.
 Questions are unchanged from v2; the candidate policy changed, so results carry
 a new experiment version. No claim of production accuracy or catalog-scale performance follows
 from this small synthetic suite.

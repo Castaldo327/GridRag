@@ -1,7 +1,6 @@
 """Verify completeness and build a safe public projection of a local benchmark run."""
 
 import argparse
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -9,16 +8,12 @@ from typing import Any
 
 from benchmarks import hybrid
 from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
-from benchmarks.run import LIVE_METHODS, summarize
+from benchmarks.experiment import HYBRID_METHOD, LIVE_METHODS, cases_fingerprint, report_contract
+from benchmarks.run import summarize
 from gridrag.catalog import demo_catalog
 from gridrag.evals.cases import Case, reference_result, reference_value
 from scripts.security_audit import local_secrets, scan
 
-EXPECTED_PIPELINE_VERSION = "schema-driven-iso-entities-v1"
-EXPECTED_GROUNDING_VERSION = "iso-entities-v1"
-EXPECTED_GROUNDING_ENTRIES = 7
-EXPECTED_FUSION_VERSION = "semantic-bm25-v1"
-HYBRID_METHOD = "vector-hybrid-p20"
 PUBLIC_REPORT_PATH = Path("app/static/benchmark.json")
 PUBLIC_RUN_FIELDS = frozenset(
     {
@@ -56,7 +51,7 @@ def _validate_completeness(manifest: Mapping[str, Any], rows: Sequence[Mapping[s
         raise ValueError("The capability experiment must include both declared methods")
     if manifest.get("experiment") != EXPERIMENT:
         raise ValueError("Publish a fresh two-pipeline comparison")
-    if manifest.get("cases_sha256") != hashlib.sha256(repr(BENCHMARK_CASES).encode()).hexdigest():
+    if manifest.get("cases_sha256") != cases_fingerprint(BENCHMARK_CASES):
         raise ValueError("Benchmark questions do not match the recorded run")
     expected = {
         (case.id, method, repeat)
@@ -70,19 +65,14 @@ def _validate_completeness(manifest: Mapping[str, Any], rows: Sequence[Mapping[s
 
 
 def _validate_pipeline(manifest: Mapping[str, Any]) -> None:
-    grounding = manifest.get("grounding", {})
-    retrieval = manifest.get("hybrid", {})
-    if (
-        manifest.get("pipeline_version") != EXPECTED_PIPELINE_VERSION
-        or grounding.get("version") != EXPECTED_GROUNDING_VERSION
-        or grounding.get("curated_vocabulary") is not True
-        or grounding.get("shared_by_all_methods") is not True
-        or grounding.get("entries") != EXPECTED_GROUNDING_ENTRIES
-        or grounding.get("sha256") != hashlib.sha256(repr(demo_catalog().vocabulary).encode()).hexdigest()
-        or retrieval.get("fusion_version") != EXPECTED_FUSION_VERSION
-        or retrieval.get("metadata")
-    ):
+    expected = report_contract(demo_catalog())
+    if any(manifest.get(field) != value for field, value in expected.items() if field != "hybrid"):
         raise ValueError("Publish a fresh schema-driven run with shared ISO-only entity grounding")
+    retrieval = manifest.get("hybrid", {})
+    if any(
+        retrieval.get(field) != expected["hybrid"][field] for field in ("weights", "fusion_version")
+    ) or retrieval.get("metadata"):
+        raise ValueError("Publish a fresh run with the declared fusion policy")
 
 
 def _validate_candidates(manifest: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> None:

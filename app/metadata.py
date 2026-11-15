@@ -1,12 +1,8 @@
-"""Demo question presets shared by HTTP responses and the static build."""
+"""Load public demo presets from the same artifact served to the browser."""
 
-from gridrag.evals.cases import CASES
+import json
+from pathlib import Path
 
 
 def presets() -> list[dict[str, str]]:
-    """Return labeled demo questions in their display order."""
-    return [
-        {"id": case.id, "label": case.label, "concept": case.concept, "question": case.question}
-        for case in CASES
-        if case.label
-    ]
+    return json.loads(Path(__file__).with_name("static").joinpath("demo.json").read_text(encoding="utf-8"))["presets"]

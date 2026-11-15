@@ -246,12 +246,22 @@ uv run ruff format --check .
 uv run python -m unittest discover -s tests
 node --check app/static/app.js
 node --test tests/test_*.js
-uv run python -m scripts.security_audit --history
+uv run python -m scripts.security_audit
 ```
 
 The checks cover catalog introspection, stored documentation, read-only SQL enforcement, resource
 limits, request-scoped credentials, failed requests, streaming, reference queries
 and benchmark scoring.
+
+CI runs lint, JavaScript tests and credential scanning once, and Python tests on
+3.11–3.13. Gitleaks owns repository and history credential scanning. The Python
+export audit checks only the allowlisted public assets (or an explicit
+`--directory`), including accidental copies of local secret values.
+
+Prepared demo questions and answer templates live together in
+`gridrag/evals/cases.py`. The asset builder executes each demo's reference SQL
+once and derives its answer, evidence and presets from that result. The server
+loads presets from the generated public artifact.
 
 ## GitHub and Vercel
 

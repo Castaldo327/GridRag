@@ -2,8 +2,8 @@
 
 from dataclasses import replace
 
-from gridrag.records import State
 from gridrag.evals.cases import CASES, Case
+from gridrag.records import State
 
 BASE_GROUPS = {
     "peak": ("analytics", "standard"),

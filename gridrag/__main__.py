@@ -14,9 +14,7 @@ def _print_result(result: Answer) -> None:
     if gate := result.get("gate"):
         print(f"Gate: {gate['reason']}")
     if selection := result.get("route"):
-        print(
-            f"Schema: {len(selection['tables'])} of {len(demo_catalog().tables)} tables selected"
-        )
+        print(f"Schema: {len(selection['tables'])} of {len(demo_catalog().tables)} tables selected")
         print(f"  {', '.join(selection['tables']) or 'No matching tables'}")
     for call in result["tool_calls"]:
         print(f"\nSQL: {call['query']}\n  -> {call['error'] or str(call['rows']) + ' rows'}")
