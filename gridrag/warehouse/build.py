@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from gridrag import config
-from gridrag.warehouse import products
+from gridrag.warehouse import product_data, products
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 SEED = 20261023
@@ -146,7 +146,7 @@ QUEUE_STATUSES = {
 }
 
 
-def _series(iso: Iso, start: pd.Timestamp, end: pd.Timestamp, freq: str) -> products.Series:
+def _series(iso: Iso, start: pd.Timestamp, end: pd.Timestamp, freq: str) -> product_data.IntervalSeries:
     """Interval keys at freq ("h" or "5min") covering local dates start..end on the ISO's clock, with the
     demand and per-fuel MW shapes over them. Both cadences evaluate the same formulas on local time."""
     first = start.tz_localize(iso.tz).tz_convert("UTC")
@@ -189,7 +189,7 @@ def _series(iso: Iso, start: pd.Timestamp, end: pd.Timestamp, freq: str) -> prod
         # oscillates on the row position, so values depend on where the window starts (kept to match the submission)
         "battery": 0.018 * demand * np.sin(np.arange(len(keys)) * 0.24 + phase),
     }
-    return products.Series(keys, demand, fuels)
+    return product_data.IntervalSeries(keys, demand, fuels)
 
 
 def _generation(keys: pd.DataFrame, fuels: Mapping[str, np.ndarray]) -> pd.DataFrame:
@@ -203,13 +203,16 @@ def _generation(keys: pd.DataFrame, fuels: Mapping[str, np.ndarray]) -> pd.DataF
 def hourly(iso: Iso, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
     """Balance and generation-by-fuel rows for every UTC hour covering local dates start..end."""
     series = _series(iso, start, end, "h")
-    total = sum(np.round(mw, 2) for mw in series.fuels.values())
+    total = sum(np.round(mw, 2) for mw in series.generation_mw.values())
     balance = series.keys.assign(
-        demand_mw=np.round(series.demand, 2),
-        demand_forecast_mw=np.round(series.demand * 1.015, 2),
+        demand_mw=np.round(series.demand_mw, 2),
+        demand_forecast_mw=np.round(series.demand_mw * 1.015, 2),
         net_generation_mw=np.round(total, 2),
     )
-    return {"core.fact_balance_hourly": balance, "core.fact_generation_hourly": _generation(series.keys, series.fuels)}
+    return {
+        "core.fact_balance_hourly": balance,
+        "core.fact_generation_hourly": _generation(series.keys, series.generation_mw),
+    }
 
 
 def five_minute(iso: Iso, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
@@ -217,8 +220,8 @@ def five_minute(iso: Iso, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, p
     Load wobbles slightly around the demand shape, so it can differ a little from hourly demand."""
     series = _series(iso, start, end, "5min")
     keys = series.keys
-    load = keys.assign(load_mw=np.round(series.demand * (1 + 0.006 * np.sin(np.arange(len(keys)) * 0.7)), 2))
-    return {"core.fact_load_5min": load, "core.fact_generation_5min": _generation(keys, series.fuels)}
+    load = keys.assign(load_mw=np.round(series.demand_mw * (1 + 0.006 * np.sin(np.arange(len(keys)) * 0.7)), 2))
+    return {"core.fact_load_5min": load, "core.fact_generation_5min": _generation(keys, series.generation_mw)}
 
 
 def queue(as_of: pd.Timestamp) -> pd.DataFrame:
@@ -299,7 +302,7 @@ def _dimensions() -> dict[str, pd.DataFrame]:
         "core.dim_queue_status": pd.DataFrame(
             [{"status_code": code, "description": description} for code, description in QUEUE_STATUSES.items()]
         ),
-        "core.dim_location": products.locations(ISO_IDS),
+        "core.dim_location": product_data.locations(ISO_IDS),
     }
 
 
@@ -313,14 +316,14 @@ def _frames() -> dict[str, pd.DataFrame]:
         }
         parts |= products.frames(
             iso.code,
-            products.Inputs(
-                iso.id,
-                iso.solar_peak_mw,
-                FUEL_IDS,
-                FIVE_START,
-                END,
-                _series(iso, FIVE_START, END, "h"),
-                _series(iso, FIVE_START, END, "5min"),
+            product_data.ProductInputs(
+                iso_id=iso.id,
+                solar_peak_mw=iso.solar_peak_mw,
+                fuel_ids=FUEL_IDS,
+                start=FIVE_START,
+                end=END,
+                hourly=_series(iso, FIVE_START, END, "h"),
+                five_minute=_series(iso, FIVE_START, END, "5min"),
             ),
         )
         for table, frame in parts.items():

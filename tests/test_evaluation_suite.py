@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from benchmarks.cases import BENCHMARK_CASES
 from gridrag.catalog import demo_catalog
-from gridrag.warehouse.evals import CASES, reference_value
-from gridrag.warehouse.evaluation import (
+from gridrag.evals.cases import CASES, reference_value
+from gridrag.evals.scoring import (
     assess,
     evaluation_question,
     evidence_matches,
@@ -15,7 +15,7 @@ from gridrag.warehouse.evaluation import (
     states_value,
     table_evidence_matches,
 )
-from gridrag.warehouse.suite import EVALUATION_CASES
+from gridrag.evals.suite import EVALUATION_CASES
 
 
 class EvaluationSuiteTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class EvaluationSuiteTests(unittest.TestCase):
 
     def test_reference_rejects_invalid_contract(self):
         for csv in ("a,b\n1,2\n", "value\nnan\n", "value\n1\n2\n"):
-            with patch("gridrag.warehouse.evals.db.run_model_sql", return_value={"csv": csv}):
+            with patch("gridrag.evals.cases.db.run_model_sql", return_value={"csv": csv}):
                 with self.assertRaises(RuntimeError):
                     reference_value(CASES[0])
 
@@ -116,7 +116,7 @@ class EvaluationSuiteTests(unittest.TestCase):
 
     def test_table_case_requires_answered_state_and_complete_final_evidence(self):
         case = next(case for case in BENCHMARK_CASES if case.result_kind == "table")
-        from gridrag.warehouse.evals import reference_result
+        from gridrag.evals.cases import reference_result
 
         expected = reference_result(case)
         result = {

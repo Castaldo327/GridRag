@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from gridrag.records import State
-from gridrag.warehouse.evals import CASES, Case
+from gridrag.evals.cases import CASES, Case
 
 BASE_GROUPS = {
     "peak": ("analytics", "standard"),

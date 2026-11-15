@@ -100,13 +100,10 @@ class VectorRetriever:
             reranker_model=config.settings.decisions_model if llm is not None else None,
         )
         policy = diagnostics["candidate_policy"]
-        scores: dict[str, float | None]
-        fallback = False
+        scores: dict[str, float]
         if llm is not None:
-            names, scores, fallback = hybrid.rerank(question, llm, catalog, names, fused)
-            names = [
-                name for name in names if scores[name] is None or scores[name] >= config.settings.route_min_probability
-            ]
+            names, scores = hybrid.rerank(question, llm, catalog, names, fused)
+            names = [name for name in names if scores[name] >= config.settings.route_min_probability]
         else:
             scores = dict(fused)
         chosen_names = set(names[: policy["final_k"]])
@@ -117,7 +114,6 @@ class VectorRetriever:
             "scores": scores,
             "column_scores": {},
             "columns": {name: list(catalog.tables[name].columns) for name in ordered},
-            "fallback": fallback,
         }
         selection["retrieval"] = diagnostics
         if len(ordered) > config.settings.max_routed_tables:

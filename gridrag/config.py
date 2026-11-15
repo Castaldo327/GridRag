@@ -20,10 +20,10 @@ ENV_FILE = ROOT / ".env"
 _VALIDATION = ConfigDict(
     strict=True, validate_default=True, extra="forbid", allow_inf_nan=False, hide_input_in_errors=True
 )
+
 Probability = Annotated[float, Field(ge=0, le=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveSeconds = Annotated[float, Field(gt=0)]
-
 
 @dataclass(frozen=True, config=_VALIDATION)
 class Rates:
@@ -61,7 +61,6 @@ class Settings:
     gate_max_malicious: Probability = 0.7
     route_min_probability: Probability = 0.2
     route_min_column_probability: Probability = 0.2
-    route_max_unscored: Probability = 0.5
     max_routed_tables: PositiveInt = 10
     route_column_workers: PositiveInt = 4
     sql_max_rounds: PositiveInt = 5

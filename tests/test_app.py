@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from app.__main__ import PRESETS, RUN_LOCK, Handler
 from gridrag import config
-from gridrag.warehouse.evals import CASES
+from gridrag.evals.cases import CASES
 
 
 def send(head, body=b""):

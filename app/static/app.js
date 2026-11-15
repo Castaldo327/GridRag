@@ -462,7 +462,7 @@ function paintRun(session, prefix = "", isDemo = false) {
     <div class="flow-step ${isActive ? "active" : done ? "complete" : ""}" ${isActive ? 'aria-current="step"' : ""}><span class="step-number">${isActive ? '<span class="stage-spinner" aria-hidden="true"></span>' : done ? "✓" : `0${i + 1}`}</span>
       <div><strong>${title}</strong>${isActive ? '<span class="active-label">Active</span>' : ""}<p>${esc(description)}</p>
       ${i === 1 && route ? `<meter class="schema-meter" min="0" max="${total}" value="${selected.length}" aria-label="${selected.length} of ${total} catalog tables selected">${selected.length} of ${total}</meter>
-        <details class="schema-list" ${openSchema ? "open" : ""}><summary>Selected tables${route.fallback ? " · includes uncertain matches" : ""}</summary>
+        <details class="schema-list" ${openSchema ? "open" : ""}><summary>Selected tables</summary>
           ${selected.map(t => `<code>${esc(t)}${route.columns?.[t] ? ` · ${esc(route.columns[t].join(", "))}` : ""}</code>`).join("") || "None"}</details>` : ""}</div></div>`;
   }).join("");
   q("answer-state").innerHTML = r ? `<span class="badge ${r.state === "answered" ? "good" : "warn"}">${esc(r.state.replaceAll("_", " "))}</span>` : "";

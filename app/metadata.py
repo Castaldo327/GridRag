@@ -1,6 +1,6 @@
 """Demo question presets shared by HTTP responses and the static build."""
 
-from gridrag.warehouse.evals import CASES
+from gridrag.evals.cases import CASES
 
 
 def presets() -> list[dict[str, str]]:

@@ -14,7 +14,7 @@ from typing import Any
 from gridrag.catalog import Catalog
 from gridrag.llm import Model, probability
 from gridrag.records import Stage
-from gridrag.route import TABLE_QUESTION, _check_scores
+from gridrag.route import TABLE_QUESTION
 
 DEFAULT_CANDIDATE_PERCENT = 20
 FINAL_K = 25
@@ -121,7 +121,7 @@ def rerank(
     catalog: Catalog,
     names: Sequence[str],
     fused: Mapping[str, float],
-) -> tuple[list[str], dict[str, float | None], bool]:
+) -> tuple[list[str], dict[str, float]]:
     """Rank candidates by Decisions probability, breaking ties with fusion scores."""
     answers = llm.decide(
         Stage.ROUTE,
@@ -132,6 +132,5 @@ def rerank(
         ],
     )
     scores = {name: probability(answers, f"h{i}") for i, name in enumerate(names)}
-    fallback = _check_scores(scores, "hybrid reranker")
-    ranked = sorted(names, key=lambda name: (-(scores[name] if scores[name] is not None else 1.0), -fused[name], name))
-    return ranked, scores, fallback
+    ranked = sorted(names, key=lambda name: (-scores[name], -fused[name], name))
+    return ranked, scores

@@ -26,7 +26,6 @@ class SettingsTests(unittest.TestCase):
             {"route_column_workers": True},
             {"route_min_probability": "0.2"},
             {"route_min_column_probability": 1.1},
-            {"route_max_unscored": float("nan")},
             {"sql_timeout_s": -1},
         ):
             with self.subTest(changes=changes), self.assertRaises(ValueError):

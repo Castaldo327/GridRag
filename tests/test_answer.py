@@ -59,7 +59,7 @@ class FailureTests(unittest.TestCase):
         ):
             res = answer.answer("What was ERCOT demand?", model(decide=lambda *args: {}))
         sql.assert_not_called()
-        self.assertEqual((res["state"], res["stage"], res["error"]), (State.FAILED, Stage.ROUTE, "RoutingFailed"))
+        self.assertEqual((res["state"], res["stage"], res["error"]), (State.FAILED, Stage.ROUTE, "ValueError"))
         self.assertIsNone(res["route"])
 
     def test_too_broad_a_route_asks_to_narrow_and_keeps_the_selection(self):
@@ -84,7 +84,6 @@ class FailureTests(unittest.TestCase):
                 "core.dim_iso": ["iso_id", "iso_code"],
                 "core.dim_location": ["location_id", "iso_id", "location_code"],
             },
-            "fallback": False,
         }
         output = {"answer": "28 locations", "state": State.ANSWERED, "tool_calls": []}
         with (

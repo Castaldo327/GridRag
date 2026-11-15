@@ -7,7 +7,7 @@ what each task probes; difficulty describes operations, not observed outcomes.
 
 from typing import Any
 
-from gridrag.warehouse.evals import Case
+from gridrag.evals.cases import Case
 
 EXPERIMENT = "decisions-vs-reranker-30-v3"
 ISOS = ("CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP")

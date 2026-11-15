@@ -30,8 +30,8 @@ from gridrag.catalog import Catalog, demo_catalog
 from gridrag.llm import LLM, Model
 from gridrag.records import Selection
 from gridrag.route import RoutingTooBroad, _with_references, route
-from gridrag.warehouse.evals import Case, reference_result, reference_value
-from gridrag.warehouse.evaluation import assess, evaluation_question, evidence_matches, table_evidence_matches
+from gridrag.evals.cases import Case, reference_result, reference_value
+from gridrag.evals.scoring import assess, evaluation_question, evidence_matches, table_evidence_matches
 
 SEED = 42
 LIVE_METHODS = ("routed", "vector-hybrid-p20")

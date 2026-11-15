@@ -162,7 +162,7 @@ questions across all three trials. Selecting a trial changes the displayed
 evidence while cumulative scores continue to include every attempt. Browsing
 never makes paid model calls.
 
-The separate 26-case regression suite in `gridrag/warehouse/suite.py` remains
+The separate 26-case regression suite in `gridrag/evals/suite.py` remains
 available for explicit local testing, including scope and safety behavior.
 Markdown is rendered with pinned, locally vendored Marked and DOMPurify bundles.
 

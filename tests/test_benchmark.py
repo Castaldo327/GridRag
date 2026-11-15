@@ -12,7 +12,7 @@ from benchmarks.run import LIVE_METHODS, retrieval_metrics, strict_evidence, sum
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.route import _with_references
-from gridrag.warehouse.evals import reference_result, reference_value
+from gridrag.evals.cases import reference_result, reference_value
 from scripts.publish_benchmark import public_report
 from scripts.security_audit import scan
 

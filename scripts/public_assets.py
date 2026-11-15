@@ -9,7 +9,7 @@ from typing import Any
 from app.metadata import presets
 from gridrag import db
 from gridrag.catalog import Catalog, demo_catalog
-from gridrag.warehouse.evals import CASES, Case, reference_value
+from gridrag.evals.cases import CASES, Case, reference_value
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 

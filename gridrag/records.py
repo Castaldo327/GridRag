@@ -37,13 +37,12 @@ class Gate(TypedDict):
 
 
 class Selection(TypedDict):
-    """Selected SQL context with retrieval scores and fallback diagnostics."""
+    """Selected SQL context with retrieval scores."""
 
     tables: list[str]  # handed to SQL in catalog order, referenced tables included
-    scores: dict[str, float | None]  # table -> probability it is needed
-    column_scores: dict[str, dict[str, float | None]]  # selected table -> column -> probability
+    scores: dict[str, float]  # table -> probability it is needed
+    column_scores: dict[str, dict[str, float]]  # selected table -> column -> probability
     columns: dict[str, list[str]]  # selected table -> columns supplied to SQL
-    fallback: bool  # at least one unusable score retained context
     retrieval: NotRequired[dict]  # optional hybrid candidate and reranking diagnostics
 
 

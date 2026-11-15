@@ -10,7 +10,6 @@ from benchmarks.vector import VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
 from gridrag.catalog import Catalog, Table, demo_catalog
-from gridrag.route import RoutingFailed
 
 
 class HybridTests(unittest.TestCase):
@@ -64,18 +63,17 @@ class HybridTests(unittest.TestCase):
         self.assertEqual(hybrid.shortlist("California", catalog, {})[0], [])
         self.assertEqual(hybrid.keyword_scores("CAISO", catalog)[table.name], 1.0)
 
-    def test_live_rerank_uses_complete_question_and_fails_on_unusable_scores(self):
+    def test_live_rerank_uses_complete_question_and_requires_every_score(self):
         catalog = demo_catalog()
         names = ["core.fact_balance_hourly", "core.queue_project"]
         llm = Mock()
         llm.decide.return_value = {"h0": {"probability": 0.9}, "h1": {"probability": 0.1}}
         question = "Compare Texas hourly demand with California on August 8, 2025"
-        ranked, scores, fallback = hybrid.rerank(question, llm, catalog, names, dict.fromkeys(names, 0.5))
+        ranked, scores = hybrid.rerank(question, llm, catalog, names, dict.fromkeys(names, 0.5))
         self.assertEqual(ranked, names)
-        self.assertFalse(fallback)
         self.assertEqual(llm.decide.call_args.args[1], question)
         llm.decide.return_value = {}
-        with self.assertRaises(RoutingFailed):
+        with self.assertRaisesRegex(ValueError, "Missing or invalid probability for h0"):
             hybrid.rerank(question, llm, catalog, names, dict.fromkeys(names, 0.5))
 
     def test_hybrid_expands_references_after_reranking_and_keeps_all_columns(self):

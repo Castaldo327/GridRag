@@ -9,7 +9,7 @@ from unittest.mock import patch
 from gridrag import config
 from gridrag.catalog import Catalog, Table
 from gridrag.records import Stage
-from gridrag.route import RoutingFailed, RoutingTooBroad, route
+from gridrag.route import RoutingTooBroad, route
 
 CATALOG = Catalog.of(
     [
@@ -94,18 +94,13 @@ class RouteTests(unittest.TestCase):
             selected = route("Compare demand and price", model, CATALOG)
         self.assertEqual(len(selected["tables"]), 3)
 
-    def test_uncertain_scores_are_kept_but_mostly_missing_scores_fail(self):
-        model = ScoredModel({"core.demand": None}, {"core.demand": {"demand_mw": None}})
-        selected = route("Demand?", model, CATALOG)
-        self.assertTrue(selected["fallback"])
-        self.assertIn("core.demand", selected["tables"])
-        self.assertIn("demand_mw", selected["columns"]["core.demand"])
-        with self.assertRaises(RoutingFailed):
+    def test_missing_table_score_fails_instead_of_treating_it_as_relevant(self):
+        with self.assertRaisesRegex(ValueError, "Missing or invalid probability for t0"):
             route("Question?", ScoredModel({name: None for name in CATALOG.tables}), CATALOG)
 
-    def test_unusable_column_decision_fails_instead_of_returning_partial_schema(self):
+    def test_missing_column_score_fails_instead_of_returning_partial_schema(self):
         model = ScoredModel({"core.demand": 0.99}, {"core.dim_iso": {"iso_id": None, "iso_code": None}})
-        with self.assertRaises(RoutingFailed):
+        with self.assertRaisesRegex(ValueError, "Missing or invalid probability for c0"):
             route("Demand?", model, CATALOG)
 
     def test_table_budget_stops_before_column_calls(self):

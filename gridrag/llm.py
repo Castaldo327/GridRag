@@ -75,12 +75,12 @@ class _RelevanceScore(BaseModel):
     probability: float = Field(ge=0, le=1)
 
 
-def probability(answers: dict, name: str) -> float | None:
-    """Malformed, absent or refused scores are uncertainty, never a confident rejection."""
+def probability(answers: dict, name: str) -> float:
+    """Return a validated probability, failing when the provider omitted or malformed it."""
     try:
         return _RelevanceScore.model_validate(answers.get(name)).probability
-    except ValidationError:
-        return None
+    except ValidationError as exc:
+        raise ValueError(f"Missing or invalid probability for {name}") from exc
 
 
 def call_cost(kind: str, usage: dict) -> float:

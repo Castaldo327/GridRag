@@ -226,7 +226,7 @@ def parse(script: str) -> list[Table]:
 def demo_catalog() -> Catalog:
     """The checked-in warehouse: documented physical tables and their ISO vocabulary."""
     from gridrag.warehouse import build
-    from gridrag.warehouse.vocabulary import ISO_ENTITIES
+    from gridrag.catalog_vocabulary import ISO_ENTITIES
 
     return Catalog.of(
         parse(build.schema_text()),

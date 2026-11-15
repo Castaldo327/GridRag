@@ -16,7 +16,6 @@ def _print_result(result: Answer) -> None:
     if selection := result.get("route"):
         print(
             f"Schema: {len(selection['tables'])} of {len(demo_catalog().tables)} tables selected"
-            + (" (includes uncertain matches)" if selection["fallback"] else "")
         )
         print(f"  {', '.join(selection['tables']) or 'No matching tables'}")
     for call in result["tool_calls"]:
@@ -35,13 +34,11 @@ def _print_diagnostics(result: Answer) -> None:
     if selection:
         print("Table scores:")
         for name, probability in selection["scores"].items():
-            score = "?" if probability is None else f"{probability:.2f}"
-            print(f"  {name}: {score}")
+            print(f"  {name}: {probability:.2f}")
         for table, scores in selection["column_scores"].items():
             print(f"Column scores for {table}:")
             for name, probability in scores.items():
-                score = "?" if probability is None else f"{probability:.2f}"
-                print(f"  {name}: {score}")
+                print(f"  {name}: {probability:.2f}")
     print("Timings:", ", ".join(f"{name} {seconds:.2f}s" for name, seconds in result["timings"].items()))
     print(f"Tokens: {usage['input_tokens']:,} in ({usage['cached_tokens']:,} cached) · {usage['output_tokens']:,} out")
     for call in usage["per_call"]:

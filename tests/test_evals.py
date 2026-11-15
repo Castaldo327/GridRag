@@ -8,8 +8,8 @@ import unittest
 from gridrag import db
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
-from gridrag.warehouse import evals
-from gridrag.warehouse.evaluation import assess
+from gridrag.evals import cases as evals
+from gridrag.evals.scoring import assess
 
 
 class EvalTests(unittest.TestCase):

@@ -11,7 +11,7 @@ from benchmarks import hybrid
 from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
 from benchmarks.run import LIVE_METHODS, summarize
 from gridrag.catalog import demo_catalog
-from gridrag.warehouse.evals import Case, reference_result, reference_value
+from gridrag.evals.cases import Case, reference_result, reference_value
 from scripts.security_audit import local_secrets, scan
 
 EXPECTED_PIPELINE_VERSION = "schema-driven-iso-entities-v1"

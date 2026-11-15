@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from gridrag.records import QueryResult, State
-from gridrag.warehouse.evals import Case, reference_result, reference_value
+from gridrag.evals.cases import Case, reference_result, reference_value
 
 _NUMERIC_EPSILON = 1e-9
 
