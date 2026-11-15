@@ -60,8 +60,8 @@ class Settings:
     max_question_chars: PositiveInt = 2000
     gate_min_relevance: Probability = 0.3
     gate_max_malicious: Probability = 0.7
-    route_min_probability: Probability = 0.2
-    route_min_column_probability: Probability = 0.2
+    route_min_probability: Probability = 0.3
+    route_min_column_probability: Probability = 0.3
     max_routed_tables: PositiveInt = 10
     route_column_workers: PositiveInt = 4
     sql_max_rounds: PositiveInt = 5
