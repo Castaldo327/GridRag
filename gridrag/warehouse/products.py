@@ -1,8 +1,8 @@
 """Table catalog and SQL schema for the fictional per-ISO products.
 
 Start at PRODUCTS to see each table's columns, primary key, and row generator.
-The comments are also retrieval metadata: they distinguish similar products by
-market, grain, and time semantics. Keep them precise when changing a definition.
+Descriptions are persisted as database comments for routing: they distinguish
+similar products by market, grain, and time semantics. Keep them precise.
 Synthetic data formulas and their inputs live in product_data.py.
 """
 
@@ -157,16 +157,22 @@ def table_name(iso: str, product: Product) -> str:
 
 
 def _create_table(product: Product, iso: str, iso_id: int, start: pd.Timestamp, end: pd.Timestamp) -> str:
-    """Render one table with routing comments and an ISO-specific constraint."""
+    """Render one table with persisted routing documentation and an ISO constraint."""
+    name = table_name(iso, product)
+    description = f"{iso} only, local dates {start:%Y-%m-%d} through {end:%Y-%m-%d}. {product.description}"
     lines = [
-        f"-- {iso} only, local dates {start:%Y-%m-%d} through {end:%Y-%m-%d}. {product.description}",
-        f"CREATE TABLE {table_name(iso, product)} (",
+        f"CREATE TABLE {name} (",
         f"    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = {iso_id}),",
     ]
     for column in product.columns:
         reference = f" REFERENCES {column.references}" if column.references else ""
-        lines.append(f"    {column.name} {column.sql_type} NOT NULL{reference},  -- {column.description}")
+        lines.append(f"    {column.name} {column.sql_type} NOT NULL{reference},")
     lines += [f"    PRIMARY KEY ({', '.join(product.primary_key)})", ");"]
+    literal = description.replace("'", "''")
+    lines.append(f"COMMENT ON TABLE {name} IS '{literal}';")
+    for column in product.columns:
+        literal = column.description.replace("'", "''")
+        lines.append(f"COMMENT ON COLUMN {name}.{column.name} IS '{literal}';")
     return "\n".join(lines)
 
 

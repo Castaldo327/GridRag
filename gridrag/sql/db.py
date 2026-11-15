@@ -49,11 +49,7 @@ def _database() -> duckdb.DuckDBPyConnection:
             connection = duckdb.connect(
                 str(settings.db_path),
                 read_only=True,
-                config={
-                    "memory_limit": settings.db_memory_limit,
-                    "threads": settings.db_threads,
-                    "temp_directory": "",
-                },
+                config=settings.db_connection_config,
             )
             try:
                 # Configure resources before locking external access and settings.

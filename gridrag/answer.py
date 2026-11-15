@@ -9,9 +9,8 @@ from contextlib import contextmanager
 from openai import AuthenticationError, PermissionDeniedError, RateLimitError
 
 from gridrag import config
-from gridrag.catalog import Catalog, demo_catalog
+from gridrag.catalog import Catalog, demo_catalog, render_grounding
 from gridrag.gate import gate
-from gridrag.grounding import render_grounding
 from gridrag.llm import LLM, Model
 from gridrag.records import Answer, Gate, Progress, Selection, Stage, State, ToolCall
 from gridrag.route import RoutingTooBroad, route

@@ -9,25 +9,23 @@ from unittest.mock import Mock, patch
 
 import duckdb
 
-from gridrag import config, db
+from gridrag import config
 from gridrag.answer import answer
-from gridrag.catalog import Catalog, Table
+from gridrag.catalog import read_catalog
+from gridrag.sql import db
 
 
 class DomainIndependenceTests(unittest.TestCase):
     def test_retail_catalog_uses_generic_gate_declared_keys_and_schema_only_sql(self):
-        catalog = Catalog.of(
-            [
-                Table.parse(
-                    "CREATE TABLE retail.item (sku VARCHAR PRIMARY KEY, "
-                    "category VARCHAR CHECK (category IN ('Apparel', 'Home')));"
-                ),
-                Table.parse(
-                    "CREATE TABLE retail.sale (item VARCHAR REFERENCES retail.item (sku), "
-                    "amount DOUBLE, optional_code VARCHAR);"
-                ),
-            ]
-        )
+        with duckdb.connect() as connection:
+            connection.execute("""
+                CREATE SCHEMA retail;
+                CREATE TABLE retail.item (sku VARCHAR PRIMARY KEY,
+                    category VARCHAR CHECK (category IN ('Apparel', 'Home')));
+                CREATE TABLE retail.sale (item VARCHAR REFERENCES retail.item (sku),
+                    amount DOUBLE, optional_code VARCHAR);
+            """)
+            catalog = read_catalog(connection, schemas=("retail",))
         calls = []
 
         def decide(stage, question, predicates):
@@ -38,7 +36,7 @@ class DomainIndependenceTests(unittest.TestCase):
                 p["name"]: {
                     "probability": 0.01
                     if p["name"].startswith("c")
-                    and not any(term in p["instructions"] for term in ("category VARCHAR", "amount DOUBLE"))
+                    and not any(term in p["instructions"] for term in ('"category" VARCHAR', '"amount" DOUBLE'))
                     else 0.99
                 }
                 for p in predicates
@@ -107,6 +105,6 @@ class DomainIndependenceTests(unittest.TestCase):
         self.assertEqual(calls[0][1], "What is total Apparel revenue?")
         self.assertNotIn("electric", calls[0][2][0]["instructions"])
         instructions = llm.respond.call_args_list[0].args[1]
-        self.assertIn("retail.sale", instructions)
+        self.assertIn('"retail"."sale"', instructions)
         self.assertNotIn("CAISO", instructions)
         self.assertNotIn("Approved dimension/entity vocabulary", instructions)

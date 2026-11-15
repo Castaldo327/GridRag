@@ -7,9 +7,9 @@ from types import MappingProxyType
 from typing import Any
 
 from app.metadata import presets
-from gridrag import db
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.evals.cases import CASES, Case, reference_value
+from gridrag.sql import db
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 

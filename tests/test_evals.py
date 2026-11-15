@@ -5,11 +5,11 @@ import io
 import math
 import unittest
 
-from gridrag import db
 from gridrag.catalog import demo_catalog
-from gridrag.records import State
 from gridrag.evals import cases as evals
 from gridrag.evals.scoring import assess
+from gridrag.records import State
+from gridrag.sql import db
 
 
 class EvalTests(unittest.TestCase):

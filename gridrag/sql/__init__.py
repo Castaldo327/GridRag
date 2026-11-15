@@ -1,1 +1,1 @@
-"""Guarded text-to-SQL loop."""
+"""SQL generation, guarded read-only execution, and answers from query results."""

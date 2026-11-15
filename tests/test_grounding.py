@@ -4,8 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from gridrag.catalog import Catalog, Table, demo_catalog
-from gridrag.grounding import DimensionValue, render_grounding
+from gridrag.catalog import Catalog, Column, DimensionValue, Table, demo_catalog, render_grounding
 from gridrag.sql import agent
 
 
@@ -45,7 +44,7 @@ class GroundingTests(unittest.TestCase):
         self.assertEqual(render_grounding(values, {"sales.order": ["order_id"]}), "")
 
     def test_custom_catalogs_do_not_inherit_entities_and_validate_supplied_columns(self):
-        table = Table.parse("CREATE TABLE example.region (code VARCHAR);")
+        table = Table("example", "region", (Column("code", "VARCHAR"),))
         self.assertEqual(Catalog.of([table]).vocabulary, ())
         with self.assertRaises(ValueError):
             Catalog.of([table], vocabulary=[DimensionValue("example.region", "missing", "X", ("X",))])

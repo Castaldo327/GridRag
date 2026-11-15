@@ -11,7 +11,9 @@ A small, **fictional** DuckDB warehouse of US grid data, rebuilt from scratch by
 | [synthetic.py](synthetic.py) | Deterministic dimensions, interval series, shared facts, queue rows, and table assembly |
 | [build.py](build.py) | Combined schema, database loading, and atomic snapshot replacement |
 
-`build.schema_text()` concatenates `schema.sql` with the generated product DDL, so the full DDL is the union of both. `synthetic.frames()` assembles the rows in memory; `build.build()` loads them into a temporary database and replaces the destination only after a successful load.
+`build.schema_text()` concatenates `schema.sql` with the generated product DDL, including `COMMENT ON TABLE` and `COMMENT ON COLUMN` statements that persist routing documentation. `synthetic.frames()` assembles the rows in memory; `build.build()` loads them into a temporary database and replaces the destination only after a successful load.
+
+The runtime catalog reads the built database through `duckdb_tables()`, `duckdb_columns()` and `duckdb_constraints()`. Table and column descriptions come from their stored comments. It snapshots persistent base tables in the approved `core` schema and caches them once per process; rebuild the database and restart the app after editing schema documentation. There is no application-level DDL parser.
 
 ## At a glance
 
@@ -375,7 +377,7 @@ Example (`caiso_renewable_curtailment_5min`, one interval): solar 282.10 MW is a
 
 ## Approved dimension values
 
-The catalog attaches an explicit vocabulary from [`vocabulary.py`](vocabulary.py)
+The catalog attaches an explicit vocabulary from [`catalog.py`](catalog.py)
 to the shared SQL prompt, scoped to the selected columns. Region aliases include
 California/California ISO → `CAISO`, Texas → `ERCOT`, and New England/ISO New England
 → `ISONE`. Regional ISO codes are distinct from two-letter project states: `CA`

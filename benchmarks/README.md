@@ -54,6 +54,11 @@ keeps its existing defaults. No table-specific rules, query aliases, expected
 values, required-table labels or reference SQL reach retrieval. The vocabulary
 contains ISO names only; it is not used by embedding retrieval, BM25 or reranking.
 
+Current runs obtain schema structure and persisted descriptions from DuckDB
+metadata. The frozen recorded comparison used the earlier DDL-text representation;
+it has not been rerun for this change. New runs fingerprint the newly rendered
+schema documents, including their changed formatting and table order.
+
 Reference expansion is shared, and vectors can also support column selection.
 These two implementations differ in both candidate generation and column pruning;
 this experiment measures the whole pipelines and does not identify either change's

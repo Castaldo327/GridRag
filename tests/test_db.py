@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import duckdb
 
-from gridrag import config, db
+from gridrag import config
+from gridrag.sql import db
 
 
 def limits(**changes):

@@ -10,6 +10,7 @@ import duckdb
 import pandas as pd
 
 from gridrag import config
+from gridrag.catalog import read_catalog
 from gridrag.warehouse import build, fixtures, products, synthetic
 
 
@@ -99,6 +100,17 @@ class BuildTests(unittest.TestCase):
         for product in products.PRODUCTS:
             with self.subTest(product=product.suffix):
                 self.assertTrue(all(self.counts[products.table_name(iso.code, product)] for iso in fixtures.ISOS))
+
+    def test_built_snapshot_contains_the_documentation_used_for_routing(self):
+        catalog = read_catalog(self.con, schemas=("core",))
+        self.assertEqual(len(catalog.tables), len(self.counts))
+        balance = catalog.tables["core.fact_balance_hourly"]
+        self.assertIn("Aggregate balance and fuel generation separately", balance.description)
+        self.assertIn("demand (load), MW", balance.columns["demand_mw"])
+        forecast = catalog.tables["core.ercot_load_forecast_hourly"]
+        self.assertIn("ERCOT only", forecast.description)
+        self.assertIn("publication", forecast.description)
+        self.assertIn("UTC;", forecast.columns["interval_start_utc"])
 
 
 if __name__ == "__main__":

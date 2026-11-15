@@ -5,11 +5,13 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import duckdb
+
 from benchmarks import hybrid
 from benchmarks.vector import VectorRetriever
 from gridrag import config
 from gridrag.answer import answer
-from gridrag.catalog import Catalog, Table, demo_catalog
+from gridrag.catalog import demo_catalog, read_catalog
 
 
 class HybridTests(unittest.TestCase):
@@ -44,21 +46,22 @@ class HybridTests(unittest.TestCase):
         self.assertLessEqual(len(names), hybrid.candidate_policy(len(catalog.tables))["candidate_top_k"])
 
     def test_custom_catalog_recovers_keyword_matches_without_domain_configuration(self):
-        tables = [
-            Table.parse(ddl)
-            for ddl in (
-                "CREATE TABLE sales.inventory (\n sku VARCHAR,\n available_units INTEGER\n);",
-                "CREATE TABLE sales.refunds (\n refund_id INTEGER,\n amount DOUBLE\n);",
-            )
-        ]
-        catalog = Catalog({table.name: table for table in tables})
+        with duckdb.connect() as connection:
+            connection.execute("""
+                CREATE SCHEMA sales;
+                CREATE TABLE sales.inventory (sku VARCHAR, available_units INTEGER);
+                CREATE TABLE sales.refunds (refund_id INTEGER, amount DOUBLE);
+            """)
+            catalog = read_catalog(connection, schemas=("sales",))
         names, _ = hybrid.shortlist("available inventory units", catalog, {"sales.refunds": 0.1})
         self.assertEqual(names[0], "sales.inventory")
         self.assertEqual(names, ["sales.inventory"])
 
     def test_keywords_do_not_inject_demo_region_aliases_into_custom_catalogs(self):
-        table = Table.parse("CREATE TABLE records.caiso (\n value DOUBLE\n);")
-        catalog = Catalog({table.name: table})
+        with duckdb.connect() as connection:
+            connection.execute("CREATE SCHEMA records; CREATE TABLE records.caiso (value DOUBLE)")
+            catalog = read_catalog(connection, schemas=("records",))
+        table = catalog.tables["records.caiso"]
         self.assertEqual(hybrid.keyword_scores("California", catalog)[table.name], 0.0)
         self.assertEqual(hybrid.shortlist("California", catalog, {})[0], [])
         self.assertEqual(hybrid.keyword_scores("CAISO", catalog)[table.name], 1.0)

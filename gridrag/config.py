@@ -25,6 +25,7 @@ Probability = Annotated[float, Field(ge=0, le=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveSeconds = Annotated[float, Field(gt=0)]
 
+
 @dataclass(frozen=True, config=_VALIDATION)
 class Rates:
     """USD per million tokens."""
@@ -74,6 +75,11 @@ class Settings:
     def __post_init__(self) -> None:
         # Pydantic validates/copies mappings; freeze the validated snapshot as well.
         object.__setattr__(self, "prices", MappingProxyType(dict(self.prices)))
+
+    @property
+    def db_connection_config(self) -> dict[str, str | int]:
+        """Identical startup options let SQL and metadata connections share a database."""
+        return {"memory_limit": self.db_memory_limit, "threads": self.db_threads, "temp_directory": ""}
 
 
 def _read_env_file(path: Path) -> dict[str, str]:

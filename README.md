@@ -162,6 +162,10 @@ questions across all three trials. Selecting a trial changes the displayed
 evidence while cumulative scores continue to include every attempt. Browsing
 never makes paid model calls.
 
+The recorded comparison used the earlier DDL-text catalog representation. Current
+runs read DuckDB metadata and stored descriptions; the live comparison must be
+rerun to measure the effect of the new schema representation.
+
 The separate 26-case regression suite in `gridrag/evals/suite.py` remains
 available for explicit local testing, including scope and safety behavior.
 Markdown is rendered with pinned, locally vendored Marked and DOMPurify bundles.
@@ -181,8 +185,57 @@ date. The playground explains the limits and exposes the table definitions.
 The [schema reference](gridrag/warehouse/SCHEMA.md) documents keys, grains, units,
 coverage and time semantics. The [DDL](gridrag/warehouse/schema.sql),
 [product definitions](gridrag/warehouse/products.py) and deterministic
-[builder](gridrag/warehouse/build.py) are included. Adding a database table does not
-automatically expose it to the model or SQL guard.
+[builder](gridrag/warehouse/build.py) are included. The catalog reads persistent
+base tables from the approved `core` schema. Other schemas, views, temporary
+tables and attached databases are excluded.
+
+## Code layout
+
+```text
+gridrag/
+├── __main__.py       # Command-line entry point
+├── answer.py         # Question-to-answer orchestration
+├── gate.py           # Request relevance and misuse checks
+├── route.py          # Table and column selection
+├── llm.py            # Provider calls and usage accounting
+├── records.py        # Shared request and result contracts
+├── config.py         # Validated runtime settings
+├── catalog/
+│   ├── __init__.py   # Public catalog API
+│   ├── models.py     # Immutable metadata and schema prompt rendering
+│   └── duckdb.py     # Read tables, columns, constraints and stored comments
+├── sql/
+│   ├── agent.py      # SQL generation, repair and evidence-based answers
+│   └── db.py         # Guarded read-only SQL execution
+├── warehouse/        # Fictional schema, fixtures and data generation
+│   └── catalog.py    # Demo catalog assembly and approved ISO vocabulary
+└── evals/            # Regression cases and deterministic scoring
+```
+
+Use `gridrag.catalog` for catalog imports. `demo_catalog()` reads the built
+warehouse in read-only mode and caches its metadata once per process. Table and
+column descriptions are persisted with `COMMENT ON` statements in `schema.sql`
+and the generated product DDL. Rebuild the warehouse after changing the schema or
+descriptions, then restart the application to refresh the cached catalog.
+
+Custom catalogs use the same metadata reader with an existing DuckDB connection:
+
+```python
+import duckdb
+from gridrag.catalog import read_catalog
+
+with duckdb.connect("retail.duckdb", read_only=True) as connection:
+    catalog = read_catalog(connection, schemas=("retail",))
+```
+
+The catalog remains usable after the connection closes. Optional approved
+vocabulary can be passed to `read_catalog(..., vocabulary=...)`. This replaces
+the previous `Table.parse()` and script `parse()` helpers; DuckDB interprets DDL
+when the database is created.
+
+The SQL agent and execution guard live together in `gridrag.sql`. The web app,
+benchmark retrieval alternatives and build scripts live in `app/`, `benchmarks/`
+and `scripts/` respectively.
 
 ## Verification
 
@@ -196,7 +249,7 @@ node --test tests/test_*.js
 uv run python -m scripts.security_audit --history
 ```
 
-The checks cover schema parsing, read-only SQL enforcement, resource
+The checks cover catalog introspection, stored documentation, read-only SQL enforcement, resource
 limits, request-scoped credentials, failed requests, streaming, reference queries
 and benchmark scoring.
 

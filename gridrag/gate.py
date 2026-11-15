@@ -1,7 +1,7 @@
 """Request gate: one Decisions call scores relevance and abuse before any SQL is written.
 
 The gate is a classification aid that saves SQL calls on requests the warehouse should not handle; it is
-not authorization. The read-only database guard in gridrag.db is enforced regardless of what it decides.
+not authorization. The read-only database guard in gridrag.sql.db is enforced regardless of what it decides.
 """
 
 from gridrag import config

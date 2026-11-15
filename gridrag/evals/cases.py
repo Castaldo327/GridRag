@@ -10,8 +10,8 @@ import math
 from dataclasses import dataclass
 from typing import Literal
 
-from gridrag import db
 from gridrag.records import QueryResult, State
+from gridrag.sql import db
 
 _REFERENCE_MAX_ROWS = 500
 

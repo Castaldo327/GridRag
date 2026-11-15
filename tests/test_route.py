@@ -6,28 +6,40 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
+import duckdb
+
 from gridrag import config
-from gridrag.catalog import Catalog, Table
+from gridrag.catalog import Catalog, read_catalog
 from gridrag.records import Stage
 from gridrag.route import RoutingTooBroad, route
 
-CATALOG = Catalog.of(
-    [
-        Table.parse("CREATE TABLE core.dim_iso (iso_id INTEGER PRIMARY KEY, iso_code VARCHAR);"),
-        Table.parse(
-            "-- Hourly demand\nCREATE TABLE core.demand (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
-            "interval_start_local TIMESTAMP, demand_mw DOUBLE, unused DOUBLE);"
-        ),
-        Table.parse(
-            "-- CAISO hub prices\nCREATE TABLE core.caiso_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
-            "lmp DOUBLE);"
-        ),
-        Table.parse(
-            "-- ERCOT hub prices\nCREATE TABLE core.ercot_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), "
-            "lmp DOUBLE);"
-        ),
-    ]
-)
+
+def routing_catalog():
+    with duckdb.connect() as connection:
+        connection.execute("""
+            CREATE SCHEMA core;
+            CREATE TABLE core.dim_iso (iso_id INTEGER PRIMARY KEY, iso_code VARCHAR);
+            CREATE TABLE core.demand (iso_id INTEGER REFERENCES core.dim_iso (iso_id),
+                interval_start_local TIMESTAMP, demand_mw DOUBLE, unused DOUBLE);
+            COMMENT ON TABLE core.demand IS 'Hourly demand';
+            CREATE TABLE core.caiso_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), lmp DOUBLE);
+            COMMENT ON TABLE core.caiso_price IS 'CAISO hub prices';
+            CREATE TABLE core.ercot_price (iso_id INTEGER REFERENCES core.dim_iso (iso_id), lmp DOUBLE);
+            COMMENT ON TABLE core.ercot_price IS 'ERCOT hub prices';
+        """)
+        catalog = read_catalog(connection, schemas=("core",))
+    return Catalog.of(
+        catalog.tables[name]
+        for name in (
+            "core.dim_iso",
+            "core.demand",
+            "core.caiso_price",
+            "core.ercot_price",
+        )
+    )
+
+
+CATALOG = routing_catalog()
 
 
 class ScoredModel:
@@ -50,7 +62,8 @@ class ScoredModel:
             }
         if self.barrier:
             self.barrier.wait(timeout=2)
-        table = re.search(r"CREATE TABLE (core\.\w+)", input_text)[1]
+        table = re.search(r'CREATE TABLE "core"\."(\w+)"', input_text)[1]
+        table = f"core.{table}"
         names = list(CATALOG.tables[table].columns)
         return {
             f"c{i}": {"probability": self.columns.get(table, {}).get(name, 0.01)}

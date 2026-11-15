@@ -1,6 +1,6 @@
 """The text-to-SQL calculation loop.
 
-model writes SQL -> run_sql executes it (gridrag.db guard) -> model answers from the rows
+model writes SQL -> run_sql executes it (gridrag.sql.db guard) -> model answers from the rows
 
 If a query fails, the error goes back and the model may try again, up to sql_max_rounds model calls;
 the last call cannot execute tools. Exhaustion or malformed provider output fails explicitly.
@@ -11,9 +11,10 @@ import time
 from collections.abc import Callable, Collection
 from typing import Any
 
-from gridrag import config, db
+from gridrag import config
 from gridrag.llm import Model, output_text
 from gridrag.records import AgentResult, Progress, QueryResult, Stage, State, ToolCall
+from gridrag.sql import db
 
 INSTRUCTIONS = """Answer the request using the documented warehouse below.
 Use schema-qualified DuckDB SQL and run_sql to obtain evidence. Aim for the fewest queries needed for a reliable answer; explore or repair queries when necessary.
