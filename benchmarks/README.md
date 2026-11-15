@@ -54,11 +54,12 @@ keeps its existing defaults. No table-specific rules, query aliases, expected
 values, required-table labels or reference SQL reach retrieval. The vocabulary
 contains ISO names only; it is not used by embedding retrieval, BM25 or reranking.
 
-The latest November 15, 2026 rerun restores table and column relevance thresholds
-from 0.3 to 0.2. It uses the same DuckDB metadata catalog, question/reference
-hashes, models and budgets as both earlier format-9 runs. The published report
-records both thresholds and fingerprints the schema documents. All 180 attempts are
-recorded. The earlier format-8 report remains available in Git history;
+The latest November 15, 2026 rerun updates the shared table-relevance prompt to
+score each table's contribution to any required input and scope measure-specific
+limitations correctly. Both thresholds remain 0.2. Catalog, questions, references,
+models, SQL instructions and budgets are unchanged. The manifest fingerprints the
+table-scoring prompt as well as the schema documents. All 180 attempts are recorded.
+The earlier format-8 report remains available in Git history;
 its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and the
 [separate live regression results](REGRESSION_RESULTS.md).
 
@@ -86,8 +87,8 @@ The 26-case application regression suite is separate from this 30-question
 comparison. Its `passed` result requires every routing and presentation check;
 the comparison's `correct` field requires the expected state and matching final
 query evidence. In the current rerun, these distinct measures are reported as
-4/26 full regression passes, 23/26 regression task-level successes, and comparison
-scores of 72/90 for GridRag and 57/90 for vector retrieval with reranking.
+6/26 full regression passes, 24/26 regression task-level successes, and comparison
+scores of 86/90 for GridRag and 59/90 for vector retrieval with reranking.
 
 Reference expansion is shared, and vectors can also support column selection.
 These two implementations differ in both candidate generation and column pruning;
@@ -146,7 +147,8 @@ in the SQL prompt do not necessarily mean fewer total pipeline tokens.
 The versioned manifest records experiment `decisions-vs-reranker-30-v3`, pipeline
 `schema-driven-iso-entities-v1`, question and schema hashes, model and package
 versions, budgets, thresholds, worker count, seed, vocabulary hash and fusion
-version, catalog size, candidate percentage, derived k and cap policy version.
+version, catalog size, candidate percentage, derived k, cap policy version and
+table-scoring prompt hash.
 The runner and publisher share `benchmarks/experiment.py`. Report format 9 hashes
 explicit scoring fields as canonical JSON, rather than Python object `repr()`;
 demo copy and display labels do not affect the case fingerprint. Vocabulary
@@ -163,8 +165,8 @@ The [recorded results and failure analysis](RESULTS.md) summarize the completed 
 ```sh
 uv sync --locked --extra eval
 docker compose up -d qdrant
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-threshold-p20-restored-format9-2026-11-15-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-threshold-p20-restored-format9-2026-11-15-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-table-input-prompt-format9-2026-11-15-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-table-input-prompt-format9-2026-11-15-3trials.json
 docker compose stop qdrant
 ```
 

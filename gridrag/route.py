@@ -12,9 +12,13 @@ from gridrag.llm import Model, probability
 from gridrag.records import Selection, Stage
 
 TABLE_QUESTION = (
-    "Could this exact table contribute to answering any part of the request, including a comparison "
-    "or denominator? Judge tables independently; multiple tables may be needed. Consider the table's "
-    "documented scope, fields, grain, and coverage.\n"
+    "Does this table supply at least one input needed to answer the request? "
+    "An input can be a measure, filter, grouping, join key, comparison, numerator, or denominator. "
+    "The table need not answer the entire request by itself; other tables may supply other inputs. "
+    "Apply a documented limitation to the column or measure it describes, rather than to unrelated "
+    "columns in the same table. For requests spanning entities or products, each matching table may "
+    "contribute. Respect documented scope, grain, time semantics, and coverage. "
+    "Reject tables that only share the topic but supply no needed input. Judge each table independently.\n"
 )
 COLUMN_QUESTION = (
     "Could this column contribute to answering the request, including filtering, grouping, measuring, "

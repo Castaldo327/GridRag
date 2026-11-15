@@ -143,6 +143,11 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(summaries["routed"]["failures"], 30)
         self.assertEqual(summaries["vector-hybrid-p20"]["accuracy"], 1.0)
         self.assertEqual([trial["trial"] for trial in public["trial_summaries"]], [1, 2, 3])
+        recorded_prompt = report["manifest"]["table_scoring_sha256"]
+        report["manifest"]["table_scoring_sha256"] = "superseded-prompt"
+        with self.assertRaisesRegex(ValueError, "fresh schema-driven run"):
+            public_report(report)
+        report["manifest"]["table_scoring_sha256"] = recorded_prompt
         for trial in public["trial_summaries"]:
             self.assertTrue(all(s["attempts"] == 30 for s in trial["summary"]))
         policy = hybrid.candidate_policy(len(demo_catalog().tables))

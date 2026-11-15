@@ -9,6 +9,7 @@ from typing import Any
 from benchmarks import hybrid
 from gridrag.catalog import Catalog
 from gridrag.evals.cases import Case
+from gridrag.route import TABLE_QUESTION
 
 FORMAT_VERSION = 9
 LIVE_METHODS = ("routed", "vector-hybrid-p20")
@@ -46,6 +47,7 @@ def report_contract(catalog: Catalog) -> dict[str, Any]:
         "pipeline_version": "schema-driven-iso-entities-v1",
         "scoring_version": "strict-sql-evidence-v3",
         "timing_scope": "answer-pipeline-only",
+        "table_scoring_sha256": fingerprint(TABLE_QUESTION),
         "grounding": {
             "version": "iso-entities-v1",
             "shared_by_all_methods": True,

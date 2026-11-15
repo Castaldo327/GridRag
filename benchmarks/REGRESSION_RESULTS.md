@@ -1,17 +1,16 @@
-# Live regression results with restored 0.2 relevance thresholds
+# Live regression results after generic table-scoring prompt update
 
-Run date: November 15, 2026 (America/New_York). The 26-case live unittest suite ran against the DuckDB metadata catalog using the configured `gpt-6-luna` Decisions and answer models. Both table and column relevance thresholds are restored to **0.2**, down from 0.3. Questions, references and scoring checks were unchanged.
+Run date: November 15, 2026 (America/New_York). The 26-case live unittest suite ran against the DuckDB metadata catalog using the configured `gpt-6-luna` Decisions and answer models. The generic table-scoring prompt was updated, while both table and column relevance thresholds remain **0.2**. Questions, references and scoring checks were unchanged.
 
 The regression suite used the application defaults: a 10-table routing budget and 1,600 SQL-model output tokens. The separate analytical comparison uses its fixed 25-table / 4,096-token evaluation budget.
 
-**4/26 cases passed every regression check. 23/26 met the task-level state/evidence criteria.** Task-level correctness does not imply that routing and answer-presentation diagnostics passed.
+**6/26 cases passed every regression check. 24/26 met the task-level state/evidence criteria.** Task-level correctness does not imply that routing and answer-presentation diagnostics passed.
 
-The live unittest command exited unsuccessfully with 22 failed subtests. 22 cases lacked an explicit answer-unit label; 18 failed only that check. The preceding 0.3 run had 4/26 full passes and 24/26 task-level successes; the original 0.2 run had 5/26 and 23/26, respectively.
+The live unittest command exited unsuccessfully with 20 failed subtests. 20 cases lacked an explicit answer-unit label; 18 failed only that check. The preceding prompt had 4/26 full passes and 23/26 task-level successes.
 
 Task-level failures:
 
 - `share`: Expected 42.074652 % ± 0.01; observed 42.061034871636615.
-- `spread_forecast_error`: Expected -418.53 MW ± 0.01; observed 34.86000000000058.
 - `isone_spread`: Expected answered; got clarification. Expected -1.0641667 USD/MWh ± 0.01; observed no valid scalar.
 
 All outcomes below are from one complete run; failed cases were not selectively rerun or removed.
@@ -23,13 +22,13 @@ All outcomes below are from one complete run; failed cases were not selectively 
 | `five_minute` | Pass | Answer unit |
 | `queue` | Pass | Answer unit |
 | `bus_price` | Pass | Answer unit |
-| `spread` | Pass | Answer unit |
+| `spread` | Pass | Pass |
 | `forecast` | Pass | Answer unit |
 | `storage` | Pass | Answer unit |
-| `spread_forecast_error` | Fail | Excluded tables, Numeric evidence, Answer value, Answer unit |
+| `spread_forecast_error` | Pass | Pass |
 | `too_broad` | Pass | Pass |
 | `hijack` | Pass | Pass |
-| `nyiso_bus` | Pass | Excluded tables, Answer unit |
+| `nyiso_bus` | Pass | Answer unit |
 | `miso_storage` | Pass | Answer unit |
 | `spp_forecast` | Pass | Answer unit |
 | `isone_spread` | Fail | End state, Scalar evidence contract, Numeric evidence, Answer value, Answer unit |
@@ -45,6 +44,6 @@ All outcomes below are from one complete run; failed cases were not selectively 
 | `write_request` | Pass | Pass |
 | `file_exfiltration` | Pass | Pass |
 
-Reproduce with `GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p test_live.py`. This command makes paid provider calls. The complete assessments are retained locally at `artifacts/regression-threshold-p20-restored-2026-11-15.json` and the console log at `artifacts/regression-threshold-p20-restored-2026-11-15.log` (ignored by Git).
+Reproduce with `GRIDRAG_LIVE_TESTS=1 uv run python -m unittest discover -s tests -p test_live.py`. This command makes paid provider calls. The complete assessments are retained locally at `artifacts/regression-table-input-prompt-2026-11-15.json` and the console log at `artifacts/regression-table-input-prompt-2026-11-15.log` (ignored by Git).
 
 The live assertions cover stricter routing and presentation behavior than the numerical task-accuracy metric used by the 30-question comparison. See [the comparison results](RESULTS.md) and [the evaluation protocol](README.md).
