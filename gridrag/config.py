@@ -62,6 +62,8 @@ class Settings:
     gate_max_malicious: Probability = 0.7
     route_min_probability: Probability = 0.2
     route_min_column_probability: Probability = 0.2
+    route_min_tag_probability: Probability = 0.2
+    route_metadata_prefilter: bool = True
     max_routed_tables: PositiveInt = 10
     route_column_workers: PositiveInt = 4
     sql_max_rounds: PositiveInt = 5

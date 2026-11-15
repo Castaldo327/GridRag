@@ -30,6 +30,12 @@ def _print_diagnostics(result: Answer) -> None:
     if gate:
         print(f"Gate scores: relevance {gate['relevance']:.2f} · malicious {gate['malicious']:.2f}")
     if selection:
+        if metadata := selection.get("metadata_filter"):
+            print(
+                f"Metadata categories: {', '.join(metadata['selected_tags']) or '(full catalog)'} · "
+                f"{len(metadata['candidates'])} candidate tables"
+                + (f" · {metadata['fallback']}" if metadata["fallback"] else "")
+            )
         print("Table scores:")
         for name, probability in selection["scores"].items():
             print(f"  {name}: {probability:.2f}")

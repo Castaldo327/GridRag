@@ -3,10 +3,18 @@
 **Can OpenAI's Decisions API simplify schema selection for text-to-SQL, and what
 are the tradeoffs in accuracy, latency, and cost?**
 
-This experiment compares two complete schema-selection pipelines. It contains no
+This recorded experiment compares two complete schema-selection pipelines. It contains no
 standalone vector top-k baseline. Both approaches use Decisions; the experiment
 asks whether starting from the full catalog can replace an embedding/index/retrieval
 pipeline, and what column selection adds to the resulting tradeoffs.
+
+The evaluated local application candidate adds a metadata-tag Decisions filter before table
+scoring. The v3 vector comparison documented here remains a historical snapshot
+of full-catalog GridRag; its recorded costs and accuracy do not measure the new
+filter. The [separate metadata-routing ablation](METADATA_RESULTS.md) compares
+that filter directly with the legacy pipeline on the same analyst tasks and the
+26-case regression suite. Run it with `python -m benchmarks.metadata --live
+--suite all --repeats 3 --workers 1 --output artifacts/metadata-prefilter-2026-11-15-3trials.json`.
 
 ## Thirty realistic tasks
 
@@ -34,7 +42,7 @@ rather than mixing abstention behavior into analytical accuracy.
 
 ## Pipelines
 
-- **GridRag (`routed`):** score every catalog table independently in one Decisions
+- **Recorded full-catalog GridRag (`routed`):** score every catalog table independently in one Decisions
   call, retain scores at or above 0.2, recursively expand outgoing foreign-key
   references, then score each selected table's columns concurrently (four workers).
   Retain columns at or above 0.2 plus declared keys and date/time fields.
@@ -67,10 +75,10 @@ its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and th
 
 | Component | Responsibility |
 | --- | --- |
-| `gridrag/catalog/duckdb.py` | Snapshot approved persistent tables, columns, constraints and stored comments from DuckDB |
-| `gridrag/catalog/models.py` | Immutable catalog metadata, structural fields, selected-schema rendering and optional vocabulary |
+| `gridrag/catalog/duckdb.py` | Snapshot approved persistent tables, columns, constraints, stored comments and routing tags from DuckDB |
+| `gridrag/catalog/models.py` | Immutable catalog metadata and routing tags, structural fields, selected-schema rendering and optional vocabulary |
 | `gridrag/warehouse/catalog.py` | Load the built demo warehouse and attach its approved ISO vocabulary |
-| `gridrag/route.py` | Full-catalog table scoring, reference expansion and concurrent column scoring |
+| `gridrag/route.py` | Metadata-tag filtering, candidate table scoring, reference expansion and concurrent column scoring; explicit legacy baseline switch |
 | `benchmarks/vector.py`, `hybrid.py` | Optional embedding/BM25 candidate generation and Decisions reranking |
 | `benchmarks/run.py` | Precompute references, schedule attempts, time inference and checkpoint results |
 | `gridrag/evals/scoring.py` | Assess each result once using the supplied reference; separate correctness from diagnostics |
@@ -79,7 +87,12 @@ its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and th
 
 Both pipelines consume the same catalog snapshot. Runtime code does not parse
 `schema.sql`; the warehouse build persists descriptions with `COMMENT ON`, and
-the catalog reads them back from database metadata. The model receives schema
+the catalog reads them back from database metadata. Structured `@routing_tags:`
+lines in table comments become multi-label `Table.routing_tags`; they are removed
+from rendered DDL. The current application scores unique tag names, unions
+matching tables with untagged tables, then applies the existing table/column
+pipeline. Unlabeled catalogs skip the metadata call, and no matching tags triggers
+full-catalog routing. The model receives schema
 text rendered from that metadata. SQL validation and resource limits remain in
 `gridrag/sql/db.py`, independently of retrieval and grading.
 
@@ -125,7 +138,7 @@ The report and UI include:
 - Required-table recall after selection, including reference expansion.
 - Candidate-table recall before relevance filtering, including references that
   remain recoverable; missing candidate tables and structural budget shortfalls
-  are listed per attempt. GridRag
+  are listed per attempt. The recorded full-catalog GridRag baseline
   starts with the full catalog, so its candidate recall is 100% by construction.
 - Selected column count and schema characters, with per-attempt schema-selection
   timing, SQL, returned data and answers.

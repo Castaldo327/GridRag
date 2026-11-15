@@ -125,3 +125,80 @@ class RouteTests(unittest.TestCase):
             route("Compare demand and price", model, CATALOG)
         self.assertEqual(len(raised.exception.selection["tables"]), 3)
         self.assertEqual(len(model.calls), 1)
+
+
+class MetadataRouteTests(unittest.TestCase):
+    def setUp(self):
+        tags = {
+            "core.dim_iso": ("dimensions",),
+            "core.demand": ("load", "forecast"),
+            "core.caiso_price": ("prices",),
+            "core.ercot_price": ("prices",),
+        }
+        self.catalog = Catalog.of(replace(table, routing_tags=tags[name]) for name, table in CATALOG.tables.items())
+        self.calls = []
+
+    def model(self, selected_tags, selected_tables=("core.demand",)):
+        outer = self
+
+        class Model:
+            def decide(self, stage, input_text, questions):
+                outer.calls.append(questions)
+                answers = {}
+                for item in questions:
+                    name = item["name"]
+                    if name.startswith("m"):
+                        needed = item["instructions"].rsplit("Category: ", 1)[1] in selected_tags
+                    elif name.startswith("t"):
+                        table = re.search(r'CREATE TABLE "core"\."(\w+)"', item["instructions"])[1]
+                        needed = f"core.{table}" in selected_tables
+                    else:
+                        needed = True
+                    answers[name] = {"probability": 0.9 if needed else 0.01}
+                return answers
+
+        return Model()
+
+    def test_only_matching_table_ddl_is_sent_and_references_recover_dimensions(self):
+        selection = route("Peak demand", self.model({"load"}), self.catalog)
+        self.assertEqual(selection["metadata_filter"]["candidates"], ["core.demand"])
+        self.assertEqual(selection["scores"], {"core.demand": 0.9})
+        self.assertEqual(selection["tables"], ["core.dim_iso", "core.demand"])
+        self.assertEqual(len(self.calls[1]), 1)
+        self.assertNotIn("CREATE TABLE", str(self.calls[0]))
+        self.assertNotIn("caiso_price", str(self.calls))
+
+    def test_multiple_categories_use_union_without_duplicate_candidates(self):
+        selection = route(
+            "Compare load, forecasts and prices", self.model({"load", "forecast", "prices"}), self.catalog
+        )
+        self.assertEqual(
+            selection["metadata_filter"]["candidates"], ["core.demand", "core.caiso_price", "core.ercot_price"]
+        )
+
+    def test_untagged_tables_always_survive_filter(self):
+        catalog = Catalog.of(
+            replace(table, routing_tags=()) if name == "core.ercot_price" else table
+            for name, table in self.catalog.tables.items()
+        )
+        selection = route("Peak demand", self.model({"load"}), catalog)
+        self.assertEqual(selection["metadata_filter"]["candidates"], ["core.demand", "core.ercot_price"])
+
+    def test_no_category_matches_falls_back_to_full_catalog(self):
+        selection = route("Uncertain category", self.model(set()), self.catalog)
+        self.assertEqual(selection["metadata_filter"]["fallback"], "no_matching_tags")
+        self.assertEqual(selection["metadata_filter"]["candidates"], list(self.catalog.tables))
+
+    def test_explicit_legacy_path_skips_metadata_call(self):
+        selection = route("Peak demand", self.model({"load"}), self.catalog, metadata_prefilter=False)
+        self.assertEqual(selection["metadata_filter"]["fallback"], "disabled")
+        self.assertTrue(self.calls[0][0]["name"].startswith("t"))
+        self.assertEqual(len(selection["scores"]), len(self.catalog.tables))
+
+    def test_invalid_category_score_fails_explicitly(self):
+        class MissingScore:
+            def decide(self, *_):
+                return {}
+
+        with self.assertRaisesRegex(ValueError, "Missing or invalid probability for m0"):
+            route("Peak demand", MissingScore(), self.catalog)

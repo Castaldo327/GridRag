@@ -43,7 +43,10 @@ def build() -> None:
         "requires_api_key": True,
         "presets": [{key: demo[key] for key in ("id", "label", "concept", "question")} for demo in demos],
         "demos": demos,
-        "catalog": [{"name": table.name, "ddl": table.ddl} for table in catalog.tables.values()],
+        "catalog": [
+            {"name": table.name, "ddl": table.ddl, "routing_tags": list(table.routing_tags)}
+            for table in catalog.tables.values()
+        ],
     }
     (STATIC / "demo.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 

@@ -112,6 +112,21 @@ class BuildTests(unittest.TestCase):
         self.assertIn("publication", forecast.description)
         self.assertIn("UTC;", forecast.columns["interval_start_utc"])
 
+    def test_every_built_table_has_authored_routing_labels(self):
+        catalog = read_catalog(self.con, schemas=("core",))
+        self.assertEqual(len(catalog.tables), 65)
+        for name, table in catalog.tables.items():
+            with self.subTest(table=name):
+                self.assertTrue(table.routing_tags)
+                self.assertNotIn("@routing_tags:", table.ddl)
+        self.assertEqual(catalog.tables["core.fact_balance_hourly"].routing_tags, ("forecast", "generation", "load"))
+        self.assertEqual(catalog.tables["core.dim_fuel"].routing_tags, ("dimensions", "fuel"))
+        for iso in fixtures.ISOS:
+            for product in products.PRODUCTS:
+                with self.subTest(iso=iso.code, product=product.suffix):
+                    table = catalog.tables[products.table_name(iso.code, product)]
+                    self.assertEqual(table.routing_tags, tuple(sorted(product.routing_tags)))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,10 +79,16 @@ class Table:
     column_metadata: tuple[Column, ...]
     constraints: tuple[Constraint, ...] = ()
     description: str = ""
+    routing_tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "column_metadata", tuple(self.column_metadata))
         object.__setattr__(self, "constraints", tuple(self.constraints))
+        if isinstance(self.routing_tags, str):
+            raise TypeError("routing_tags must be a collection of labels, not a string")
+        object.__setattr__(
+            self, "routing_tags", tuple(sorted({tag.strip().lower() for tag in self.routing_tags if tag.strip()}))
+        )
         if not self.column_metadata:
             raise ValueError(f"Table {self.name} has no columns")
         if len(self.columns) != len(self.column_metadata):

@@ -13,7 +13,24 @@ A small, **fictional** DuckDB warehouse of US grid data, rebuilt from scratch by
 
 `build.schema_text()` concatenates `schema.sql` with the generated product DDL, including `COMMENT ON TABLE` and `COMMENT ON COLUMN` statements that persist routing documentation. `synthetic.frames()` assembles the rows in memory; `build.build()` loads them into a temporary database and replaces the destination only after a successful load.
 
-The runtime catalog reads the built database through `duckdb_tables()`, `duckdb_columns()` and `duckdb_constraints()`. Table and column descriptions come from their stored comments. It snapshots persistent base tables in the approved `core` schema and caches them once per process; rebuild the database and restart the app after editing schema documentation. There is no application-level DDL parser.
+The runtime catalog reads the built database through `duckdb_tables()`, `duckdb_columns()` and `duckdb_constraints()`. Table and column descriptions come from their stored comments. A structured `@routing_tags:` line in each table comment stores several routing labels; the catalog extracts them into `Table.routing_tags` and omits the directive from rendered schema documentation. It snapshots persistent base tables in the approved `core` schema and caches them once per process; rebuild the database and restart the app after editing schema documentation or tags. There is no application-level DDL parser.
+
+## Metadata routing
+
+All 65 tables carry authored labels drawn from `dimensions`, `fuel`, `load`,
+`generation`, `forecast`, `queue`, `prices`, `ancillary`, `storage`, `outages`,
+and `curtailment`. Labels can overlap: the hourly balance table supplies load,
+generation and forecast measures; load-forecast products carry both `load` and
+`forecast`. The labels describe table capabilities, independently of evaluation
+questions.
+
+For each allowed request, a compact Decisions call scores the unique tag names.
+Routing takes the union of tables matching relevant tags, adds untagged tables,
+and sends only that candidate set to table relevance scoring. It then expands
+declared foreign-key references and scores columns in parallel. Keys and time
+fields remain available. Catalogs with no labels skip the metadata call; a request
+matching no labels falls back to the full catalog. Metadata labels reduce model
+context; the SQL guard still enforces the selected-table allowlist.
 
 ## At a glance
 
@@ -247,7 +264,7 @@ Generated in [products.py](products.py): each product below exists once per ISO,
 
 The products are **deliberately similar** (bus vs hub, real-time vs day-ahead, forecast vs actual, reserve vs energy, observed storage vs queue capacity). Pick the one that matches the question's market, grain and time semantics.
 
-The catalog contains each product's seven physical tables with their ISO-specific DDL. Routing scores each table independently. It then scores columns within selected tables and passes the selected definitions to the SQL model. Join keys and time columns are retained even when their individual scores are low.
+The catalog contains each product's seven physical tables with their ISO-specific DDL and metadata tags. Routing first scores the unique tag names and filters table candidates, then scores each candidate table independently. It expands foreign-key references, scores columns within selected tables, and passes the selected definitions to the SQL model. Join keys and time columns are retained even when their individual scores are low.
 
 | Kind | Suffix | Grain | Primary key (after `iso_id`) |
 |---|---|---|---|

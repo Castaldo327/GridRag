@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -211,7 +212,9 @@ def run_attempt(
     case, method = attempt.case, attempt.method
     if method not in LIVE_METHODS:
         raise ValueError(f"Unknown comparison method: {method}")
-    retriever = route if method == "routed" else vector.retrieve_hybrid
+    # This versioned historical comparison measures the original full-catalog path.
+    # The current metadata-first path has its own paired ablation in benchmarks.metadata.
+    retriever = partial(route, metadata_prefilter=False) if method == "routed" else vector.retrieve_hybrid
     if live:
         row, selection = live_attempt(case, catalog, retriever, references)
     else:

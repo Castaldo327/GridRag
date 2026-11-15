@@ -7,6 +7,24 @@ import duckdb
 
 from gridrag.catalog.models import Catalog, Column, Constraint, DimensionValue, Table
 
+ROUTING_TAGS_PREFIX = "@routing_tags:"
+
+
+def _table_documentation(comment: str | None) -> tuple[str, tuple[str, ...]]:
+    """Separate authored routing labels from ordinary persisted documentation.
+
+    DuckDB comments are the storage contract: one dedicated marker line contains
+    comma-separated labels. Labels are metadata, so SQL prompts retain only the
+    original table documentation. Untagged databases remain valid catalogs.
+    """
+    documentation, tags = [], []
+    for line in (comment or "").splitlines():
+        if line.startswith(ROUTING_TAGS_PREFIX):
+            tags.extend(line[len(ROUTING_TAGS_PREFIX) :].split(","))
+        else:
+            documentation.append(line)
+    return "\n".join(documentation).strip(), tuple(tags)
+
 
 def read_catalog(
     connection: duckdb.DuckDBPyConnection,
@@ -52,11 +70,10 @@ def read_catalog(
         # DuckDB foreign keys are restricted to tables in the same schema.
         reference = f"{schema.lower()}.{referenced.lower()}" if referenced else None
         constraints[schema, table].append(Constraint(kind, tuple(name.lower() for name in names), sql, reference))
-    return Catalog.of(
-        (
-            Table(schema, table, tuple(columns[schema, table]), tuple(constraints[schema, table]), description or "")
-            for schema, table, description in tables
-        ),
-        vocabulary=vocabulary,
-        isos=isos,
-    )
+    snapshots = []
+    for schema, table, comment in tables:
+        description, tags = _table_documentation(comment)
+        snapshots.append(
+            Table(schema, table, tuple(columns[schema, table]), tuple(constraints[schema, table]), description, tags)
+        )
+    return Catalog.of(snapshots, vocabulary=vocabulary, isos=isos)

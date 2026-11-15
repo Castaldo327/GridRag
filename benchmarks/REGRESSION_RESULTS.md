@@ -1,5 +1,9 @@
 # Live regression results after generic table-scoring prompt update
 
+These historical regression results predate metadata filtering. The
+[metadata-routing comparison](METADATA_RESULTS.md) reruns the same regression
+cases alongside the all-table baseline.
+
 Run date: November 15, 2026 (America/New_York). The 26-case live unittest suite ran against the DuckDB metadata catalog using the configured `gpt-6-luna` Decisions and answer models. The generic table-scoring prompt was updated, while both table and column relevance thresholds remain **0.2**. Questions, references and scoring checks were unchanged.
 
 The regression suite used the application defaults: a 10-table routing budget and 1,600 SQL-model output tokens. The separate analytical comparison uses its fixed 25-table / 4,096-token evaluation budget.

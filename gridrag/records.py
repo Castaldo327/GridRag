@@ -44,6 +44,7 @@ class Selection(TypedDict):
     column_scores: dict[str, dict[str, float]]  # selected table -> column -> probability
     columns: dict[str, list[str]]  # selected table -> columns supplied to SQL
     retrieval: NotRequired[dict]  # optional hybrid candidate and reranking diagnostics
+    metadata_filter: NotRequired[dict]  # persisted-tag scores, candidates and fallback diagnostics
 
 
 class QueryResult(TypedDict, total=False):

@@ -11,6 +11,11 @@ schema, executes guarded SQL, and makes the resulting evidence visible.
 
 **65 documented tables · 7 US grid regions · entirely fictional data**
 
+**Local candidate; rollout held.** The metadata-filtered flow below is implemented
+and evaluated locally. Its analytical p95 latency increased, so it has not been
+pushed under the requested performance condition. The deployed version continues
+to use full-catalog routing. See the [comparison and rollout decision](benchmarks/METADATA_RESULTS.md).
+
 This is a personal research project. It uses no employer, customer, or proprietary
 operational data, and makes no claim of affiliation with an energy company.
 
@@ -66,21 +71,32 @@ retrieving embedded table definitions? What does that trade in latency and cost?
 The main pipeline:
 
 1. Check for an analytical database request and misuse using domain-neutral instructions.
-2. Score all tables in the cached DuckDB metadata catalog in one decision-model call.
-3. Include declared foreign-key targets, then score selected tables' columns concurrently.
-4. Preserve structural keys and time fields in the reduced schema.
+2. Score the catalog's unique metadata tags, such as `load`, `generation`, `queue`, and `fuel`, in a compact Decisions call. Tables can carry several tags.
+3. Keep the union of tables matching relevant tags, plus untagged tables. Score only these candidate tables against the question in the table Decisions call.
+4. Include declared foreign-key targets, then score selected tables' columns concurrently. Preserve structural keys and time fields in the reduced schema.
 5. Add the catalog's optional entity vocabulary and generate SQL from the selected schema documentation, validate it independently, and execute against a read-only warehouse.
-6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
+6. Answer from returned rows, with the metadata filter, selected schema, SQL, timing and token use visible.
 
-The [architecture page](https://gridrag.vercel.app/#architecture)
-explains this design with the system diagram, a full-size SVG, and a stage-by-stage
+Tags are authored database metadata, not question-specific table rules. The metadata
+call receives tag names rather than all 65 table definitions. Untagged catalogs
+skip the extra call; if no tag meets the threshold, routing falls back to all
+tables. Foreign-key expansion can recover referenced dimensions outside the
+candidate pool. Metadata-filter scores and candidates remain available in the
+selection diagnostics.
+
+The local Architecture page explains this candidate design with the system
+diagram, a full-size SVG, and a stage-by-stage
 text walkthrough. The diagram source lives in `app/static/architecture.svg` and is
 copied to `public/static/architecture.svg` on every build. Its distinguishing
-choice is independent relevance scoring followed by reference expansion and column
-selection. It makes an inspectable schema selection for SQL, with a measured
-accuracy/cost tradeoff; it does not establish a claim of research novelty.
+choice is metadata filtering before independent table relevance scoring, reference
+expansion, and column selection. It makes an inspectable schema selection for SQL, with a measured
+accuracy/cost tradeoff; it does not establish a claim of research novelty. The
+[hosted Architecture page](https://gridrag.vercel.app/#architecture) describes the
+deployed full-catalog version until a rollout is approved by the measured results.
 
-The comparison replaces steps 2–4 with **BGE-small embeddings + Qdrant +
+The recorded vector comparison below predates metadata filtering: its GridRag
+pipeline scores the full catalog before column selection. It replaces that
+schema-selection stage with **BGE-small embeddings + Qdrant +
 Decisions reranking**. Its candidate cap is fixed at **20% of catalog tables**,
 rounded up: **13 of 65**. Dense and BM25 retrieval each propose up to 13 tables;
 fusion limits their combined shortlist to 13 before the same Decisions
@@ -99,6 +115,24 @@ The question is: **Can OpenAI's Decisions API simplify schema selection for
 text-to-SQL, and what are the tradeoffs in accuracy, latency, and cost?**
 See the [experiment specification](benchmarks/README.md) and the
 [30-question design matrix](benchmarks/QUESTIONS.md). There is no full-schema prompt baseline.
+
+### Evaluate metadata filtering
+
+The [metadata-routing comparison](benchmarks/METADATA_RESULTS.md) evaluates the
+current filter directly against full-catalog routing, keeping the gate, table and
+column relevance prompts, SQL model, scoring, and budgets shared. It includes the
+30 analyst tasks and the separate 26-case regression suite. This ablation is
+separate from the recorded vector comparison below.
+
+```sh
+uv run python -m benchmarks.metadata --live --suite all --repeats 3 --workers 1 --output artifacts/metadata-prefilter-2026-11-15-3trials.json
+```
+
+`Settings.route_metadata_prefilter` enables the filter by default;
+`route_min_tag_probability` is 0.2. `route(..., metadata_prefilter=False)` runs the
+legacy all-table baseline. The comparison includes the additional metadata call
+in total model cost and latency, along with table/column scoring, SQL generation,
+repairs, and answering.
 
 ### Reproduce the comparison
 
@@ -200,7 +234,7 @@ gridrag/
 ├── __main__.py       # Command-line entry point
 ├── answer.py         # Question-to-answer orchestration
 ├── gate.py           # Request relevance and misuse checks
-├── route.py          # Table and column selection
+├── route.py          # Metadata filtering, table and column selection
 ├── llm.py            # Provider calls and usage accounting
 ├── records.py        # Shared request and result contracts
 ├── config.py         # Validated runtime settings
@@ -219,18 +253,23 @@ gridrag/
 Use `gridrag.catalog` for catalog imports. `demo_catalog()` reads the built
 warehouse in read-only mode and caches its metadata once per process. Table and
 column descriptions are persisted with `COMMENT ON` statements in `schema.sql`
-and the generated product DDL. Rebuild the warehouse after changing the schema or
-descriptions, then restart the application to refresh the cached catalog.
+and the generated product DDL. A table comment can include a structured
+`@routing_tags: load, generation` line; the catalog loads those labels into
+`Table.routing_tags` and removes the directive from rendered DDL. Rebuild the
+warehouse after changing the schema, descriptions, or tags, then restart the
+application to refresh the cached catalog.
 
 The metadata flow is:
 
 ```mermaid
 flowchart LR
-    Sources["schema.sql + products.py"] --> Build["Warehouse build: CREATE TABLE + COMMENT ON"]
+    Sources["schema.sql + products.py: definitions, descriptions, tags"] --> Build["Warehouse build: CREATE TABLE + COMMENT ON"]
     Build --> DB["warehouse.duckdb"]
-    DB --> Metadata["DuckDB tables, columns, constraints and comments"]
+    DB --> Metadata["DuckDB tables, columns, constraints and tagged comments"]
     Metadata --> Catalog["Cached immutable Catalog"]
-    Catalog --> Routing["Table and column scoring"]
+    Catalog --> Tags["Decisions: metadata tags"]
+    Tags --> Candidates["Union of matching tables + untagged tables"]
+    Candidates --> Routing["Table scoring → references → column scoring"]
     Routing --> SQL["Selected schema → SQL agent → guarded execution"]
 ```
 
@@ -249,6 +288,18 @@ from gridrag.catalog import read_catalog
 with duckdb.connect("retail.duckdb", read_only=True) as connection:
     catalog = read_catalog(connection, schemas=("retail",))
 ```
+
+To opt a custom database into filtering, add labels to table comments before
+loading its catalog:
+
+```sql
+COMMENT ON TABLE retail.orders IS 'Customer orders.
+@routing_tags: orders, revenue';
+```
+
+Assign every capability a table supplies; tag selection uses a union rather than
+requiring every label to match. Programmatic catalogs can set
+`Table(..., routing_tags=("orders", "revenue"))`.
 
 The catalog remains usable after the connection closes. Optional approved
 vocabulary can be passed to `read_catalog(..., vocabulary=...)`. This replaces

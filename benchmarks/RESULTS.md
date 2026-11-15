@@ -1,5 +1,9 @@
 # Recorded results after generic table-scoring prompt update
 
+This is the historical full-catalog GridRag versus vector comparison, before
+metadata filtering. For the current routing flow and its direct cost/quality
+comparison, see [metadata-routing results](METADATA_RESULTS.md).
+
 Run date: November 15, 2026 (America/New_York). Experiment `decisions-vs-reranker-30-v3`: 30 unchanged analyst questions, three trials per pipeline, 180 attempts. All attempts are included. Models: `gpt-6-luna` for Decisions and `gpt-6-luna` for SQL and answers. These are synthetic development results, not a production accuracy estimate.
 
 This rerun changes the shared table-relevance prompt to recognize tables supplying any required input and to apply column-specific limitations to the affected measure. It contains no question-specific rules or table names. Both relevance thresholds remain **0.2**. The DuckDB catalog, questions, references, SQL instructions, models, candidate policy and evaluation budgets match the preceding run. The manifest now fingerprints the table-scoring prompt. All attempts were retained.

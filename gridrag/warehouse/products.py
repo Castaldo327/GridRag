@@ -33,6 +33,7 @@ class Product:
     columns: tuple[Column, ...]
     primary_key: tuple[str, ...]
     generate: Callable[[product_data.ProductInputs], pd.DataFrame]
+    routing_tags: tuple[str, ...]
 
 
 INTERVAL_START_UTC = Column(
@@ -62,6 +63,7 @@ PRODUCTS = (
         columns=(INTERVAL_START_UTC, INTERVAL_START_LOCAL, LOCATION_ID, *PRICE_COLUMNS),
         primary_key=("iso_id", "interval_start_utc", "location_id"),
         generate=product_data.real_time_bus_prices,
+        routing_tags=("prices",),
     ),
     Product(
         suffix="lmp_rt_hub_5min",
@@ -69,6 +71,7 @@ PRODUCTS = (
         columns=(INTERVAL_START_UTC, INTERVAL_START_LOCAL, LOCATION_ID, *PRICE_COLUMNS),
         primary_key=("iso_id", "interval_start_utc", "location_id"),
         generate=product_data.real_time_hub_prices,
+        routing_tags=("prices",),
     ),
     Product(
         suffix="lmp_da_hub_hourly",
@@ -76,6 +79,7 @@ PRODUCTS = (
         columns=(INTERVAL_START_UTC, INTERVAL_START_LOCAL, LOCATION_ID, *PRICE_COLUMNS),
         primary_key=("iso_id", "interval_start_utc", "location_id"),
         generate=product_data.day_ahead_hub_prices,
+        routing_tags=("prices",),
     ),
     Product(
         suffix="load_forecast_hourly",
@@ -91,6 +95,7 @@ PRODUCTS = (
         ),
         primary_key=("iso_id", "interval_start_utc", "publish_time_utc"),
         generate=product_data.load_forecasts,
+        routing_tags=("load", "forecast"),
     ),
     Product(
         suffix="ancillary_prices_hourly",
@@ -104,6 +109,7 @@ PRODUCTS = (
         ),
         primary_key=("iso_id", "interval_start_utc", "service_code"),
         generate=product_data.ancillary_prices,
+        routing_tags=("ancillary", "prices"),
     ),
     Product(
         suffix="storage_dispatch_5min",
@@ -121,6 +127,7 @@ PRODUCTS = (
         ),
         primary_key=("iso_id", "interval_start_utc"),
         generate=product_data.storage_dispatch,
+        routing_tags=("storage",),
     ),
     Product(
         suffix="resource_outage_daily",
@@ -134,6 +141,7 @@ PRODUCTS = (
         ),
         primary_key=("iso_id", "market_date", "fuel_id", "outage_type"),
         generate=product_data.resource_outages,
+        routing_tags=("outages",),
     ),
     Product(
         suffix="renewable_curtailment_5min",
@@ -147,6 +155,7 @@ PRODUCTS = (
         ),
         primary_key=("iso_id", "interval_start_utc", "fuel_id"),
         generate=product_data.renewable_curtailment,
+        routing_tags=("curtailment",),
     ),
 )
 
@@ -160,6 +169,7 @@ def _create_table(product: Product, iso: str, iso_id: int, start: pd.Timestamp, 
     """Render one table with persisted routing documentation and an ISO constraint."""
     name = table_name(iso, product)
     description = f"{iso} only, local dates {start:%Y-%m-%d} through {end:%Y-%m-%d}. {product.description}"
+    description += "\n@routing_tags: " + ", ".join(product.routing_tags)
     lines = [
         f"CREATE TABLE {name} (",
         f"    iso_id SMALLINT NOT NULL REFERENCES core.dim_iso (iso_id) CHECK (iso_id = {iso_id}),",

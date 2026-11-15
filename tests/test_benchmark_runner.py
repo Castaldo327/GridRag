@@ -83,6 +83,14 @@ class BenchmarkRunnerTests(unittest.TestCase):
         assess.assert_called_once_with(case, result, expected=0.0)
         evidence.assert_called_once()
 
+    def test_historical_comparison_keeps_full_catalog_baseline_when_app_default_changes(self):
+        case = BENCHMARK_CASES[0]
+        with patch.object(run, "live_attempt", return_value=({"correct": False}, None)) as live:
+            run.run_attempt(run.Attempt(case, "routed", 0), demo_catalog(), Mock(), {}, live=True)
+        retriever = live.call_args.args[2]
+        self.assertIs(retriever.func, run.route)
+        self.assertEqual(retriever.keywords, {"metadata_prefilter": False})
+
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))
         actual = [(attempt.repeat, attempt.case.id, attempt.method) for attempt in attempts]

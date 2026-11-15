@@ -90,6 +90,34 @@ class CatalogTests(unittest.TestCase):
             connection.execute("CREATE SCHEMA core")
             connection.execute(excerpt)
 
+    def test_routing_labels_roundtrip_in_persisted_comments_without_entering_sql_prompts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "metadata.duckdb"
+            with duckdb.connect(str(path)) as connection:
+                connection.execute("""
+                    CREATE SCHEMA retail;
+                    CREATE TABLE retail.item (sku VARCHAR);
+                    COMMENT ON TABLE retail.item IS 'Saleable items, not customer orders.
+@routing_tags: Products, inventory, products
+Second documentation line.';
+                    CREATE TABLE retail.legacy (sku VARCHAR);
+                """)
+            with duckdb.connect(str(path), read_only=True) as connection:
+                catalog = read_catalog(connection, schemas=("retail",))
+        table = catalog.tables["retail.item"]
+        self.assertEqual(table.routing_tags, ("inventory", "products"))
+        self.assertEqual(table.description, "Saleable items, not customer orders.\nSecond documentation line.")
+        self.assertNotIn("@routing_tags:", table.ddl)
+        self.assertEqual(catalog.tables["retail.legacy"].routing_tags, ())
+
+    def test_routing_labels_are_owned_normalized_and_immutable(self):
+        labels = [" Load ", "GENERATION", "load", ""]
+        table = Table("core", "sample", (Column("id", "INTEGER"),), routing_tags=labels)
+        labels.clear()
+        self.assertEqual(table.routing_tags, ("generation", "load"))
+        with self.assertRaises(TypeError):
+            Table("core", "sample", (Column("id", "INTEGER"),), routing_tags="load")
+
     def test_literals_and_descriptions_cannot_invent_keys_or_references(self):
         with duckdb.connect() as connection:
             connection.execute("""
