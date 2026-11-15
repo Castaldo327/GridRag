@@ -21,6 +21,8 @@ __pycache__/
 .codex/
 output/
 artifacts/
+# private local reading notes
+/STUDY_GUIDE.md
 .cache/
 gridrag/generated_images/
 *.pem

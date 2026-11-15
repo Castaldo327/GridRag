@@ -12,6 +12,7 @@ public
 data
 **/__pycache__
 artifacts
+STUDY_GUIDE.md
 .cache
 .github
 benchmarks

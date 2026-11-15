@@ -66,8 +66,8 @@ retrieving embedded table definitions? What does that trade in latency and cost?
 The main pipeline:
 
 1. Check for an analytical database request and misuse using domain-neutral instructions.
-2. Score all catalog tables in one decision-model call.
-3. Include referenced tables, then score selected tables' columns concurrently.
+2. Score all tables in the cached DuckDB metadata catalog in one decision-model call.
+3. Include declared foreign-key targets, then score selected tables' columns concurrently.
 4. Preserve structural keys and time fields in the reduced schema.
 5. Add the catalog's optional entity vocabulary and generate SQL from the selected schema documentation, validate it independently, and execute against a read-only warehouse.
 6. Answer from returned rows, with the selected schema, SQL, timing and token use visible.
@@ -108,8 +108,8 @@ docker compose up -d qdrant
 # Retrieval only: local embeddings; no OpenAI calls.
 uv run --extra eval python -m benchmarks.run --repeats 1
 # End-to-end: paid provider calls using your local key.
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-duckdb-format9-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-duckdb-format9-3trials.json
 # Stop the database when finished; keep its named volume.
 docker compose stop qdrant
 ```
@@ -219,6 +219,24 @@ warehouse in read-only mode and caches its metadata once per process. Table and
 column descriptions are persisted with `COMMENT ON` statements in `schema.sql`
 and the generated product DDL. Rebuild the warehouse after changing the schema or
 descriptions, then restart the application to refresh the cached catalog.
+
+The metadata flow is:
+
+```mermaid
+flowchart LR
+    Sources["schema.sql + products.py"] --> Build["Warehouse build: CREATE TABLE + COMMENT ON"]
+    Build --> DB["warehouse.duckdb"]
+    DB --> Metadata["DuckDB tables, columns, constraints and comments"]
+    Metadata --> Catalog["Cached immutable Catalog"]
+    Catalog --> Routing["Table and column scoring"]
+    Routing --> SQL["Selected schema → SQL agent → guarded execution"]
+```
+
+DuckDB interprets the DDL when the warehouse is built. At runtime,
+`catalog/duckdb.py` reads structured metadata from the built database;
+`catalog/models.py` renders that metadata as model context. Query execution is
+independently validated by `sql/db.py`. Metadata and execution connections use
+the same startup options from `Settings.db_connection_config`.
 
 Custom catalogs use the same metadata reader with an existing DuckDB connection:
 

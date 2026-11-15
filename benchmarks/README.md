@@ -61,6 +61,33 @@ attempts are recorded. The earlier format-8 report remains available in Git hist
 its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and the
 [separate live regression results](REGRESSION_RESULTS.md).
 
+## Architecture and ownership
+
+| Component | Responsibility |
+| --- | --- |
+| `gridrag/catalog/duckdb.py` | Snapshot approved persistent tables, columns, constraints and stored comments from DuckDB |
+| `gridrag/catalog/models.py` | Immutable catalog metadata, structural fields, selected-schema rendering and optional vocabulary |
+| `gridrag/warehouse/catalog.py` | Load the built demo warehouse and attach its approved ISO vocabulary |
+| `gridrag/route.py` | Full-catalog table scoring, reference expansion and concurrent column scoring |
+| `benchmarks/vector.py`, `hybrid.py` | Optional embedding/BM25 candidate generation and Decisions reranking |
+| `benchmarks/run.py` | Precompute references, schedule attempts, time inference and checkpoint results |
+| `gridrag/evals/scoring.py` | Assess each result once using the supplied reference; separate correctness from diagnostics |
+| `benchmarks/experiment.py` | Shared report-format, timing, vocabulary and candidate-policy contract; canonical JSON fingerprints |
+| `scripts/publish_benchmark.py` | Validate completeness and the shared contract, then write the public projection locally |
+
+Both pipelines consume the same catalog snapshot. Runtime code does not parse
+`schema.sql`; the warehouse build persists descriptions with `COMMENT ON`, and
+the catalog reads them back from database metadata. The model receives schema
+text rendered from that metadata. SQL validation and resource limits remain in
+`gridrag/sql/db.py`, independently of retrieval and grading.
+
+The 26-case application regression suite is separate from this 30-question
+comparison. Its `passed` result requires every routing and presentation check;
+the comparison's `correct` field requires the expected state and matching final
+query evidence. In the current rerun, these distinct measures are reported as
+5/26 full regression passes, 23/26 regression task-level successes, and comparison
+scores of 72/90 for GridRag and 57/90 for vector retrieval with reranking.
+
 Reference expansion is shared, and vectors can also support column selection.
 These two implementations differ in both candidate generation and column pruning;
 this experiment measures the whole pipelines and does not identify either change's
@@ -135,8 +162,8 @@ The [recorded results and failure analysis](RESULTS.md) summarize the completed 
 ```sh
 uv sync --locked --extra eval
 docker compose up -d qdrant
-uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
-uv run python -m scripts.publish_benchmark --input artifacts/benchmark-decisions-vs-reranker-p20-3trials.json
+uv run --extra eval python -m benchmarks.run --live --repeats 3 --max-tables 25 --output artifacts/benchmark-duckdb-format9-3trials.json
+uv run python -m scripts.publish_benchmark --input artifacts/benchmark-duckdb-format9-3trials.json
 docker compose stop qdrant
 ```
 
