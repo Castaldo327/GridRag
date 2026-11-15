@@ -198,6 +198,19 @@ synthetic development suite is not a production accuracy or latency guarantee.
 
 ## Reproduce
 
+The Evaluation page keeps its existing GridRag-versus-Qdrant layout, questions,
+filters and trial controls. Its GridRag column now uses the 90 analytical
+metadata-filtered attempts. Qdrant retains its earlier 90 recorded attempts;
+the existing run details identify both source runs. This display refresh is not
+a new paired experiment with Qdrant. The full paired results above remain the
+source for comparing metadata routing with the previous full-catalog approach.
+
+Refresh the existing page artifact without model calls:
+
+```sh
+uv run python -m scripts.publish_metadata
+```
+
 Rebuild the warehouse after changing tags, then run:
 
 ```sh

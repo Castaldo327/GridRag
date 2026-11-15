@@ -77,6 +77,23 @@ test("difficulty filters recompute all methods' scores and retain failures", () 
   assert.match(summary(), /4 questions shown/);
 });
 
+test("refreshed GridRag evidence uses the original comparison layout and controls", () => {
+  const {api, element} = page();
+  api.state.benchmark = JSON.parse(fs.readFileSync("app/static/benchmark.json", "utf8"));
+  api.paintBenchmark();
+  const html = element("#benchmark-results").innerHTML;
+  assert.match(html, /86\/90 · 95\.6%/);
+  assert.match(html, /59\/90 · 65\.6%/);
+  assert.match(html, /\$0\.00247/);
+  assert.match(html, /Metadata filter → selected columns/);
+  assert.match(html, /Qdrant was not rerun/);
+  assert.match(html, /data-score-scope/);
+  assert.match(html, /data-score-category/);
+  assert.match(element("recorded-annual_system_peak").innerHTML, /data-recorded-trial/);
+  const source = fs.readFileSync("app/static/app.js", "utf8");
+  assert.doesNotMatch(source, /metadata-results|data-metadata-suite|paintMetadataBenchmark|Earlier vector comparison/);
+});
+
 test("one attempt shows both answers without trial controls and escapes evidence", () => {
   const {api, element} = page();
   api.paintBenchmark();
