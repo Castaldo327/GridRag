@@ -31,7 +31,7 @@ class Case:
     avoid: tuple[str, ...] = ()  # text the model's queries must not contain
     label: str = ""  # UI preset button; empty for cases only the live tests ask
     concept: str = ""
-    verification: str = ""  # warehouse facts behind a challenging reference answer, shown in the UI
+    verification: str = ""  # retained in Case repr for the recorded benchmark's question fingerprint
     category: str = "analytics"
     difficulty: str = "standard"
     result_kind: Literal["scalar", "table"] = "scalar"  # table cases have dimension keys and a final numeric measure

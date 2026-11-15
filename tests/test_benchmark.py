@@ -7,7 +7,7 @@ import unittest
 from collections import Counter
 
 from benchmarks import hybrid
-from benchmarks.cases import BENCHMARK_CASES, DIFFICULTIES, EXPERIMENT
+from benchmarks.cases import BENCHMARK_CASES, EXPERIMENT
 from benchmarks.run import LIVE_METHODS, retrieval_metrics, strict_evidence, summarize
 from gridrag.catalog import demo_catalog
 from gridrag.records import State
@@ -23,7 +23,8 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(
             Counter(case.difficulty for case in BENCHMARK_CASES), {"easy": 7, "medium": 8, "hard": 8, "very_hard": 7}
         )
-        order = [DIFFICULTIES.index(case.difficulty) for case in BENCHMARK_CASES]
+        difficulties = ("easy", "medium", "hard", "very_hard")
+        order = [difficulties.index(case.difficulty) for case in BENCHMARK_CASES]
         self.assertEqual(order, sorted(order))
         for case in BENCHMARK_CASES:
             with self.subTest(case=case.id):

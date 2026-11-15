@@ -12,8 +12,8 @@ function page() {
       querySelectorAll(selector) {
         if (selector !== "[data-recorded-trial]") return [];
         this.trialButtons ??= new Map();
-        return [...this.innerHTML.matchAll(/data-recorded-case="([^"]+)" data-recorded-trial="(\d+)"/g)].map(([, id, trial]) => {
-          if (!this.trialButtons.has(trial)) this.trialButtons.set(trial, {dataset: {recordedCase:id, recordedTrial:trial}});
+        return [...this.innerHTML.matchAll(/data-recorded-trial="(\d+)"/g)].map(([, trial]) => {
+          if (!this.trialButtons.has(trial)) this.trialButtons.set(trial, {dataset: {recordedTrial:trial}});
           return this.trialButtons.get(trial);
         });
       }, querySelector() { return {focus() {}}; }});
@@ -27,7 +27,6 @@ function page() {
   });
   const script = fs.readFileSync("app/static/app.js", "utf8").replace(/boot\(\);\s*$/, "");
   vm.runInContext(script + "\nglobalThis.page = {state, paintBenchmark, paintRecordedQuestion};", context);
-  context.page.state.meta = {evaluation_cases: []};
   const methods = ["routed", "vector-hybrid-p20"];
   const cases = [
     {id: "easy", type: "scalar", difficulty: "easy", category: "scope", question: "Easy question", concept: "Scope <script>unsafe</script>", expected: 12.5, unit: "MW"},

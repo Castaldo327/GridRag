@@ -15,7 +15,7 @@ from gridrag.warehouse.evaluation import (
     states_value,
     table_evidence_matches,
 )
-from gridrag.warehouse.suite import EVALUATION_CASES, GROUPS, suite_info
+from gridrag.warehouse.suite import EVALUATION_CASES
 
 
 class EvaluationSuiteTests(unittest.TestCase):
@@ -64,20 +64,15 @@ class EvaluationSuiteTests(unittest.TestCase):
         self.assertFalse(states_value("0.2 MW", -0.2, 0.01))
         self.assertTrue(states_value("−0.2 MW", -0.201, 0.01))
 
-    def test_suite_is_versioned_and_does_not_change_recorded_benchmark_cases(self):
-        info = suite_info()
+    def test_regression_suite_does_not_change_recorded_benchmark_cases(self):
         self.assertEqual(len(EVALUATION_CASES), 26)
         self.assertFalse({"off_topic", "unrelated_task"} & {case.id for case in EVALUATION_CASES})
         self.assertEqual(len(BENCHMARK_CASES), 30)
         self.assertEqual(len({case.id for case in EVALUATION_CASES}), 26)
-        self.assertEqual(sum(group["cases"] for group in info["groups"]), 26)
-        self.assertEqual(info["numeric"] + info["behavior"], 26)
-        self.assertEqual(len(info["sha256"]), 64)
-        self.assertEqual(info, suite_info())
         tables = demo_catalog().tables
         for case in EVALUATION_CASES:
             with self.subTest(case=case.id):
-                self.assertIn(case.category, GROUPS)
+                self.assertIn(case.category, {"analytics", "time", "operations", "regional", "behavior"})
                 self.assertLessEqual(set(case.tables) | set(case.excluded), tables.keys())
                 if case.sql:
                     value = reference_value(case)

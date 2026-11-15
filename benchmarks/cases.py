@@ -10,7 +10,6 @@ from typing import Any
 from gridrag.warehouse.evals import Case
 
 EXPERIMENT = "decisions-vs-reranker-30-v3"
-DIFFICULTIES = ("easy", "medium", "hard", "very_hard")
 ISOS = ("CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP")
 
 

@@ -7,7 +7,7 @@ Each product defines its columns, the comments routing reads and the generator t
 table's DDL and rows come from one definition. Routing scores the resulting per-ISO tables individually.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 
@@ -285,16 +285,6 @@ def schema(isos: Mapping[str, int], start: pd.Timestamp, end: pd.Timestamp) -> s
         )
         for iso, iso_id in isos.items()
         for product in PRODUCTS
-    )
-
-
-def family_ddl(product: Product, isos: Sequence[str], start: pd.Timestamp, end: pd.Timestamp) -> str:
-    """The definition routing reads for a product: the same columns, with the ISO left open."""
-    return _create(
-        product,
-        f"One table per ISO ({', '.join(isos)}), local dates {start:%Y-%m-%d} through {end:%Y-%m-%d}.",
-        f"core.<iso>_{product.suffix}",
-        "",
     )
 
 

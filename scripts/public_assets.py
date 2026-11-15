@@ -6,7 +6,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from app.metadata import evaluation_metadata, presets
+from app.metadata import presets
 from gridrag import db
 from gridrag.catalog import Catalog, demo_catalog
 from gridrag.warehouse.evals import CASES, Case, reference_value
@@ -33,11 +33,8 @@ def _demo_record(case: Case, catalog: Catalog) -> dict[str, Any]:
     value = reference_value(case)
     formatted_value = f"{value:,.0f}" if case.unit == "projects" else f"{value:,.2f}"
     return {
-        "id": case.id,
         "label": case.label,
         "question": case.question,
-        "value": value,
-        "unit": case.unit,
         "sql": case.sql,
         "concept": case.concept,
         "tables": [name for name in catalog.tables if re.search(rf"\b{re.escape(name)}\b", case.sql)],
@@ -57,7 +54,6 @@ def build() -> None:
         "model_ready": False,
         "requires_api_key": True,
         "presets": presets(),
-        **evaluation_metadata(),
         "demos": demos,
         "catalog": [{"name": table.name, "ddl": table.ddl} for table in catalog.tables.values()],
     }

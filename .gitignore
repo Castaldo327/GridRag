@@ -22,6 +22,7 @@ __pycache__/
 output/
 artifacts/
 .cache/
+gridrag/generated_images/
 *.pem
 *.key
 

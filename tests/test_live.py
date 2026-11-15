@@ -1,6 +1,6 @@
 """End-to-end accuracy checks using real provider calls. Opt in with GRIDRAG_LIVE_TESTS=1 and an API key.
 
-Asks every case in the versioned live regression suite in gridrag/warehouse/suite.py."""
+Asks every case in the live regression suite in gridrag/warehouse/suite.py."""
 
 import os
 import unittest

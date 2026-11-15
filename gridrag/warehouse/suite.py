@@ -1,23 +1,10 @@
-"""Versioned live regression suite, independent of the frozen recorded comparison."""
+"""Live regression suite, independent of the frozen recorded comparison."""
 
-import hashlib
-import json
-from collections import Counter
-from dataclasses import asdict, replace
-from typing import Any
+from dataclasses import replace
 
-from gridrag.catalog import demo_catalog
 from gridrag.records import State
 from gridrag.warehouse.evals import CASES, Case
 
-VERSION = "2.1"
-GROUPS = {
-    "analytics": "Core analytics",
-    "time": "Time & forecast vintages",
-    "operations": "Storage & operations",
-    "regional": "Regional retrieval",
-    "behavior": "Scope & safety",
-}
 BASE_GROUPS = {
     "peak": ("analytics", "standard"),
     "share": ("analytics", "standard"),
@@ -170,20 +157,3 @@ EVALUATION_CASES = (
     )
     + ADDITIONAL
 )
-
-
-def suite_info() -> dict[str, Any]:
-    """Return suite and schema fingerprints with case counts by category."""
-    payload = json.dumps([asdict(case) for case in EVALUATION_CASES], sort_keys=True, separators=(",", ":"))
-    counts = Counter(case.category for case in EVALUATION_CASES)
-    return {
-        "version": VERSION,
-        "sha256": hashlib.sha256(payload.encode()).hexdigest(),
-        "schema_sha256": hashlib.sha256(
-            "\n\n".join(table.ddl for table in demo_catalog().tables.values()).encode()
-        ).hexdigest(),
-        "cases": len(EVALUATION_CASES),
-        "numeric": sum(bool(case.sql) for case in EVALUATION_CASES),
-        "behavior": sum(not case.sql for case in EVALUATION_CASES),
-        "groups": [{"id": key, "label": label, "cases": counts[key]} for key, label in GROUPS.items()],
-    }

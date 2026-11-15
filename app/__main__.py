@@ -6,23 +6,19 @@ import logging
 import os
 import re
 import threading
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from app.assets import ASSETS
-from app.metadata import evaluation_metadata, presets
+from app.metadata import presets
 from gridrag import config
 from gridrag.answer import answer, clean_question
 from gridrag.catalog import demo_catalog
 from gridrag.llm import LLM
 from gridrag.records import Answer, Progress
-from gridrag.warehouse.evals import Case
-from gridrag.warehouse.evaluation import assess, evaluation_question
-from gridrag.warehouse.suite import EVALUATION_CASES as CASES
 
 PRESETS = presets()
 STATIC = Path(__file__).parent / "static"
@@ -142,7 +138,6 @@ class Handler(BaseHTTPRequestHandler):
                         "answer": config.settings.answer_model,
                     },
                     "presets": PRESETS,
-                    **evaluation_metadata(CASES),
                 },
             )
         except Exception:
@@ -150,9 +145,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(503, {"error": "Catalog unavailable. See the server log for details."})
 
     def do_POST(self) -> None:
-        """Dispatch a live question or evaluation request after boundary validation."""
-        if self.path in {"/api/evaluate", "/api/evaluate-case"}:
-            return self.do_evaluate()
+        """Dispatch a live question after boundary validation."""
         if self.path != "/api/ask":
             return self.send(404, {"error": "Not found"})
         # Accept same-origin JSON only; this local endpoint can make paid model calls.
@@ -230,84 +223,6 @@ class Handler(BaseHTTPRequestHandler):
             self.emit({"type": "done", "result": result})
         else:
             self.send(200, result)
-
-    def do_evaluate(self) -> None:
-        """Run the shared live evaluation suite and stream each case as it finishes."""
-        if not self.same_origin():
-            return self.send(403, {"error": "Cross-origin requests are not accepted"})
-        if self.headers.get("Accept") != STREAM_CONTENT_TYPE:
-            return self.send(406, {"error": "Expected application/x-ndjson"})
-        cases = CASES
-        if self.path == "/api/evaluate-case":
-            if self.headers.get("Content-Type", "").split(";", 1)[0] != JSON_CONTENT_TYPE:
-                return self.send(415, {"error": "Expected application/json"})
-            try:
-                case_id = self.read_json().get("id")
-                cases = tuple(case for case in CASES if case.id == case_id)
-                if not cases:
-                    raise ValueError("Unknown evaluation case")
-            except TimeoutError:
-                return self.send(408, {"error": "Request body timed out. Please retry."})
-            except (ValueError, AttributeError):
-                return self.send(400, {"error": "Choose a valid evaluation case."})
-        elif self.headers.get("Transfer-Encoding") or self.headers.get_all("Content-Length", ["0"]) != ["0"]:
-            return self.send(400, {"error": "Evaluation requests must not include a body"})
-        if not self.authorize_model():
-            return
-        self.execute_request(
-            lambda: self.evaluate_cases(cases),
-            streaming=True,
-            failure_message="Evaluation stopped. See the server log for details.",
-            label="Evaluation run failed",
-        )
-
-    def evaluate_case(self, index: int, case: Case) -> tuple[bool, float]:
-        """Stream one case's outcome, returning its pass status and cost."""
-
-        def progress(update: Progress) -> None:
-            if "stage" in update:
-                self.emit({"type": "case_progress", "index": index, "id": case.id, "stage": update["stage"]})
-
-        self.emit({"type": "case_start", "index": index, "id": case.id})
-        try:
-            result = self.run_answer(evaluation_question(case), on_progress=progress)
-            assessment = assess(case, result)
-            outcome = assessment["passed"], result["usage"]["cost_usd"]
-            self.emit({"type": "case_done", "index": index, "assessment": assessment})
-            return outcome
-        except (BrokenPipeError, ConnectionResetError):
-            raise
-        except Exception as exc:
-            logging.error("Evaluation case %s failed (%s)", case.id, type(exc).__name__)
-            self.emit(
-                {
-                    "type": "case_error",
-                    "index": index,
-                    "id": case.id,
-                    "error": "Could not complete this case. See the server log for details.",
-                }
-            )
-            return False, 0.0
-
-    def evaluate_cases(self, cases: Sequence[Case]) -> None:
-        """Keep case failures independent while accumulating the full-suite denominator."""
-        started = time.perf_counter()
-        passed, cost = 0, 0.0
-        for index, case in enumerate(cases):
-            case_passed, case_cost = self.evaluate_case(index, case)
-            passed += case_passed
-            cost += case_cost
-        self.emit(
-            {
-                "type": "done",
-                "summary": {
-                    "passed": passed,
-                    "total": len(cases),
-                    "cost_usd": round(cost, 6),
-                    "seconds": round(time.perf_counter() - started, 3),
-                },
-            }
-        )
 
 
 def main() -> None:

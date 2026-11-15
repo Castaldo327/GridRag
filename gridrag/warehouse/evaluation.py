@@ -1,4 +1,4 @@
-"""Deterministic scoring shared by browser evaluations, tests, and benchmarks."""
+"""Deterministic scoring shared by regression tests and benchmarks."""
 
 import csv
 import io
@@ -117,32 +117,6 @@ def table_evidence_matches(result: dict[str, Any], expected: QueryResult, tolera
             for key, value in reference.items()
         )
     )
-
-
-def case_info(case: Case) -> dict[str, Any]:
-    """Public expectations; reference SQL is never passed to the live model."""
-    if case.result_kind == "table":
-        contract = "Complete keyed comparison table"
-    elif case.sql:
-        contract = "One row, one numeric column; complete final query"
-    else:
-        contract = "No SQL calls"
-    return {
-        "id": case.id,
-        "label": case.label or case.id.replace("_", " ").title(),
-        "question": case.question,
-        "expected_state": case.state,
-        "expected": reference_value(case) if case.sql and case.result_kind == "scalar" else None,
-        "unit": case.unit,
-        "verification": case.verification,
-        "category": case.category,
-        "difficulty": case.difficulty,
-        "tolerance": case.tolerance,
-        "required_tables": list(case.tables),
-        "excluded_tables": list(case.excluded),
-        "forbidden_sql": list(case.avoid),
-        "result_contract": contract,
-    }
 
 
 def _check(name: str, passed: object, detail: str, category: str) -> dict[str, Any]:

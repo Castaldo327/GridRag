@@ -242,7 +242,7 @@ Generated in [products.py](products.py): each product below exists once per ISO,
 
 The products are **deliberately similar** (bus vs hub, real-time vs day-ahead, forecast vs actual, reserve vs energy, observed storage vs queue capacity). Pick the one that matches the question's market, grain and time semantics.
 
-The catalog groups each product's seven tables as a **family** for documentation. Routing scores each physical table independently, including its ISO-specific DDL. It then scores columns within selected tables and passes the selected definitions to the SQL model. Join keys and time columns are retained even when their individual scores are low.
+The catalog contains each product's seven physical tables with their ISO-specific DDL. Routing scores each table independently. It then scores columns within selected tables and passes the selected definitions to the SQL model. Join keys and time columns are retained even when their individual scores are low.
 
 | Kind | Suffix | Grain | Primary key (after `iso_id`) |
 |---|---|---|---|

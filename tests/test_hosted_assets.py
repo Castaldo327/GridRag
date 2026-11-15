@@ -37,7 +37,7 @@ class HostedAssetsTests(unittest.TestCase):
                 self.assertIn(marker, content)
                 self.assertEqual(kind, "text/javascript; charset=utf-8")
 
-    def test_hosted_evaluation_cannot_make_provider_calls(self):
+    def test_removed_evaluation_endpoints_cannot_make_provider_calls(self):
         for path in (
             "/api/evaluate",
             "/api/evaluate-case",
@@ -50,5 +50,5 @@ class HostedAssetsTests(unittest.TestCase):
                 request.path = path
                 request.send = Mock()
                 request.do_POST()
-                self.assertEqual(request.send.call_args.args[0], 410)
+                self.assertEqual(request.send.call_args.args[0], 404)
                 client.assert_not_called()

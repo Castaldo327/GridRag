@@ -1,13 +1,13 @@
 """The schema catalog: documented tables, columns, and foreign-key references.
 
 demo_catalog() adapts the checked-in, documented CREATE TABLE statements. This is intentionally not a general SQL
-parser or live database introspector. Product families remain descriptive metadata; routing scores their
-physical tables individually. Production callers can supply an approved Catalog to answer(..., catalog=...).
+parser or live database introspector. Routing scores physical tables individually.
+Production callers can supply an approved Catalog to answer(..., catalog=...).
 """
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import cache, cached_property
 from types import MappingProxyType
 
@@ -181,31 +181,17 @@ class Table:
 
 
 @dataclass(frozen=True)
-class Family:
-    """Tables that share one product definition, one per ISO."""
-
-    name: str
-    ddl: str
-    tables: Mapping[str, str]  # ISO code -> table name
-
-    def __post_init__(self) -> None:
-        if not self.tables:
-            raise ValueError(f"Family {self.name!r} has no tables")
-        object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
-
-
-@dataclass(frozen=True)
 class Catalog:
-    """Every table SQL may query, by name, plus optional product-family metadata."""
+    """Every table SQL may query, with optional entity vocabulary and displayed regions."""
 
     tables: Mapping[str, Table]
-    families: Mapping[str, Family] = field(default_factory=lambda: MappingProxyType({}))
     vocabulary: tuple[DimensionValue, ...] = ()
+    isos: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
-        object.__setattr__(self, "families", MappingProxyType(dict(self.families)))
         object.__setattr__(self, "vocabulary", tuple(self.vocabulary))
+        object.__setattr__(self, "isos", tuple(self.isos))
         if not self.tables:
             raise ValueError("The schema catalog is empty")
         for entry in self.vocabulary:
@@ -216,20 +202,10 @@ class Catalog:
                 raise ValueError(f"Catalog key {name!r} does not match table {table.name!r}")
             if missing := sorted(table.references - self.tables.keys()):
                 raise ValueError(f"Catalog is missing referenced table {', '.join(missing)}")
-        members: set[str] = set()
-        for name, family in self.families.items():
-            if name != family.name or name in self.tables:
-                raise ValueError(f"Invalid or conflicting family name: {name!r}")
-            if missing := sorted(set(family.tables.values()) - self.tables.keys()):
-                raise ValueError(f"Catalog is missing family table {', '.join(missing)}")
-            for table in family.tables.values():
-                if table in members:
-                    raise ValueError(f"Table belongs to multiple family members: {table}")
-                members.add(table)
 
     @classmethod
     def of(
-        cls, tables: Iterable[Table], families: Iterable[Family] = (), *, vocabulary: Iterable[DimensionValue] = ()
+        cls, tables: Iterable[Table], *, vocabulary: Iterable[DimensionValue] = (), isos: Iterable[str] = ()
     ) -> "Catalog":
         """A read-only catalog, in the given order. Duplicate table names are an error."""
         by_name: dict[str, Table] = {}
@@ -237,25 +213,7 @@ class Catalog:
             if table.name in by_name:
                 raise ValueError(f"Duplicate catalog entry: {table.name}")
             by_name[table.name] = table
-        by_family: dict[str, Family] = {}
-        for family in families:
-            if family.name in by_family:
-                raise ValueError(f"Duplicate family entry: {family.name}")
-            by_family[family.name] = family
-        return cls(by_name, by_family, tuple(vocabulary))
-
-    @property
-    def isos(self) -> tuple[str, ...]:
-        """The ISOs that families split by, in catalog order."""
-        return tuple(dict.fromkeys(iso for family in self.families.values() for iso in family.tables))
-
-    def units(self) -> dict[str, str]:
-        """A compact product-level catalog view for display and inspection."""
-        members = {name for family in self.families.values() for name in family.tables.values()}
-        return {
-            **{name: table.ddl for name, table in self.tables.items() if name not in members},
-            **{name: family.ddl for name, family in self.families.items()},
-        }
+        return cls(by_name, tuple(vocabulary), tuple(isos))
 
 
 def parse(script: str) -> list[Table]:
@@ -266,20 +224,12 @@ def parse(script: str) -> list[Table]:
 
 @cache
 def demo_catalog() -> Catalog:
-    """The checked-in warehouse: schema.sql's tables and every product's per-ISO tables, one family per product."""
-    from gridrag.warehouse import build, products
+    """The checked-in warehouse: documented physical tables and their ISO vocabulary."""
+    from gridrag.warehouse import build
     from gridrag.warehouse.vocabulary import ISO_ENTITIES
 
-    isos = list(build.ISO_IDS)
     return Catalog.of(
         parse(build.schema_text()),
-        [
-            Family(
-                f"core.<iso>_{product.suffix}",
-                products.family_ddl(product, isos, build.FIVE_START, build.END),
-                {iso: products.table_name(iso, product) for iso in isos},
-            )
-            for product in products.PRODUCTS
-        ],
         vocabulary=ISO_ENTITIES,
+        isos=build.ISO_IDS,
     )
