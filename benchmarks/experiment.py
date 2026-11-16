@@ -44,7 +44,7 @@ def report_contract(catalog: Catalog) -> dict[str, Any]:
     """Fields shared by the runner and publication checks, derived from current inputs."""
     return {
         "format_version": FORMAT_VERSION,
-        "pipeline_version": "schema-driven-iso-entities-v1",
+        "pipeline_version": "shared-metadata-filter-iso-entities-v2",
         "scoring_version": "strict-sql-evidence-v3",
         "timing_scope": "answer-pipeline-only",
         "table_scoring_sha256": fingerprint(TABLE_QUESTION),

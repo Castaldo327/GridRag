@@ -158,6 +158,7 @@ class BenchmarkTests(unittest.TestCase):
         vector_row = next(row for row in report["runs"] if row["method"] == "vector-hybrid-p20")
         names = list(demo_catalog().tables)
         vector_row["result"]["route"] = {
+            "metadata_filter": {"enabled": True, "candidates": names},
             "scores": {},
             "retrieval": {"candidate_policy": policy, "dense_candidates": names[:13], "shortlist": names[:13]},
         }

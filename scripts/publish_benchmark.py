@@ -80,14 +80,19 @@ def _validate_candidates(manifest: Mapping[str, Any], rows: Sequence[Mapping[str
     if any(manifest.get("hybrid", {}).get(key) != value for key, value in policy.items()):
         raise ValueError("Publish a fresh run with the 20% combined candidate cap")
     for row in rows:
+        selection = row.get("result", {}).get("route")
+        if selection is not None and not selection.get("metadata_filter", {}).get("enabled"):
+            raise ValueError("Both pipelines must use the shared metadata filter")
         if row["method"] != HYBRID_METHOD:
             continue
-        selection = row.get("result", {}).get("route")
         if selection is None:
             continue  # Failures at the shared request gate remain in the denominator.
         retrieval = selection.get("retrieval", {})
+        allowed = set(selection["metadata_filter"]["candidates"])
         if (
-            retrieval.get("candidate_policy") != policy
+            not set(retrieval.get("dense_candidates", ())) <= allowed
+            or not set(retrieval.get("shortlist", ())) <= allowed
+            or retrieval.get("candidate_policy") != policy
             or len(retrieval.get("dense_candidates", ())) > policy["dense_pool"]
             or len(retrieval.get("shortlist", ())) > policy["candidate_top_k"]
         ):
@@ -106,6 +111,8 @@ def _public_row(row: Mapping[str, Any]) -> dict[str, Any]:
         for call in result.get("tool_calls", [])
     ]
     public["timings"] = result["timings"]
+    if "metadata_filter" in selection:
+        public["metadata_filter"] = selection["metadata_filter"]
     if "retrieval" in selection:
         public["retrieval"] = {**selection["retrieval"], "rerank_scores": selection["scores"]}
     return public
@@ -137,7 +144,7 @@ def public_report(report: Mapping[str, Any]) -> dict[str, Any]:
     public_rows = [_public_row(row) for row in rows]
     numeric = {case.id for case in BENCHMARK_CASES if case.sql}
     return {
-        "manifest": manifest,
+        "manifest": {**manifest, "gridrag_routing": "metadata-filtered", "shared_metadata_filter": True},
         "summary": summarize(rows),
         "paired_intervals": report["paired_intervals"],
         "trial_summaries": [

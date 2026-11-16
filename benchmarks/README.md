@@ -42,14 +42,15 @@ rather than mixing abstention behavior into analytical accuracy.
 
 ## Pipelines
 
-- **Recorded full-catalog GridRag (`routed`):** score every catalog table independently in one Decisions
-  call, retain scores at or above 0.2, recursively expand outgoing foreign-key
+- **Metadata-filtered GridRag (`routed`):** use Decisions to select metadata categories,
+  then score each matching catalog table independently in one Decisions call, retain scores at or above 0.2, recursively expand outgoing foreign-key
   references, then score each selected table's columns concurrently (four workers).
   Retain columns at or above 0.2 plus declared keys and date/time fields.
 - **Vector retrieval + reranking (`vector-hybrid-p20`):** embed documented tables
   using BGE-small and index them in Qdrant. Fix candidate top_k at 20% of the
-  catalog, rounded up: **13 of 65 tables**. Retrieve up to 13 dense and 13 BM25
-  candidates over the same schema documentation. Fusion weights remain semantic
+  full catalog, rounded up: **13 of 65 tables**. Apply the same Decisions metadata
+  filter first, then retrieve up to 13 dense and 13 BM25 candidates from matching
+  tables over the same schema documentation. Fusion weights remain semantic
   0.6875 / keyword 0.3125; truncate the combined ranking to 13 tables **before**
   Decisions reranking. Keyword matches cannot expand that cap. Use exactly the
   same table relevance prompt and 0.2 threshold as GridRag, then recursively
@@ -62,14 +63,9 @@ keeps its existing defaults. No table-specific rules, query aliases, expected
 values, required-table labels or reference SQL reach retrieval. The vocabulary
 contains ISO names only; it is not used by embedding retrieval, BM25 or reranking.
 
-The latest November 15, 2026 rerun updates the shared table-relevance prompt to
-score each table's contribution to any required input and scope measure-specific
-limitations correctly. Both thresholds remain 0.2. Catalog, questions, references,
-models, SQL instructions and budgets are unchanged. The manifest fingerprints the
-table-scoring prompt as well as the schema documents. All 180 attempts are recorded.
-The earlier format-8 report remains available in Git history;
-its timing boundary included evaluator work. See [RESULTS.md](RESULTS.md) and the
-[separate live regression results](REGRESSION_RESULTS.md).
+The v4 paired comparison includes the shared metadata decision in latency and model
+cost for both approaches. The catalog, questions, references, table scoring prompt,
+and budgets are shared; each of the 180 attempts remains visible in the report.
 
 ## Architecture and ownership
 

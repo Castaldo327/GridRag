@@ -13,7 +13,7 @@ from gridrag import config
 from gridrag.catalog import Catalog
 from gridrag.llm import Model
 from gridrag.records import Selection
-from gridrag.route import RoutingTooBroad, _with_references
+from gridrag.route import RoutingTooBroad, _metadata_candidates, _with_references
 
 MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_CACHE_DIR = Path(".cache/embeddings")
@@ -66,14 +66,27 @@ class VectorRetriever:
         """Tokenize schema documents once for all hybrid questions in this run."""
         return hybrid.KeywordIndex(self.catalog)
 
-    def _candidates(self, question: str, candidate_percent: int) -> tuple[list[str], dict[str, float], dict[str, Any]]:
+    def _candidates(
+        self, question: str, candidate_percent: int, allowed: set[str] | None = None
+    ) -> tuple[list[str], dict[str, float], dict[str, Any]]:
         vector = next(iter(self.encoder.query_embed(question)))
         catalog = self.catalog
         policy = hybrid.candidate_policy(len(catalog.tables), candidate_percent)
         limit = policy["candidate_top_k"]
-        hits = self.client.query_points(self.collection, query=vector.tolist(), limit=limit).points
+        from qdrant_client import models
+
+        query_filter = (
+            models.Filter(must=[models.FieldCondition(key="table", match=models.MatchAny(any=sorted(allowed)))])
+            if allowed is not None
+            else None
+        )
+        hits = self.client.query_points(
+            self.collection, query=vector.tolist(), limit=limit, query_filter=query_filter
+        ).points
         scores = {hit.payload["table"]: float(hit.score) for hit in hits}
-        names, fused = hybrid.shortlist(question, catalog, scores, index=self.keyword_index, top_k=limit)
+        names, fused = hybrid.shortlist(
+            question, catalog, scores, index=self.keyword_index, top_k=limit, allowed=allowed
+        )
         diagnostics = {
             "candidate_policy": policy,
             "dense_candidates": list(scores),
@@ -93,7 +106,9 @@ class VectorRetriever:
         """Select complete schemas from fused candidates, optionally using Decisions."""
         if catalog is not self.catalog:
             raise ValueError("Retriever must use the indexed catalog")
-        names, fused, diagnostics = self._candidates(question, candidate_percent)
+        metadata_filter = _metadata_candidates(question, llm, catalog, enabled=True) if llm is not None else None
+        allowed = set(metadata_filter["candidates"]) if metadata_filter is not None else None
+        names, fused, diagnostics = self._candidates(question, candidate_percent, allowed)
         diagnostics.update(
             reranker="decisions" if llm is not None else "fusion-only",
             reranker_endpoint="/v1/decisions" if llm is not None else None,
@@ -101,7 +116,7 @@ class VectorRetriever:
         )
         policy = diagnostics["candidate_policy"]
         scores: dict[str, float]
-        if llm is not None:
+        if llm is not None and names:
             names, scores = hybrid.rerank(question, llm, catalog, names, fused)
             names = [name for name in names if scores[name] >= config.settings.route_min_probability]
         else:
@@ -116,6 +131,8 @@ class VectorRetriever:
             "columns": {name: list(catalog.tables[name].columns) for name in ordered},
         }
         selection["retrieval"] = diagnostics
+        if metadata_filter is not None:
+            selection["metadata_filter"] = metadata_filter
         if len(ordered) > config.settings.max_routed_tables:
             raise RoutingTooBroad(selection)
         return selection

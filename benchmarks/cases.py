@@ -9,7 +9,7 @@ from typing import Any
 
 from gridrag.evals.cases import Case
 
-EXPERIMENT = "decisions-vs-reranker-30-v3"
+EXPERIMENT = "decisions-vs-reranker-30-v4"
 ISOS = ("CAISO", "ERCOT", "ISONE", "MISO", "NYISO", "PJM", "SPP")
 
 

@@ -15,6 +15,17 @@ from gridrag.catalog import demo_catalog, read_catalog
 
 
 class HybridTests(unittest.TestCase):
+    def setUp(self):
+        # The application test suite does not install optional Qdrant dependencies.
+        models = SimpleNamespace(
+            Filter=lambda **kwargs: SimpleNamespace(**kwargs),
+            FieldCondition=lambda **kwargs: SimpleNamespace(**kwargs),
+            MatchAny=lambda **kwargs: SimpleNamespace(**kwargs),
+        )
+        self.qdrant_patch = patch.dict("sys.modules", {"qdrant_client": SimpleNamespace(models=models)})
+        self.qdrant_patch.start()
+        self.addCleanup(self.qdrant_patch.stop)
+
     def test_candidate_cap_is_twenty_percent_of_the_catalog_rounded_up(self):
         for size, expected in ((1, 1), (2, 1), (65, 13), (66, 14), (1000, 200)):
             with self.subTest(size=size):
@@ -100,6 +111,24 @@ class HybridTests(unittest.TestCase):
         )
         self.assertEqual(selection["retrieval"]["reranker"], "fusion-only")
 
+    def test_metadata_filter_limits_dense_and_keyword_candidates_before_cap(self):
+        catalog = demo_catalog()
+        vector = VectorRetriever.__new__(VectorRetriever)
+        vector.catalog, vector.collection = catalog, "owned"
+        vector.encoder, vector.client = Mock(), Mock()
+        embedding = Mock()
+        embedding.tolist.return_value = [0.0]
+        vector.encoder.query_embed.return_value = [embedding]
+        name = "core.fact_balance_hourly"
+        vector.client.query_points.return_value.points = [SimpleNamespace(payload={"table": name}, score=0.9)]
+        names, _, _ = vector._candidates("hourly demand", 20, {name})
+        self.assertEqual(names, [name])
+        condition = vector.client.query_points.call_args.kwargs["query_filter"].must[0]
+        self.assertEqual(condition.key, "table")
+        self.assertEqual(condition.match.any, [name])
+        names, _ = hybrid.shortlist("hourly demand", catalog, {name: 0.9}, allowed=set())
+        self.assertEqual(names, [])
+
     def test_fused_union_cannot_expand_the_cap_even_with_disjoint_keyword_matches(self):
         catalog = demo_catalog()
         dense_names = list(catalog.tables)[:13]
@@ -126,14 +155,15 @@ class HybridTests(unittest.TestCase):
             return SimpleNamespace(points=[SimpleNamespace(payload={"table": "core.fact_balance_hourly"}, score=0.9)])
 
         def decide(stage, question, questions):
-            order.append("decisions")
+            order.append("metadata" if questions[0]["name"].startswith("m") else "decisions")
             self.assertEqual(stage, "route")
             self.assertEqual(question, "California hourly demand")
             self.assertTrue(all(item["type"] == "predicate" for item in questions))
             return {
                 item["name"]: {
                     "probability": 0.9
-                    if catalog.tables["core.fact_balance_hourly"].ddl in item["instructions"]
+                    if item["name"].startswith("m")
+                    or catalog.tables["core.fact_balance_hourly"].ddl in item["instructions"]
                     else 0.01
                 }
                 for item in questions
@@ -166,8 +196,8 @@ class HybridTests(unittest.TestCase):
             patch("gridrag.answer.agent.run", side_effect=sql),
         ):
             result = answer("California hourly demand", llm=llm, catalog=catalog, retriever=vector.retrieve_hybrid)
-        self.assertEqual(order, ["qdrant", "decisions", "sql"])
-        llm.decide.assert_called_once()
+        self.assertEqual(order, ["metadata", "qdrant", "decisions", "sql"])
+        self.assertEqual(llm.decide.call_count, 2)
         llm.respond.assert_not_called()
         selected = result["route"]
         self.assertEqual(

@@ -28,7 +28,7 @@ class BenchmarkRunnerTests(unittest.TestCase):
         settings = manifest["hybrid"]
         self.assertEqual(manifest["format_version"], 9)
         self.assertEqual(manifest["timing_scope"], "answer-pipeline-only")
-        self.assertEqual(manifest["pipeline_version"], "schema-driven-iso-entities-v1")
+        self.assertEqual(manifest["pipeline_version"], "shared-metadata-filter-iso-entities-v2")
         self.assertTrue(manifest["grounding"]["curated_vocabulary"])
         self.assertTrue(manifest["grounding"]["shared_by_all_methods"])
         self.assertEqual(manifest["grounding"]["entries"], 7)
@@ -83,13 +83,13 @@ class BenchmarkRunnerTests(unittest.TestCase):
         assess.assert_called_once_with(case, result, expected=0.0)
         evidence.assert_called_once()
 
-    def test_historical_comparison_keeps_full_catalog_baseline_when_app_default_changes(self):
+    def test_comparison_enables_metadata_filter_when_app_default_changes(self):
         case = BENCHMARK_CASES[0]
         with patch.object(run, "live_attempt", return_value=({"correct": False}, None)) as live:
             run.run_attempt(run.Attempt(case, "routed", 0), demo_catalog(), Mock(), {}, live=True)
         retriever = live.call_args.args[2]
         self.assertIs(retriever.func, run.route)
-        self.assertEqual(retriever.keywords, {"metadata_prefilter": False})
+        self.assertEqual(retriever.keywords, {"metadata_prefilter": True})
 
     def test_seeded_schedule_preserves_order_and_every_attempt(self):
         attempts = list(run.scheduled_attempts(BENCHMARK_CASES, run.LIVE_METHODS, 2))

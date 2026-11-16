@@ -92,16 +92,17 @@ choice is metadata filtering before independent table relevance scoring, referen
 expansion, and column selection. It makes an inspectable schema selection for SQL, with a measured
 accuracy/cost tradeoff; it does not establish a claim of research novelty. The
 [hosted Architecture page](https://gridrag.vercel.app/#architecture) describes the
-deployed full-catalog version until a rollout is approved by the measured results.
+deployed full-catalog version alongside the recorded comparison.
 
-The recorded vector comparison below predates metadata filtering: its GridRag
-pipeline scores the full catalog before column selection. It replaces that
-schema-selection stage with **BGE-small embeddings + Qdrant +
-Decisions reranking**. Its candidate cap is fixed at **20% of catalog tables**,
-rounded up: **13 of 65**. Dense and BM25 retrieval each propose up to 13 tables;
-fusion limits their combined shortlist to 13 before the same Decisions
-table-relevance prompt used by GridRag. Candidates meeting the shared relevance
-threshold are expanded through foreign keys and supplied with all columns. There is no standalone vector top-k baseline.
+The paired vector comparison applies the same Decisions metadata-category filter
+to both approaches. GridRag scores the matching table definitions and selects
+columns. The other approach uses **BGE-small embeddings + Qdrant + Decisions
+reranking** over those matching tables. Its candidate cap is fixed at **20% of
+the full catalog**, rounded up: **13 of 65**. Dense and BM25 retrieval each propose
+up to 13 matching tables; fusion limits their combined shortlist to 13 before
+the same Decisions table-relevance prompt used by GridRag. Candidates meeting
+the shared relevance threshold are expanded through foreign keys and supplied
+with all columns. There is no standalone vector top-k baseline.
 
 Both methods share the SQL model, seven-ISO entity context, request gate, repair
 budget, and SQL guard. Evaluation allows **25 tables including references** and
@@ -122,7 +123,7 @@ The [metadata-routing comparison](benchmarks/METADATA_RESULTS.md) evaluates the
 current filter directly against full-catalog routing, keeping the gate, table and
 column relevance prompts, SQL model, scoring, and budgets shared. It includes the
 30 analyst tasks and the separate 26-case regression suite. This ablation is
-separate from the recorded vector comparison below.
+separate from the paired vector comparison below.
 
 ```sh
 uv run python -m benchmarks.metadata --live --suite all --repeats 3 --workers 1 --output artifacts/metadata-prefilter-2026-11-15-3trials.json
@@ -174,16 +175,16 @@ exceeds the 13-candidate budget; it remains scored and is labeled in the UI.
 <!-- benchmark-results:start -->
 | Pipeline | Trial 1 | Trial 2 | Trial 3 | Cumulative correct | Median time | Est. cost / attempt |
 | --- | --- | --- | --- | --- | --- | --- |
-| GridRag | 29/30 | 28/30 | 29/30 | 86/90 · 95.6% | 4.52 s | $0.00446 |
-| Vector + Decisions reranker (20% cap) | 19/30 | 20/30 | 20/30 | 59/90 · 65.6% | 3.61 s | $0.00100 |
+| GridRag | 29/30 | 28/30 | 30/30 | 87/90 · 96.7% | 5.02 s | $0.00247 |
+| Vector + Decisions reranker (20% cap) | 28/30 | 27/30 | 28/30 | 83/90 · 92.2% | 4.54 s | $0.00123 |
 
-See the [results and failure analysis](benchmarks/RESULTS.md).
+The [recorded report](app/static/benchmark.json) contains the per-attempt evidence and diagnostics.
 <!-- benchmark-results:end -->
 
 This small synthetic development suite does not estimate production accuracy.
 One-time embedding/index construction is reported separately from query latency.
 Model costs exclude local embedding compute and Qdrant hosting. The questions are
-unchanged from v2; the candidate policy changed, so these results use experiment v3.
+unchanged from v2; both methods now use metadata filtering, so these results use experiment v4.
 
 ### Read the recorded answers
 
@@ -196,13 +197,9 @@ questions across all three trials. Selecting a trial changes the displayed
 evidence while cumulative scores continue to include every attempt. Browsing
 never makes paid model calls.
 
-The latest November 15 rerun uses the updated generic table-scoring prompt with
-0.2 table and column thresholds, the DuckDB catalog and report format 9. See the
-[routing analysis](benchmarks/RESULTS.md#routing-fix-and-remaining-errors) for the change and its tradeoffs.
-Timing stops before grading and client cleanup; older format-8 latency figures
-used a different boundary. The separate live regression rerun passed 6/26 full
-diagnostic checks and 24/26 task-level state/evidence checks; see the
-[regression results](benchmarks/REGRESSION_RESULTS.md).
+The paired comparison uses the generic table-scoring prompt with 0.2 table and
+column thresholds. Timing stops before grading and client cleanup; older format-8
+latency figures used a different boundary.
 
 The separate 26-case regression suite in `gridrag/evals/suite.py` remains
 available for explicit local testing, including scope and safety behavior.

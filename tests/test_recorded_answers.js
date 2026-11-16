@@ -82,11 +82,11 @@ test("refreshed GridRag evidence uses the original comparison layout and control
   api.state.benchmark = JSON.parse(fs.readFileSync("app/static/benchmark.json", "utf8"));
   api.paintBenchmark();
   const html = element("#benchmark-results").innerHTML;
-  assert.match(html, /86\/90 · 95\.6%/);
-  assert.match(html, /59\/90 · 65\.6%/);
+  assert.match(html, /87\/90 · 96\.7%/);
+  assert.match(html, /83\/90 · 92\.2%/);
   assert.match(html, /\$0\.00247/);
   assert.match(html, /Metadata filter → selected columns/);
-  assert.match(html, /Qdrant was not rerun/);
+  assert.match(html, /Both approaches use a Decisions metadata-category filter/);
   assert.match(html, /data-score-scope/);
   assert.match(html, /data-score-category/);
   assert.match(element("recorded-annual_system_peak").innerHTML, /data-recorded-trial/);

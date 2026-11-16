@@ -98,6 +98,7 @@ def shortlist(
     *,
     index: KeywordIndex | None = None,
     top_k: int | None = None,
+    allowed: set[str] | None = None,
 ) -> tuple[list[str], dict[str, float]]:
     """Return capped candidates and fusion scores from dense and keyword relevance."""
     if index is not None and index.catalog is not catalog:
@@ -105,6 +106,9 @@ def shortlist(
     if top_k is None:
         top_k = candidate_policy(len(catalog.tables))["candidate_top_k"]
     lexical = keyword_scores(question, catalog) if index is None else index.scores(question)
+    if allowed is not None:
+        lexical = {name: score for name, score in lexical.items() if name in allowed}
+        dense = {name: score for name, score in dense.items() if name in allowed}
     keyword_names = sorted(lexical, key=lambda name: (-lexical[name], name))[:top_k]
     candidates = set(dense) | {name for name in keyword_names if lexical[name] > 0}
     fused = {
